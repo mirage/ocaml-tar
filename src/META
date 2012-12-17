@@ -1,0 +1,11 @@
+# OASIS_START
+# DO NOT EDIT (digest: 11ceaed9751b3d38a7f87f285db373b7)
+version = "0.1"
+description = "Pure OCaml library to read and write tar files"
+archive(byte) = "ocaml-tar.cma"
+archive(byte, plugin) = "ocaml-tar.cma"
+archive(native) = "ocaml-tar.cmxa"
+archive(native, plugin) = "ocaml-tar.cmxs"
+exists_if = "ocaml-tar.cma"
+# OASIS_STOP
+
