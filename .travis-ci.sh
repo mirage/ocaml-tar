@@ -1,5 +1,5 @@
 # OPAM packages needed to build tests.
-OPAM_PACKAGES="lwt cstruct ounit"
+OPAM_PACKAGES="lwt cstruct ounit re"
 
 
 case "$OCAML_VERSION,$OPAM_VERSION" in
