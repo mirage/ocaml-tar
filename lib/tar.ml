@@ -102,7 +102,19 @@ module Header = struct
   let length = 512
 
   (** A blank header block (two of these in series mark the end of the tar) *)
+  let zero_block =
+    let buf = Cstruct.create length in
+    for i = 0 to Cstruct.len buf - 1 do
+      Cstruct.set_uint8 buf i 0
+    done;
+    buf
   let zero_block = String.make length '\000'
+
+  (** [allzeroes buf] is true if [buf] contains only zero bytes *)
+  let allzeroes buf =
+    let rec loop i =
+      (i >= Cstruct.len buf) || (Cstruct.get_uint8 buf i = 0 && (loop (i + 1))) in
+    loop 0
 
   (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the LHS *)
   let pad_left (x: string) (n: int) (c: char) = 
@@ -210,11 +222,10 @@ module Header = struct
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
   let unmarshal (x: string) : t option = 
-    (* Check if the string is full of zeros *)
-    if x = zero_block then None
+    let c = Cstruct.create (String.length x) in
+    Cstruct.blit_from_string x 0 c 0 (String.length x);
+    if allzeroes c then None
     else 
-      let c = Cstruct.create (String.length x) in
-      Cstruct.blit_from_string x 0 c 0 (String.length x);
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
       if checksum c <> chksum then raise Checksum_mismatch
       else Some { file_name = unmarshal_string (copy_hdr_file_name c);
