@@ -93,7 +93,6 @@ module Header = struct
       Cstruct.set_uint8 buf i 0
     done;
     buf
-  let zero_block = String.make length '\000'
 
   (** [allzeroes buf] is true if [buf] contains only zero bytes *)
   let allzeroes buf =
@@ -206,9 +205,7 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal (x: string) : t option = 
-    let c = Cstruct.create (String.length x) in
-    Cstruct.blit_from_string x 0 c 0 (String.length x);
+  let unmarshal (c: Cstruct.t) : t option = 
     if allzeroes c then None
     else 
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
@@ -224,8 +221,7 @@ module Header = struct
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
-  let marshal (x: t) : string = 
-    let c = Cstruct.create length in
+  let marshal c (x: t) = 
     set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
     set_hdr_file_mode (marshal_int x.file_mode sizeof_hdr_file_mode) 0 c;
     set_hdr_user_id   (marshal_int x.user_id sizeof_hdr_user_id) 0 c;
@@ -236,8 +232,7 @@ module Header = struct
     set_hdr_link_name (marshal_string x.link_name sizeof_hdr_link_name) 0 c;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
-    set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c;
-    Cstruct.to_string c
+    set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
@@ -252,8 +247,8 @@ module Header = struct
     Int64.to_int (Int64.sub next_block_length x.file_size)
 
   (** Return the required zero-padding as a string *)
-  let zero_padding (x: t) : string = 
+  let zero_padding (x: t) = 
     let zero_padding_len = compute_zero_padding_length x in
-    String.make zero_padding_len '\000' 
+    Cstruct.sub zero_block 0 zero_padding_len
 end
 

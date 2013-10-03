@@ -45,7 +45,7 @@ module Header : sig
   val length : int  
     
   (** A blank header block (two of these in series mark the end of the tar) *)
-  val zero_block : string
+  val zero_block : Cstruct.t
     
   (** Pretty-print the header record *)
   val to_detailed_string : t -> string
@@ -63,15 +63,15 @@ module Header : sig
   exception End_of_stream
     
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  val unmarshal : string -> t option
+  val unmarshal : Cstruct.t -> t option
     
   (** Marshal a header block, computing and inserting the checksum *)
-  val marshal : t -> string
+  val marshal : Cstruct.t -> t -> unit
     
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks *)
   val compute_zero_padding_length : t -> int
 
   (** Return the required zero-padding as a string *)
-  val zero_padding : t -> string
+  val zero_padding : t -> Cstruct.t
 end
