@@ -13,27 +13,6 @@
  * GNU Lesser General Public License for more details.
  *)
 
-module String = struct
-  include String
-  open String
-
-  let of_char c = String.make 1 c
-
-  let fold_right f string accu =
-    let accu = ref accu in
-    for i = length string - 1 downto 0 do
-      accu := f string.[i] !accu
-    done;
-    !accu
-
-  let explode string =
-    fold_right (fun h t -> h :: t) string []
-
-  let implode list =
-    concat "" (List.map of_char list)
-
-end
-
 let rec really_read fd string off n =
   if n=0 then () else
     let m = Unix.read fd string off n in
@@ -165,9 +144,13 @@ module Header = struct
     Printf.sprintf "%s %s %s %s %s" mode usergroup size time x.file_name
 
   (** For debugging: pretty-print a string as hex *)
-  let to_hex (x: string) : string = 
-    let chars = List.map (Printf.sprintf "%02x") (List.map int_of_char (String.explode x)) in
-    String.concat " " chars
+  let to_hex (x: string) : string =
+    let result = String.make (String.length x * 3) ' ' in
+    for i = 0 to String.length x - 1 do
+      let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
+      String.blit byte 0 result (i * 3) 2
+    done;
+    result
 
   (** Marshal an integer field of size 'n' *)
   let marshal_int (x: int) (n: int) = 
