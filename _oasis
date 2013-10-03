@@ -9,7 +9,7 @@ Plugins:     META (0.3), DevFiles (0.3)
 Library tar
   Path:               lib
   BuildTools:         ocamlbuild
-  Modules:            Tar
+  Modules:            Tar, Tar_unix
   BuildDepends:       cstruct, re.str
 
 Executable parse_test
