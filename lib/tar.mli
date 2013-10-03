@@ -17,6 +17,15 @@
 module Header : sig
   (** Process and create tar file headers *)
 
+  module Link : sig
+    (** Determines the type of the file *)
+    type t =
+      | Normal
+      | Hard (** a hard link *)
+      | Symbolic (** a symbolic link *)
+    val to_string: t -> string
+  end
+
   (** Represents a standard (non-USTAR) archive (note checksum not stored) *)
   type t = {
     file_name : string;
@@ -25,12 +34,12 @@ module Header : sig
     group_id: int;
     file_size: int64;
     mod_time: int64;
-    link: bool;
-    link_name: int;
+    link_indicator: Link.t;
+    link_name: string;
   }
 
   (** Helper function to make a simple header *)
-  val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link:bool -> ?link_name:int -> string -> int64 -> t
+  val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> string -> int64 -> t
     
   (** Length of a header block *)
   val length : int  

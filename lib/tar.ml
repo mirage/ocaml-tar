@@ -69,15 +69,15 @@ module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
       http://en.wikipedia.org/w/index.php?title=Tar_%28file_format%29&oldid=83554041 *)
 
-  let offset_size_table = [ "file_name", (0, 100);
-			    "file_mode", (100, 8);
-			    "user_id",   (108, 8);
-			    "group_id",  (116, 8);
-			    "file_size", (124, 12);
-			    "mod_time",  (136, 12);
-			    "chksum",    (148, 8);
-			    "link",      (156, 1);
-			    "link_name", (157, 100); ]
+  let offset_size_table = [ "file_name",      (0, 100);
+			    "file_mode",      (100, 8);
+			    "user_id",        (108, 8);
+			    "group_id",       (116, 8);
+			    "file_size",      (124, 12);
+			    "mod_time",       (136, 12);
+			    "chksum",         (148, 8);
+			    "link_indicator", (156, 1);
+			    "link_name",      (157, 100); ]
     
   (** Extract the raw string corresponding to field named 'name' *)
   let getfield (x: string) (name: string) = 
@@ -101,6 +101,28 @@ module Header = struct
     then failwith (Printf.sprintf "Unknown tar header field: %s" name);
     snd(List.assoc name offset_size_table)
 
+  module Link = struct
+    type t =
+      | Normal
+      | Hard
+      | Symbolic
+
+    let to_char = function
+      | Normal -> '\000'
+      | Hard -> '1'
+      | Symbolic -> '2'
+
+    let of_char = function
+      | '1' -> Hard
+      | '2' -> Symbolic
+      | _ -> Normal (* if value is malformed, treat as a normal file *)
+
+    let to_string = function
+      | Normal -> "Normal"
+      | Hard -> "Hard"
+      | Symbolic -> "Symbolic"
+  end 
+
   (** Represents a standard (non-USTAR) archive (note checksum not stored) *)
   type t = { file_name: string;
 	     file_mode: int;
@@ -108,20 +130,20 @@ module Header = struct
 	     group_id: int;
 	     file_size: int64;
 	     mod_time: int64;
-	     link: bool;
-	     link_name: int;
+	     link_indicator: Link.t;
+	     link_name: string;
 	   }
 
   (** Helper function to make a simple header *)
-  let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link=false) ?(link_name=0) file_name file_size = 
+  let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") file_name file_size = 
     { file_name = file_name;
       file_mode = file_mode;
       user_id = user_id;
       group_id = group_id;
       file_size = file_size;
       mod_time = mod_time;
-      link = link;
-      link_name = link_name }
+      link_indicator;
+      link_name }
 
   (** Length of a header block *)
   let length = 512
@@ -145,14 +167,14 @@ module Header = struct
 
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) = 
-    let table = [ "file_name", x.file_name;
-		  "file_mode", string_of_int x.file_mode;
-		  "user_id",   string_of_int x.user_id;
-		  "group_id",  string_of_int x.group_id;
-		  "file_size", Int64.to_string x.file_size;
-		  "mod_time",  Int64.to_string x.mod_time;
-		  "link",      string_of_bool x.link;
-		  "link_name", string_of_int x.link_name ] in
+    let table = [ "file_name",      x.file_name;
+		  "file_mode",      string_of_int x.file_mode;
+		  "user_id",        string_of_int x.user_id;
+		  "group_id",       string_of_int x.group_id;
+		  "file_size",      Int64.to_string x.file_size;
+		  "mod_time",       Int64.to_string x.mod_time;
+		  "link_indicator", Link.to_string x.link_indicator;
+		  "link_name",      x.link_name ] in
     "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
   (** Make a single line summary which looks like the output of tar -tv *)
@@ -242,8 +264,8 @@ module Header = struct
 		  group_id  = unmarshal_int    (getfield x "group_id");
 		  file_size = unmarshal_int64  (getfield x "file_size");
 		  mod_time  = unmarshal_int64  (getfield x "mod_time");
-		  link      = getfield x "link" = "1";
-		  link_name = unmarshal_int    (getfield x "link_name");
+		  link_indicator = Link.of_char ((getfield x "link_indicator").[0]);
+		  link_name = unmarshal_string (getfield x "link_name");
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
@@ -255,7 +277,8 @@ module Header = struct
     setfield buffer "group_id"  (marshal_int x.group_id (fieldsize "group_id"));
     setfield buffer "file_size" (marshal_int64 x.file_size (fieldsize "file_size"));    
     setfield buffer "mod_time"  (marshal_int64 x.mod_time (fieldsize "mod_time"));  
-    (* leave out link, link_name (zero-filled = unused) *)
+    setfield buffer "link_indicator" (String.make 1 (Link.to_char x.link_indicator));
+    setfield buffer "link_name" (marshal_string x.link_name (fieldsize "link_name"));
     (* Finally, compute the checksum *)
     let chksum = checksum buffer in
     setfield buffer "chksum"    (marshal_int64 chksum (fieldsize "chksum"));
@@ -306,8 +329,8 @@ module Header = struct
       group_id    = stat.Unix.st_gid;
       file_size   = size;
       mod_time    = Int64.of_float stat.Unix.st_mtime;
-      link        = false;
-      link_name   = 0 }
+      link_indicator = Link.Normal;
+      link_name   = "" }
 end
 
 
