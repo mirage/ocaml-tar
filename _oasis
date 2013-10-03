@@ -7,6 +7,21 @@ License:     LGPL
 Plugins:     META (0.3), DevFiles (0.3)
 
 Library tar
-  Path:       src
-  BuildTools: ocamlbuild
-  Modules:    Tar
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar, Tar_unix
+  BuildDepends:       cstruct, re.str
+
+Executable parse_test
+  CompiledObject:     best
+  BuildTools:         ocamlbuild
+  Path:               lib_test
+  MainIs:             parse_test.ml
+  Custom:             true
+  Install:            false
+  BuildDepends:       tar, cstruct, oUnit
+
+Test parse_test
+  Command:            ./parse_test.native
+  Run:                true
+
