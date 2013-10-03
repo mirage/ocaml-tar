@@ -69,37 +69,26 @@ module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
       http://en.wikipedia.org/w/index.php?title=Tar_%28file_format%29&oldid=83554041 *)
 
-  let offset_size_table = [ "file_name",      (0, 100);
-			    "file_mode",      (100, 8);
-			    "user_id",        (108, 8);
-			    "group_id",       (116, 8);
-			    "file_size",      (124, 12);
-			    "mod_time",       (136, 12);
-			    "chksum",         (148, 8);
-			    "link_indicator", (156, 1);
-			    "link_name",      (157, 100); ]
-    
-  (** Extract the raw string corresponding to field named 'name' *)
-  let getfield (x: string) (name: string) = 
-    if not(List.mem_assoc name offset_size_table) 
-    then failwith (Printf.sprintf "Unknown tar header field: %s" name);
-    let start, length = List.assoc name offset_size_table in
-    String.sub x start length
+  cstruct hdr {
+    uint8_t file_name[100];
+    uint8_t file_mode[8];
+    uint8_t user_id[8];
+    uint8_t group_id[8];
+    uint8_t file_size[12];
+    uint8_t mod_time[12];
+    uint8_t chksum[8];
+    uint8_t link_indicator;
+    uint8_t link_name[100]
+  } as little_endian (* doesn't matter, all are strings *)
 
-  (** Set the raw data corresponding to the field named 'name' *)
-  let setfield (x: string) (name: string) (data: string) = 
-    if not(List.mem_assoc name offset_size_table) 
-    then failwith (Printf.sprintf "Unknown tar header field: %s" name);
-    let start, length = List.assoc name offset_size_table in
-    if String.length data > length 
-    then failwith (Printf.sprintf "Data for field %s too large" name);
-    String.blit data 0 x start (String.length data)
-
-  (** Return the size of the field named 'name' *)
-  let fieldsize (name: string) = 
-    if not(List.mem_assoc name offset_size_table) 
-    then failwith (Printf.sprintf "Unknown tar header field: %s" name);
-    snd(List.assoc name offset_size_table)
+  let sizeof_hdr_file_name = 100
+  let sizeof_hdr_file_mode = 8
+  let sizeof_hdr_user_id   = 8
+  let sizeof_hdr_group_id  = 8
+  let sizeof_hdr_file_size = 12
+  let sizeof_hdr_mod_time  = 12
+  let sizeof_hdr_chksum    = 8
+  let sizeof_hdr_link_name = 100
 
   module Link = struct
     type t =
@@ -107,14 +96,14 @@ module Header = struct
       | Hard
       | Symbolic
 
-    let to_char = function
-      | Normal -> '\000'
-      | Hard -> '1'
-      | Symbolic -> '2'
+    let to_int = function
+      | Normal   -> 0
+      | Hard     -> 49 (* '1' *)
+      | Symbolic -> 50 (* '2' *)
 
-    let of_char = function
-      | '1' -> Hard
-      | '2' -> Symbolic
+    let of_int = function
+      | 49 (* '1' *) -> Hard
+      | 50 (* '2' *) -> Symbolic
       | _ -> Normal (* if value is malformed, treat as a normal file *)
 
     let to_string = function
@@ -208,7 +197,7 @@ module Header = struct
     result ^ "\000" (* space or NULL allowed *)
 
   (** Marshal an string field of size 'n' *)
-  let marshal_string (x: string) (n: int) = x
+  let marshal_string (x: string) (n: int) = pad_right x n '\000'
 
   (** Return the first part of a field, before the predicate is true *)
   let trim (p: char -> bool) (x: string) : string = match String.split_f p x with
@@ -241,48 +230,54 @@ module Header = struct
   exception Checksum_mismatch
 
   (** From an already-marshalled block, compute what the checksum should be *)
-  let checksum (x: string) : int64 = 
+  let checksum (x: Cstruct.t) : int64 = 
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
-    let x' = String.copy x in
-    let start, length = List.assoc "chksum" offset_size_table in
-    for i = start to start + length - 1 do
-      x'.[i] <- ' '
+    let result = ref 0 in
+    for i = 0 to Cstruct.len x - 1 do
+      result := !result + (Cstruct.get_uint8 x i)
     done;
-    List.fold_left Int64.add 0L (List.map (fun x -> Int64.of_int (int_of_char x)) (String.explode x'))
+    (* since we included the checksum, subtract it and add the spaces *)
+    let chksum = get_hdr_chksum x in
+    for i = 0 to Cstruct.len chksum - 1 do
+      result := !result - (Cstruct.get_uint8 chksum i) + (int_of_char ' ')
+    done;
+    Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
   let unmarshal (x: string) : t option = 
     (* Check if the string is full of zeros *)
     if x = zero_block then None
     else 
-      let chksum = unmarshal_int64  (getfield x "chksum") in
-      if checksum x <> chksum then raise Checksum_mismatch
-      else Some { file_name = unmarshal_string (getfield x "file_name");
-		  file_mode = unmarshal_int    (getfield x "file_mode");
-		  user_id   = unmarshal_int    (getfield x "user_id");
-		  group_id  = unmarshal_int    (getfield x "group_id");
-		  file_size = unmarshal_int64  (getfield x "file_size");
-		  mod_time  = unmarshal_int64  (getfield x "mod_time");
-		  link_indicator = Link.of_char ((getfield x "link_indicator").[0]);
-		  link_name = unmarshal_string (getfield x "link_name");
+      let c = Cstruct.create (String.length x) in
+      Cstruct.blit_from_string x 0 c 0 (String.length x);
+      let chksum = unmarshal_int64 (copy_hdr_chksum c) in
+      if checksum c <> chksum then raise Checksum_mismatch
+      else Some { file_name = unmarshal_string (copy_hdr_file_name c);
+		  file_mode = unmarshal_int    (copy_hdr_file_mode c);
+		  user_id   = unmarshal_int    (copy_hdr_user_id c);
+		  group_id  = unmarshal_int    (copy_hdr_group_id c);
+		  file_size = unmarshal_int64  (copy_hdr_file_size c);
+		  mod_time  = unmarshal_int64  (copy_hdr_mod_time c);
+		  link_indicator = Link.of_int (get_hdr_link_indicator c);
+		  link_name = unmarshal_string (copy_hdr_link_name c);
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
   let marshal (x: t) : string = 
-    let buffer = String.make length '\000' in
-    setfield buffer "file_name" x.file_name;
-    setfield buffer "file_mode" (marshal_int x.file_mode (fieldsize "file_mode"));
-    setfield buffer "user_id"   (marshal_int x.user_id (fieldsize "user_id"));
-    setfield buffer "group_id"  (marshal_int x.group_id (fieldsize "group_id"));
-    setfield buffer "file_size" (marshal_int64 x.file_size (fieldsize "file_size"));    
-    setfield buffer "mod_time"  (marshal_int64 x.mod_time (fieldsize "mod_time"));  
-    setfield buffer "link_indicator" (String.make 1 (Link.to_char x.link_indicator));
-    setfield buffer "link_name" (marshal_string x.link_name (fieldsize "link_name"));
+    let c = Cstruct.create length in
+    set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
+    set_hdr_file_mode (marshal_int x.file_mode sizeof_hdr_file_mode) 0 c;
+    set_hdr_user_id   (marshal_int x.user_id sizeof_hdr_user_id) 0 c;
+    set_hdr_group_id  (marshal_int x.group_id sizeof_hdr_group_id) 0 c;
+    set_hdr_file_size (marshal_int64 x.file_size sizeof_hdr_file_size) 0 c;
+    set_hdr_mod_time  (marshal_int64 x.mod_time sizeof_hdr_mod_time) 0 c;
+    set_hdr_link_indicator c (Link.to_int x.link_indicator);
+    set_hdr_link_name (marshal_string x.link_name sizeof_hdr_link_name) 0 c;
     (* Finally, compute the checksum *)
-    let chksum = checksum buffer in
-    setfield buffer "chksum"    (marshal_int64 chksum (fieldsize "chksum"));
-    buffer
+    let chksum = checksum c in
+    set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c;
+    Cstruct.to_string c
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream

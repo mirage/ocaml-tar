@@ -25,3 +25,5 @@
 <lib_test/*.ml{,i}>: pkg_oUnit
 <lib_test/parse_test.{native,byte}>: custom
 # OASIS_STOP
+<lib/*>: syntax_camlp4o, pkg_cstruct.syntax
+
