@@ -21,7 +21,9 @@ let header () =
   let printer = function
     | None -> "None"
     | Some x -> "Some " ^ (Tar.Header.to_detailed_string x) in
-  assert_equal ~printer (Some h) (Tar.Header.unmarshal (Tar.Header.marshal h))
+  assert_equal ~printer (Some h) (Tar.Header.unmarshal (Tar.Header.marshal h));
+  assert_equal ~printer:string_of_int 302 (Tar.Header.compute_zero_padding_length h)
+
 
 let _ =
   let verbose = ref false in
