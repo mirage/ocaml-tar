@@ -10,7 +10,7 @@ Library tar
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar
-  BuildDepends:       cstruct
+  BuildDepends:       cstruct, re.str
 
 Executable parse_test
   CompiledObject:     best

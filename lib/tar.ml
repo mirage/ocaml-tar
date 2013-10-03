@@ -32,21 +32,6 @@ module String = struct
   let implode list =
     concat "" (List.map of_char list)
 
-  (** Take a predicate and a string, return a list of strings
-      separated by runs of characters where the predicate was true
-      (excluding those characters from the result) *)
-  let split_f p str =
-    let not_p = fun x -> not (p x) in
-    let rec split_one p acc = function
-    | [] -> List.rev acc, []
-    | c :: cs -> if p c then split_one p (c :: acc) cs else List.rev acc, c :: cs in
-    let rec alternate acc drop chars =
-      if chars = [] then acc else
-	begin
-	  let a, b = split_one (if drop then p else not_p) [] chars in
-	  alternate (if drop then acc else a :: acc) (not drop) b
-	end  in
-    List.rev (List.map implode (alternate [] true (explode str)))
 end
 
 let rec really_read fd string off n =
@@ -199,15 +184,11 @@ module Header = struct
   (** Marshal an string field of size 'n' *)
   let marshal_string (x: string) (n: int) = pad_right x n '\000'
 
-  (** Return the first part of a field, before the predicate is true *)
-  let trim (p: char -> bool) (x: string) : string = match String.split_f p x with
-  | [] -> ""
-  | first::_ -> first
-
-  (** Return the first part of a numerical field, before any spaces or NULLs *)
-  let trim_numerical (x: string) : string = trim (fun c -> c = '\000' || c = ' ') x 
-  (** Return the first part of a string field, before any NULLs *)
-  let trim_string (x: string) : string = trim (fun c -> c = '\000') x
+  let trim regexp x = match Re_str.split regexp x with
+    | [] -> ""
+    | x :: _ -> x
+  let trim_numerical = trim (Re_str.regexp "[\000 ]+")
+  let trim_string = trim (Re_str.regexp "[\000]+")
 
   (** Unmarshal an integer field (stored as 0-padded octal) *)
   let unmarshal_int (x: string) : int = 
