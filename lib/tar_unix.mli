@@ -14,6 +14,14 @@
 
 (** Unix I/O for tar-formatted data *)
 
+val really_read: Unix.file_descr -> Cstruct.t -> unit
+(** [really_read fd buf] fills [buf] with data from [fd] or raises
+    End_of_file *)
+
+val really_write: Unix.file_descr -> Cstruct.t -> unit
+(** [really_write fd buf] writes the full contents of [buf] to [fd]
+    or raises End_of_file *)
+
 module Header : sig
   include module type of Tar.Header
 
