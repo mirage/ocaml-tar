@@ -21,6 +21,14 @@ Library tar_unix
   Findlibname:        unix
   Findlibparent:      tar
 
+Library tar_lwt_unix
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar_lwt_unix
+  BuildDepends:       tar, lwt, lwt.unix
+  Findlibname:        lwt
+  Findlibparent:      tar
+
 Executable parse_test
   CompiledObject:     best
   BuildTools:         ocamlbuild
@@ -28,7 +36,7 @@ Executable parse_test
   MainIs:             parse_test.ml
   Custom:             true
   Install:            false
-  BuildDepends:       tar, tar.unix, cstruct, oUnit
+  BuildDepends:       tar, tar.unix, tar.lwt, cstruct, oUnit
 
 Test parse_test
   Command:            ./parse_test.native

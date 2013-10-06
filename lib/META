@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 1751abe07b975fa81fb75480b660dfd9)
+# DO NOT EDIT (digest: 7ac0c9de42ef2536854e7946ba8e193d)
 version = "0.1"
 description = "Pure OCaml library to read and write tar files"
 requires = "cstruct re.str"
@@ -17,6 +17,17 @@ package "unix" (
  archive(native) = "tar_unix.cmxa"
  archive(native, plugin) = "tar_unix.cmxs"
  exists_if = "tar_unix.cma"
+)
+
+package "lwt" (
+ version = "0.1"
+ description = "Pure OCaml library to read and write tar files"
+ requires = "tar lwt lwt.unix"
+ archive(byte) = "tar_lwt_unix.cma"
+ archive(byte, plugin) = "tar_lwt_unix.cma"
+ archive(native) = "tar_lwt_unix.cmxa"
+ archive(native, plugin) = "tar_lwt_unix.cmxs"
+ exists_if = "tar_lwt_unix.cma"
 )
 # OASIS_STOP
 
