@@ -12,6 +12,7 @@
  * GNU Lesser General Public License for more details.
  *)
 open OUnit
+open Tar_unix
 
 exception Cstruct_differ
 
@@ -29,18 +30,38 @@ let cstruct_equal a b =
 
 let header () =
   (* check header marshalling and unmarshalling *)
-  let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
+  let h = Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
   let txt = "hello\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\0000000005\0000001751\0000001752\00000000002322\00000000000067\0000005534\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000" in
   let c = Cstruct.create (String.length txt) in
   Cstruct.blit_from_string txt 0 c 0 (String.length txt);
-  let c' = Cstruct.create Tar.Header.length in
-  Tar.Header.marshal c' h;
+  let c' = Cstruct.create Header.length in
+  Header.marshal c' h;
   assert_equal ~cmp:cstruct_equal c c';
   let printer = function
     | None -> "None"
-    | Some x -> "Some " ^ (Tar.Header.to_detailed_string x) in
-  assert_equal ~printer (Some h) (Tar.Header.unmarshal c');
-  assert_equal ~printer:string_of_int 302 (Tar.Header.compute_zero_padding_length h)
+    | Some x -> "Some " ^ (Header.to_detailed_string x) in
+  assert_equal ~printer (Some h) (Header.unmarshal c');
+  assert_equal ~printer:string_of_int 302 (Header.compute_zero_padding_length h)
+
+let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
+
+let can_read_tar () =
+  let files = List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib")) in
+  let tar_filename = Filename.temp_file "tar-test" ".tar" in
+  let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
+  begin match Unix.system cmdline with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
+  | _ -> failwith "%s: unknown error" cmdline
+  end;
+  let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
+  let files' = List.map (fun t -> t.Header.file_name) (Archive.list fd) in
+  Unix.close fd;
+  Unix.unlink tar_filename;
+  let missing = set_difference files files' in
+  let missing' = set_difference files' files in
+  assert_equal ~printer:(String.concat "; ") [] missing;
+  assert_equal ~printer:(String.concat "; ") [] missing'
 
 let _ =
   let verbose = ref false in
@@ -52,6 +73,7 @@ let _ =
   let suite = "tar" >:::
     [
       "header" >:: header;
+      "can_read_tar" >:: can_read_tar;
      ] in
   run_test_tt ~verbose:!verbose suite
 
