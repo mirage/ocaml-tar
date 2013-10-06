@@ -78,14 +78,13 @@ module Header = struct
 	  
   (** Return the header needed for a particular file on disk *)
   let of_file (file: string) : t =
-    let stat = Unix.stat file in
-    let size = Int64.of_int stat.Unix.st_size in
+    let stat = Unix.LargeFile.lstat file in
     { file_name   = file;
-      file_mode   = stat.Unix.st_perm;
-      user_id     = stat.Unix.st_uid;
-      group_id    = stat.Unix.st_gid;
-      file_size   = size;
-      mod_time    = Int64.of_float stat.Unix.st_mtime;
+      file_mode   = stat.Unix.LargeFile.st_perm;
+      user_id     = stat.Unix.LargeFile.st_uid;
+      group_id    = stat.Unix.LargeFile.st_gid;
+      file_size   = stat.Unix.LargeFile.st_size;
+      mod_time    = Int64.of_float stat.Unix.LargeFile.st_mtime;
       link_indicator = Link.Normal;
       link_name   = "" }
 end
