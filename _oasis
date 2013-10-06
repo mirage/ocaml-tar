@@ -9,8 +9,17 @@ Plugins:     META (0.3), DevFiles (0.3)
 Library tar
   Path:               lib
   BuildTools:         ocamlbuild
-  Modules:            Tar, Tar_unix
+  Modules:            Tar
   BuildDepends:       cstruct, re.str
+  Findlibname:        tar
+
+Library tar_unix
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar_unix
+  BuildDepends:       tar
+  Findlibname:        unix
+  Findlibparent:      tar
 
 Executable parse_test
   CompiledObject:     best
@@ -19,7 +28,7 @@ Executable parse_test
   MainIs:             parse_test.ml
   Custom:             true
   Install:            false
-  BuildDepends:       tar, cstruct, oUnit
+  BuildDepends:       tar, tar.unix, cstruct, oUnit
 
 Test parse_test
   Command:            ./parse_test.native
