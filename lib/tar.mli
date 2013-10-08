@@ -50,9 +50,6 @@ module Header : sig
   (** Pretty-print the header record *)
   val to_detailed_string : t -> string
 
-  (** Make a single line summary which looks like the output of tar -tv *)
-  val to_summary_string : t -> string
-    
   (** For debugging: pretty-print a string as hex *)
   val to_hex : string -> string
     

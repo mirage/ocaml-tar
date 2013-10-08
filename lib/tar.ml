@@ -126,19 +126,6 @@ module Header = struct
 		  "link_name",      x.link_name ] in
     "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
-  (** Make a single line summary which looks like the output of tar -tv *)
-  let to_summary_string (x: t) = 
-    (* -rw-r--r-- *)
-    let mode = Printf.sprintf "%010d" x.file_mode in
-    (* root/root *)
-    let usergroup = Printf.sprintf "%d/%d" x.user_id x.group_id in
-    let size = pad_right (Int64.to_string x.file_size) 8 ' ' in
-    let time = Unix.gmtime (Int64.to_float x.mod_time) in
-    let time = Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" 
-      (time.Unix.tm_year + 1900) (time.Unix.tm_mon + 1) time.Unix.tm_mday
-      time.Unix.tm_hour time.Unix.tm_min time.Unix.tm_sec in
-    Printf.sprintf "%s %s %s %s %s" mode usergroup size time x.file_name
-
   (** For debugging: pretty-print a string as hex *)
   let to_hex (x: string) : string =
     let result = String.make (String.length x * 3) ' ' in
