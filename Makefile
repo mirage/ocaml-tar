@@ -1,38 +1,32 @@
-# OASIS_START
-# DO NOT EDIT (digest: bc1e05bfc8b39b664f29dae8dbd3ebbb)
+include config.mk
 
-SETUP = ocaml setup.ml
-
+.PHONY: build
 build: setup.data
-	$(SETUP) -build $(BUILDFLAGS)
+	ocaml setup.ml -build
 
-doc: setup.data build
-	$(SETUP) -doc $(DOCFLAGS)
+test: build
+	ocaml setup.ml -test
 
-test: setup.data build
-	$(SETUP) -test $(TESTFLAGS)
+config.mk: configure.ml configure
+	./configure
 
-all: 
-	$(SETUP) -all $(ALLFLAGS)
+.PHONY: clean
+clean:
+	ocaml setup.ml -clean
+
+.PHONY: distclean
+distclean: clean
+	rm config.mk setup.data setup.log
+
+setup.data: setup.ml
+	ocaml setup.ml -configure $(ENABLE_LWT_UNIX)
 
 install: setup.data
-	$(SETUP) -install $(INSTALLFLAGS)
+	ocaml setup.ml -install $(INSTALLFLAGS)
 
 uninstall: setup.data
-	$(SETUP) -uninstall $(UNINSTALLFLAGS)
+	ocaml setup.ml -uninstall $(UNINSTALLFLAGS)
 
 reinstall: setup.data
-	$(SETUP) -reinstall $(REINSTALLFLAGS)
+	ocaml setup.ml -reinstall $(REINSTALLFLAGS)
 
-clean: 
-	$(SETUP) -clean $(CLEANFLAGS)
-
-distclean: 
-	$(SETUP) -distclean $(DISTCLEANFLAGS)
-
-setup.data:
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-.PHONY: build doc test all install uninstall reinstall clean distclean configure
-
-# OASIS_STOP
