@@ -1,27 +1,8 @@
 #!/bin/sh
 
-# OASIS_START
-# DO NOT EDIT (digest: 425187ed8bfdbdd207fd76392dd243a7)
-set -e
+trap "rm -f /tmp/configure.$$" EXIT
 
-FST=true
-for i in "$@"; do 
-  if $FST; then
-    set --
-    FST=false
-  fi
+ocamlfind ocamlc -package cmdliner,findlib -linkpkg -o /tmp/configure.$$ configure.ml
+rm -f configure.c*
+/tmp/configure.$$ $*
 
-  case $i in
-    --*=*)
-      ARG=${i%%=*}
-      VAL=${i##*=}
-      set -- "$@" "$ARG" "$VAL"
-      ;;
-    *)
-      set -- "$@" "$i"
-      ;;
-  esac
-done
-
-ocaml setup.ml -configure "$@"
-# OASIS_STOP

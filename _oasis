@@ -6,6 +6,9 @@ Authors:     Dave Scott, Thomas Gazagnaire
 License:     LGPL
 Plugins:     META (0.3), DevFiles (0.3)
 
+Flag lwtunix
+  Default:            true
+
 Library tar
   Path:               lib
   BuildTools:         ocamlbuild
@@ -22,6 +25,7 @@ Library tar_unix
   Findlibparent:      tar
 
 Library tar_lwt_unix
+  Build$:             flag(lwtunix)
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar_lwt_unix
@@ -30,6 +34,7 @@ Library tar_lwt_unix
   Findlibparent:      tar
 
 Executable parse_test
+  Build$:             flag(lwtunix)
   CompiledObject:     best
   BuildTools:         ocamlbuild
   Path:               lib_test
