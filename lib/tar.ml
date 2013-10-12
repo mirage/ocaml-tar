@@ -237,5 +237,43 @@ module Header = struct
   let zero_padding (x: t) = 
     let zero_padding_len = compute_zero_padding_length x in
     Cstruct.sub zero_block 0 zero_padding_len
+
+  let to_sectors (x: t) =
+    let bytes = Int64.(add x.file_size (of_int (compute_zero_padding_length x))) in
+    Int64.div bytes 512L
 end
 
+let is_zero x =
+  try
+    for i = 0 to Cstruct.len x - 1 do
+      if Cstruct.get_uint8 x i <> 0 then raise Not_found
+    done;
+    true
+  with Not_found -> false
+
+module type ASYNC = sig
+  type 'a t
+  val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
+  val return: 'a -> 'a t
+end
+
+module Archive = functor(ASYNC: ASYNC) -> struct
+  open ASYNC
+
+  let fold f initial read =
+    let rec aux zeroes_so_far from acc =
+      if zeroes_so_far = 2
+      then return acc
+      else
+        read from >>= fun hdr ->
+        if is_zero hdr
+        then aux (zeroes_so_far + 1) (Int64.succ from) acc
+        else
+          match Header.unmarshal hdr with
+          | None -> return acc
+          | Some tar ->
+            f acc tar (Int64.succ from) >>= fun acc ->
+            aux 0 (Int64.(add (add from (Header.to_sectors tar)) 1L)) acc in
+    aux 0 0L initial
+
+end
