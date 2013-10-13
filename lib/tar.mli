@@ -71,4 +71,19 @@ module Header : sig
 
   (** Return the required zero-padding as a string *)
   val zero_padding : t -> Cstruct.t
+
+  (** [to_sectors t] is the number of sectors occupied by the data *)
+  val to_sectors: t -> int64
+end
+
+module type ASYNC = sig
+  type 'a t
+  val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
+  val return: 'a -> 'a t
+end
+
+module Archive : functor(ASYNC: ASYNC) -> sig
+  val fold: ('a -> Header.t -> int64 -> 'a ASYNC.t) -> 'a -> (int64 -> Cstruct.t ASYNC.t) -> 'a ASYNC.t
+  (** [fold f initial read] folds [f acc hdr data_offset] over all the
+      files within the archive *)
 end

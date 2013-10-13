@@ -1,3 +1,6 @@
+0.2.0 (2013-10-13)
+- Add 'Tar.Archive.fold' for folding over entries in an archive
+
 0.1.1 (2013-10-03)
 - Rename ocamlfind package from 'ocaml-tar' to simply 'tar'
 
