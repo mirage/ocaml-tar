@@ -35,6 +35,15 @@ module Header : sig
   val of_file : string -> t
 end
 
+val write_block: Header.t -> (Unix.file_descr -> unit) -> Unix.file_descr -> unit
+(** [write_block hdr write_body fd] is DEPRECATED.
+    It writes [hdr], then calls [write_body fd] to write the body,
+    then zero-pads so the stream is positioned for the next block. *)
+
+val write_end: Unix.file_descr -> unit
+(** [write_end fd] is DEPRECATED.
+    It writes a stream terminator to [fd]  *)
+
 module Archive : sig
   (** Utility functions for operating over whole tar archives *)
 
@@ -52,4 +61,20 @@ module Archive : sig
     
   (** Create a tar on file descriptor fd from the filename list 'files' *)
   val create : string list -> Unix.file_descr -> unit
+
+  (** This function is DEPRECATED.
+      [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd] *)
+  val copy_n : Unix.file_descr -> Unix.file_descr -> int64 -> unit
+
+  (** This function is DEPRECATED.
+      [multicast_n ?buffer_size ifd ofds n] copies exactly [n] bytes from [ifd] to all [ofds] *)
+  val multicast_n : ?buffer_size:int -> Unix.file_descr -> Unix.file_descr list -> int64 -> unit
+
+  (** This function is DEPRECATED.
+      [multicast_n_string buffer ofds n] copies [n] bytes from [buffer] to all [ofds] *)
+  val multicast_n_string : string -> Unix.file_descr list -> int -> unit
+
+  (** This function is DEPRECATED.
+      [skip fd n] reads and throws away [n] bytes from [fd] *)
+  val skip : Unix.file_descr -> int -> unit
 end
