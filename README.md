@@ -33,3 +33,11 @@ utop # Tar_lwt_unix.Archive.list f;;
   Tar_lwt_unix.Header.link_name = ...};
  ...]
 ```
+
+Example users
+=============
+
+This library is used by
+* [xapi](https://www.github.com/xapi-project/xen-api) to read and write
+  VM images
+
