@@ -170,5 +170,35 @@ module Archive = struct
     List.iter file files;
     (* Add two empty blocks *)
     write_end ofd
-  
+
+  let copy_n = copy_n
+
+  (** Multicast 'n' bytes from input fd 'ifd' to output fds 'ofds'. NB if one deadlocks
+      they all stop.*)
+  let multicast_n ?(buffer_size=1024*1024) (ifd: Unix.file_descr) (ofds: Unix.file_descr list) (n: int64) = 
+    let buffer = String.make buffer_size '\000' in
+    let rec loop (n: int64) = 
+      if n <= 0L then ()
+      else 
+       let amount = Int64.to_int (min n (Int64.of_int(String.length buffer))) in
+       let read = Unix.read ifd buffer 0 amount in
+       if read = 0 then raise End_of_file;
+       List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 read)) ofds;
+       loop (Int64.sub n (Int64.of_int read)) in
+    loop n
+
+  let multicast_n_string buffer ofds n =
+    List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 n)) ofds
+
+  let skip (ifd: Unix.file_descr) (n: int) = 
+    let buffer = String.make 4096 '\000' in
+    let rec loop (n: int) = 
+      if n <= 0 then ()
+      else 
+       let amount = min n (String.length buffer) in
+       let m = Unix.read ifd buffer 0 amount in
+       if m = 0 then raise End_of_file;
+       loop (n - m) in
+    loop n
+
 end
