@@ -91,6 +91,9 @@ end
 
 let write_block (header: Tar.Header.t) (body: Unix.file_descr -> unit) (fd : Unix.file_descr) = 
   let buffer = Cstruct.create Tar.Header.length in
+  for i = 0 to Tar.Header.length - 1 do
+      Cstruct.set_uint8 buffer i 0
+  done;
   Tar.Header.marshal buffer header;
   really_write fd buffer;
   body fd;
