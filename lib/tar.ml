@@ -277,3 +277,156 @@ module Archive = functor(ASYNC: ASYNC) -> struct
     aux 0 0L initial
 
 end
+
+module type IO = sig
+  type in_channel
+  type out_channel
+
+  val really_input : in_channel -> string -> int -> int -> unit
+  val input : in_channel -> string -> int -> int -> int
+  val output : out_channel -> string -> int -> int -> unit
+  val close_out : out_channel -> unit
+end
+
+module Make (IO : IO) = struct
+  (* XXX: there's no function to read directly into a bigarray *)
+  let really_read ifd buffer =
+    let s = String.create (Cstruct.len buffer) in
+    IO.really_input ifd s 0 (Cstruct.len buffer);
+    Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+
+  (* XXX: there's no function to write directly from a bigarray *)
+  let really_write fd buffer =
+    let s = Cstruct.to_string buffer in
+    IO.output fd s 0 (String.length s)
+
+  let finally fct clean_f =
+    let result =
+      try fct ();
+      with exn ->
+        clean_f ();
+        raise exn in
+    clean_f ();
+    result
+
+  let write_block (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+    let buffer = Cstruct.create Header.length in
+    for i = 0 to Header.length - 1 do
+        Cstruct.set_uint8 buffer i 0
+    done;
+    Header.marshal buffer header;
+    really_write fd buffer;
+    body fd;
+    really_write fd (Header.zero_padding header)
+
+  let write_end (fd: IO.out_channel) =
+    really_write fd Header.zero_block;
+    really_write fd Header.zero_block
+
+  (** Returns the next header block or throws End_of_stream if two consecutive
+      zero-filled blocks are discovered. Assumes stream is positioned at the
+      possible start of a header block. End_of_file is thrown if the stream
+      unexpectedly fails *)
+  let get_next_header (ifd: IO.in_channel) : Header.t =
+    let next () =
+      let buffer = Cstruct.create Header.length in
+      really_read ifd buffer;
+      Header.unmarshal buffer
+    in
+    match next () with
+    | Some x -> x
+    | None ->
+        begin match next () with
+        | Some x -> x
+        | None -> raise Header.End_of_stream
+        end
+
+  (** Utility functions for operating over whole tar archives *)
+  module Archive = struct
+
+    (** Skip 'n' bytes from input channel 'ifd' *)
+    let skip (ifd: IO.in_channel) (n: int) =
+      let buffer = String.make 4096 '\000' in
+      let rec loop (n: int) =
+        if n <= 0 then ()
+        else
+        let amount = min n (String.length buffer) in
+        let m = IO.input ifd buffer 0 amount in
+        if m = 0 then raise End_of_file;
+        loop (n - m) in
+      loop n
+
+    (** Read the next header, apply the function 'f' to the fd and the header. The function
+        should leave the fd positioned immediately after the datablock. Finally the function
+        skips past the zero padding to the next header *)
+    let with_next_file (fd: IO.in_channel) (f: IO.in_channel -> Header.t -> 'a) =
+      let hdr = get_next_header fd in
+      (* NB if the function 'f' fails we're boned *)
+      finally (fun () -> f fd hdr)
+        (fun () -> skip fd (Header.compute_zero_padding_length hdr))
+
+    (** List the contents of a tar *)
+    let list fd =
+      let list = ref [] in
+      try
+        while true do
+        let hdr = get_next_header fd in
+        list := hdr :: !list;
+        skip fd (Int64.to_int hdr.Header.file_size);
+        skip fd (Header.compute_zero_padding_length hdr)
+        done;
+        List.rev !list;
+      with
+      | End_of_file -> failwith "Unexpected end of file while reading stream"
+      | Header.End_of_stream -> List.rev !list
+
+    let copy_n ifd ofd n =
+      let buffer = String.create 16384 in
+      let rec loop remaining =
+        if remaining = 0L then () else begin
+          let this = Int64.(to_int (min (of_int (String.length buffer)) remaining)) in
+          let n = IO.input ifd buffer 0 this in
+          if n = 0 then raise End_of_file;
+          begin
+            try
+              IO.output ofd buffer 0 n
+            with Failure _ -> raise End_of_file
+          end;
+          loop (Int64.(sub remaining (of_int n)))
+        end in
+      loop n
+
+    (** [extract_gen dest] extract the contents of a tar.
+        Apply 'dest' on each header to get a handle to the file to write to *)
+    let extract_gen dest ifd =
+      try
+        while true do
+        let hdr = get_next_header ifd in
+        let size = hdr.Header.file_size in
+        let padding = Header.compute_zero_padding_length hdr in
+        let ofd = dest hdr in
+        copy_n ifd ofd size;
+        IO.close_out ofd;
+        skip ifd padding
+        done
+      with
+      | End_of_file -> failwith "Unexpected end of file while reading stream"
+      | Header.End_of_stream -> ()
+
+    (** Create a tar on file descriptor fd from the stream of headers.  *)
+    let create_gen files ofd =
+      let file (hdr, write) =
+        write_block hdr write ofd;
+      in
+      Stream.iter file files;
+      (* Add two empty blocks *)
+      write_end ofd
+
+  end
+
+  module Header = struct
+    include Header
+
+    let get_next_header = get_next_header
+  end
+end

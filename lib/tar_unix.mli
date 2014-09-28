@@ -27,7 +27,7 @@ module Header : sig
 
   (** Returns the next header block or throws End_of_stream if two consecutive
       zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block. Unix.End_of_file is thrown if the stream
+      possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
   val get_next_header : Unix.file_descr -> t
     
@@ -52,7 +52,7 @@ module Archive : sig
       skips past the zero padding to the next header *)
   val with_next_file : Unix.file_descr -> (Unix.file_descr -> Header.t -> 'a) -> 'a
 
-  (** List the contents of a tar to stdout *)
+  (** List the contents of a tar *)
   val list : Unix.file_descr -> Header.t list
 
   (** [extract dest] extract the contents of a tar.
