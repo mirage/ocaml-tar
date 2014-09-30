@@ -298,7 +298,8 @@ module Make (IO : IO) = struct
   (* XXX: there's no function to write directly from a bigarray *)
   let really_write fd buffer =
     let s = Cstruct.to_string buffer in
-    IO.output fd s 0 (String.length s)
+    if String.length s > 0
+    then IO.output fd s 0 (String.length s)
 
   let finally fct clean_f =
     let result =
