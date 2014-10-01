@@ -211,6 +211,7 @@ module Header = struct
 
   (** Marshal a header block, computing and inserting the checksum *)
   let marshal c (x: t) = 
+    if String.length x.file_name > sizeof_hdr_file_name then failwith "file_name too long";
     set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
     set_hdr_file_mode (marshal_int x.file_mode sizeof_hdr_file_mode) 0 c;
     set_hdr_user_id   (marshal_int x.user_id sizeof_hdr_user_id) 0 c;
@@ -218,6 +219,7 @@ module Header = struct
     set_hdr_file_size (marshal_int64 x.file_size sizeof_hdr_file_size) 0 c;
     set_hdr_mod_time  (marshal_int64 x.mod_time sizeof_hdr_mod_time) 0 c;
     set_hdr_link_indicator c (Link.to_int x.link_indicator);
+    if String.length x.link_name > sizeof_hdr_link_name then failwith "link_name too long";
     set_hdr_link_name (marshal_string x.link_name sizeof_hdr_link_name) 0 c;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
