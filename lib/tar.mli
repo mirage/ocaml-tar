@@ -160,7 +160,7 @@ module Make (IO : IO) : sig
     val extract_gen : (Header.t -> IO.out_channel) -> IO.in_channel -> unit
 
     (** Create a tar on file descriptor fd from the stream of headers.  *)
-    val create_gen : (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
+    val create_gen : ?level:Header.compatibility -> (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
 
     (** This function is DEPRECATED.
         [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd] *)

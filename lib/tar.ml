@@ -247,7 +247,17 @@ module Header = struct
     else 
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
       if checksum c <> chksum then raise Checksum_mismatch
-      else Some { file_name = unmarshal_string (copy_hdr_file_name c);
+      else let ustar =
+             let magic = unmarshal_string (copy_hdr_magic c) in
+             (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
+             String.sub magic 0 5 = "ustar" in
+           let prefix = if ustar then unmarshal_string (copy_hdr_prefix c) else "" in
+           let file_name =
+             let file_name = unmarshal_string (copy_hdr_file_name c) in
+             if file_name = "" then prefix
+             else if prefix = "" then file_name
+                  else Filename.concat prefix file_name in
+           Some { file_name;
 		  file_mode = unmarshal_int    (copy_hdr_file_mode c);
 		  user_id   = unmarshal_int    (copy_hdr_user_id c);
 		  group_id  = unmarshal_int    (copy_hdr_group_id c);
@@ -255,16 +265,42 @@ module Header = struct
 		  mod_time  = unmarshal_int64  (copy_hdr_mod_time c);
 		  link_indicator = Link.of_int ~level (get_hdr_link_indicator c);
 		  link_name = unmarshal_string (copy_hdr_link_name c);
-                  uname     = "";
-                  gname     = "";
-                  devmajor  = 0;
-                  devminor  = 0;
+                  uname     = if ustar then unmarshal_string (copy_hdr_uname c) else "";
+                  gname     = if ustar then unmarshal_string (copy_hdr_gname c) else "";
+                  devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0;
+                  devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0;
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
   let marshal ?(level = V7) c (x: t) =
-    if String.length x.file_name > sizeof_hdr_file_name then failwith "file_name too long";
-    set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
+    if String.length x.file_name > sizeof_hdr_file_name then
+      if level = Ustar then
+        if String.length x.file_name > 256 then failwith "file_name too long"
+        else let (prefix, file_name) =
+               let is_directory = if x.file_name.[String.length x.file_name - 1] = '/' then "/" else "" in
+                 let rec split prefix file_name =
+                   if String.length file_name > sizeof_hdr_file_name then failwith "file_name can't be split"
+                   else if String.length prefix > sizeof_hdr_prefix then split (Filename.dirname prefix) (Filename.concat (Filename.basename prefix) file_name ^ is_directory)
+                        else (prefix, file_name) in
+                 split (Filename.dirname x.file_name) (Filename.basename x.file_name ^ is_directory) in
+             set_hdr_file_name (marshal_string file_name sizeof_hdr_file_name) 0 c;
+             set_hdr_prefix (marshal_string prefix sizeof_hdr_prefix) 0 c
+      else failwith "file_name too long"
+    else set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
+    (* This relies on the fact that the block was initialised to null characters *)
+    if level = Ustar then begin
+      set_hdr_magic (marshal_string "ustar" sizeof_hdr_magic) 0 c;
+      set_hdr_version (marshal_int 0 sizeof_hdr_version) 0 c;
+      set_hdr_devmajor (marshal_int x.devmajor sizeof_hdr_devmajor) 0 c;
+      set_hdr_devminor (marshal_int x.devminor sizeof_hdr_devminor) 0 c;
+      set_hdr_uname (marshal_string x.uname sizeof_hdr_uname) 0 c;
+      set_hdr_gname (marshal_string x.gname sizeof_hdr_gname) 0 c;
+    end else begin
+      if x.devmajor <> 0 then failwith "devmajor not supported in this format";
+      if x.devminor <> 0 then failwith "devminor not supported in this format";
+      if x.uname <> "" then failwith "uname not supported in this format";
+      if x.gname <> "" then failwith "gname not supported in this format";
+    end;
     set_hdr_file_mode (marshal_int x.file_mode sizeof_hdr_file_mode) 0 c;
     set_hdr_user_id   (marshal_int x.user_id sizeof_hdr_user_id) 0 c;
     set_hdr_group_id  (marshal_int x.group_id sizeof_hdr_group_id) 0 c;
@@ -471,9 +507,9 @@ module Make (IO : IO) = struct
       | Header.End_of_stream -> ()
 
     (** Create a tar on file descriptor fd from the stream of headers.  *)
-    let create_gen files ofd =
+    let create_gen ?(level = Header.V7) files ofd =
       let file (hdr, write) =
-        write_block hdr write ofd;
+        write_block ~level hdr write ofd;
       in
       Stream.iter file files;
       (* Add two empty blocks *)
