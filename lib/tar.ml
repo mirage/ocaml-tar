@@ -272,7 +272,7 @@ module Header = struct
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
-  let marshal ?(level = V7) c (x: t) =
+  let imarshal ~level c link_indicator (x: t) =
     if String.length x.file_name > sizeof_hdr_file_name then
       if level = Ustar then
         if String.length x.file_name > 256 then failwith "file_name too long"
@@ -312,6 +312,8 @@ module Header = struct
     (* Finally, compute the checksum *)
     let chksum = checksum c in
     set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c
+
+  let marshal ?(level = V7) c (x: t) = imarshal ~level c (Link.to_int ~level x.link_indicator) x
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
