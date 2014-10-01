@@ -55,7 +55,7 @@ module Archive : sig
   val with_next_file : Unix.file_descr -> (Unix.file_descr -> Header.t -> 'a) -> 'a
 
   (** List the contents of a tar *)
-  val list : Unix.file_descr -> Header.t list
+  val list : ?level:Header.compatibility -> Unix.file_descr -> Header.t list
 
   (** [extract dest] extract the contents of a tar.
       Apply 'dest' on each source filename to know the destination filename *)

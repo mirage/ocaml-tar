@@ -153,7 +153,7 @@ module Make (IO : IO) : sig
     val with_next_file : IO.in_channel -> (IO.in_channel -> Header.t -> 'a) -> 'a
 
     (** List the contents of a tar *)
-    val list : IO.in_channel -> Header.t list
+    val list : ?level:Header.compatibility -> IO.in_channel -> Header.t list
 
     (** [extract_gen dest] extract the contents of a tar.
         Apply 'dest' on each header to get a handle to the file to write to *)

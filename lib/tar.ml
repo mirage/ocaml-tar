@@ -273,7 +273,8 @@ module Header = struct
 
   (** Marshal a header block, computing and inserting the checksum *)
   let imarshal ~level c link_indicator (x: t) =
-    if String.length x.file_name > sizeof_hdr_file_name then
+    (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
+    if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
       if level = Ustar then
         if String.length x.file_name > 256 then failwith "file_name too long"
         else let (prefix, file_name) =
@@ -288,13 +289,20 @@ module Header = struct
       else failwith "file_name too long"
     else set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
     (* This relies on the fact that the block was initialised to null characters *)
-    if level = Ustar then begin
-      set_hdr_magic (marshal_string "ustar" sizeof_hdr_magic) 0 c;
-      set_hdr_version (marshal_int 0 sizeof_hdr_version) 0 c;
-      set_hdr_devmajor (marshal_int x.devmajor sizeof_hdr_devmajor) 0 c;
-      set_hdr_devminor (marshal_int x.devminor sizeof_hdr_devminor) 0 c;
+    if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
+      if level = Ustar then begin
+        set_hdr_magic (marshal_string "ustar" sizeof_hdr_magic) 0 c;
+        set_hdr_version (marshal_int 0 sizeof_hdr_version) 0 c;
+      end else begin
+        set_hdr_magic "ustar " 0 c;
+        set_hdr_version (marshal_string " " sizeof_hdr_version) 0 c;
+      end;
       set_hdr_uname (marshal_string x.uname sizeof_hdr_uname) 0 c;
       set_hdr_gname (marshal_string x.gname sizeof_hdr_gname) 0 c;
+      if level = Ustar then begin
+        set_hdr_devmajor (marshal_int x.devmajor sizeof_hdr_devmajor) 0 c;
+        set_hdr_devminor (marshal_int x.devminor sizeof_hdr_devminor) 0 c;
+      end
     end else begin
       if x.devmajor <> 0 then failwith "devmajor not supported in this format";
       if x.devminor <> 0 then failwith "devminor not supported in this format";
@@ -306,8 +314,9 @@ module Header = struct
     set_hdr_group_id  (marshal_int x.group_id sizeof_hdr_group_id) 0 c;
     set_hdr_file_size (marshal_int64 x.file_size sizeof_hdr_file_size) 0 c;
     set_hdr_mod_time  (marshal_int64 x.mod_time sizeof_hdr_mod_time) 0 c;
-    set_hdr_link_indicator c (Link.to_int ~level x.link_indicator);
-    if String.length x.link_name > sizeof_hdr_link_name then failwith "link_name too long";
+    set_hdr_link_indicator c link_indicator;
+    (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
+    if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then failwith "link_name too long";
     set_hdr_link_name (marshal_string x.link_name sizeof_hdr_link_name) 0 c;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
@@ -409,6 +418,28 @@ module Make (IO : IO) = struct
     for i = 0 to Header.length - 1 do
         Cstruct.set_uint8 buffer i 0
     done;
+    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0} in
+    if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
+      if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
+        let file_size = String.length header.Header.link_name + 1 in
+        let blank = {blank with Header.file_size = Int64.of_int file_size} in
+        Header.imarshal ~level buffer 75 blank;
+        really_write fd buffer;
+        IO.output fd (header.Header.link_name ^ "\000") 0 file_size;
+        really_write fd (Header.zero_padding blank)
+      end;
+      if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+        let file_size = String.length header.Header.file_name + 1 in
+        let blank = {blank with Header.file_size = Int64.of_int file_size} in
+        Header.imarshal ~level buffer 76 blank;
+        really_write fd buffer;
+        IO.output fd (header.Header.file_name ^ "\000") 0 file_size;
+        really_write fd (Header.zero_padding blank)
+      end;
+      for i = 0 to Header.length - 1 do
+        Cstruct.set_uint8 buffer i 0
+      done
+    end;
     Header.marshal ~level buffer header;
     really_write fd buffer;
     body fd;
@@ -423,18 +454,31 @@ module Make (IO : IO) = struct
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
   let get_next_header ?(level = Header.V7) (ifd: IO.in_channel) : Header.t =
+    let buffer = Cstruct.create Header.length in
     let next () =
-      let buffer = Cstruct.create Header.length in
       really_read ifd buffer;
-      Header.unmarshal ~level buffer
-    in
-    match next () with
-    | Some x -> x
-    | None ->
-        begin match next () with
-        | Some x -> x
-        | None -> raise Header.End_of_stream
-        end
+      Header.unmarshal ~level buffer in
+    let get_hdr () =
+      match next () with
+      | Some x -> x
+      | None ->
+          begin match next () with
+          | Some x -> x
+          | None -> raise Header.End_of_stream
+          end in
+    let rec read_header (file_name, link_name, hdr) =
+      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
+      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
+        let data = String.create (Int64.to_int hdr.Header.file_size) in
+        let pad = String.create (Header.compute_zero_padding_length hdr) in
+        IO.really_input ifd data 0 (Int64.to_int hdr.Header.file_size);
+        IO.really_input ifd pad 0 (String.length pad);
+        let data = Header.unmarshal_string data in
+        if raw_link_indicator = 75 then read_header (file_name, data, get_hdr ())
+        else read_header (data, link_name, get_hdr ())
+      else {hdr with Header.link_name = if link_name = "" then hdr.Header.link_name else link_name; file_name = if file_name = "" then hdr.Header.file_name else file_name} in
+    let hdr = get_hdr () in
+    read_header ("", "", hdr)
 
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
@@ -461,11 +505,11 @@ module Make (IO : IO) = struct
         (fun () -> skip fd (Header.compute_zero_padding_length hdr))
 
     (** List the contents of a tar *)
-    let list fd =
+    let list ?(level = Header.V7) fd =
       let list = ref [] in
       try
         while true do
-        let hdr = get_next_header fd in
+        let hdr = get_next_header ~level fd in
         list := hdr :: !list;
         skip fd (Int64.to_int hdr.Header.file_size);
         skip fd (Header.compute_zero_padding_length hdr)
