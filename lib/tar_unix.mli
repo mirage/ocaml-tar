@@ -31,13 +31,13 @@ module Header : sig
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
-  val get_next_header : Unix.file_descr -> t
+  val get_next_header : ?level:compatibility -> Unix.file_descr -> t
     
   (** Return the header needed for a particular file on disk *)
-  val of_file : string -> t
+  val of_file : ?level:compatibility -> string -> t
 end
 
-val write_block: Header.t -> (Unix.file_descr -> unit) -> Unix.file_descr -> unit
+val write_block: ?level:Header.compatibility -> Header.t -> (Unix.file_descr -> unit) -> Unix.file_descr -> unit
 (** [write_block hdr write_body fd] is DEPRECATED.
     It writes [hdr], then calls [write_body fd] to write the body,
     then zero-pads so the stream is positioned for the next block. *)
