@@ -84,7 +84,11 @@ module Header = struct
       file_size   = stat.Lwt_unix.LargeFile.st_size;
       mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime;
       link_indicator = Link.Normal;
-      link_name   = "" }
+      link_name   = "";
+      uname       = "";
+      gname       = "";
+      devmajor    = 0;
+      devminor    = 0; }
 end
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) = 
