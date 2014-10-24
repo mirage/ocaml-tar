@@ -1,5 +1,5 @@
 # OPAM packages needed to build tests.
-OPAM_PACKAGES="lwt cstruct ounit re cmdliner"
+OPAM_PACKAGES="lwt ounit"
 
 
 case "$OCAML_VERSION,$OPAM_VERSION" in
@@ -23,10 +23,13 @@ echo OPAM versions
 opam --version
 opam --git-version
 
-opam init 
-opam install ${OPAM_PACKAGES}
-
+opam init
 eval `opam config -env`
+opam install ${OPAM_PACKAGES}
+opam pin tar-format . # opam 1.1 syntax
+opam update
+opam install --deps-only tar-format
+
 ocaml setup.ml -configure --enable-tests
 make
 make test
