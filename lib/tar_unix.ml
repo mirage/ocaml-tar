@@ -57,7 +57,8 @@ module Header = struct
   include T.Header
 
   (** Return the header needed for a particular file on disk *)
-  let of_file ?(level = V7) (file: string) : t =
+  let of_file ?level (file: string) : t =
+    let level = match level with None -> V7 | Some level -> level in
     let stat = Unix.LargeFile.lstat file in
     { file_name   = file;
       file_mode   = stat.Unix.LargeFile.st_perm;

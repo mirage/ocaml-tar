@@ -62,6 +62,12 @@ module Header = struct
     | Ustar
     | Posix
 
+  let compatibility_level = ref V7
+
+  let get_level = function
+    | None -> !compatibility_level
+    | Some level -> level
+
   module Link = struct
     type t =
       | Normal
@@ -72,8 +78,10 @@ module Header = struct
       | Directory
       | FIFO
 
+
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
-    let to_int ?(level = V7) = function
+    let to_int ?level =
+      let level = get_level level in function
       | Normal    -> if level = V7 then 0 else 48 (* '0' *)
       | Hard      -> 49 (* '1' *)
       | Symbolic  -> 50 (* '2' *)
@@ -82,7 +90,8 @@ module Header = struct
       | Directory -> 53 (* '5' *)
       | FIFO      -> 54 (* '6' *)
 
-    let of_int ?(level = V7) = function
+    let of_int ?level =
+      let level = get_level level in function
       | 49 (* '1' *) -> Hard
       | 50 (* '2' *) -> Symbolic
       (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
@@ -242,7 +251,8 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal ?(level = V7) (c: Cstruct.t) : t option =
+  let unmarshal ?level (c: Cstruct.t) : t option =
+    let level = get_level level in
     if allzeroes c then None
     else 
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
@@ -322,7 +332,9 @@ module Header = struct
     let chksum = checksum c in
     set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c
 
-  let marshal ?(level = V7) c (x: t) = imarshal ~level c (Link.to_int ~level x.link_indicator) x
+  let marshal ?level c (x: t) =
+    let level = get_level level in
+    imarshal ~level c (Link.to_int ~level x.link_indicator) x
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
@@ -413,7 +425,8 @@ module Make (IO : IO) = struct
     clean_f ();
     result
 
-  let write_block ?(level = Header.V7) (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+  let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+    let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     for i = 0 to Header.length - 1 do
         Cstruct.set_uint8 buffer i 0
@@ -453,7 +466,8 @@ module Make (IO : IO) = struct
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
-  let get_next_header ?(level = Header.V7) (ifd: IO.in_channel) : Header.t =
+  let get_next_header ?level (ifd: IO.in_channel) : Header.t =
+    let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     let next () =
       really_read ifd buffer;
@@ -505,7 +519,8 @@ module Make (IO : IO) = struct
         (fun () -> skip fd (Header.compute_zero_padding_length hdr))
 
     (** List the contents of a tar *)
-    let list ?(level = Header.V7) fd =
+    let list ?level fd =
+      let level = Header.get_level level in
       let list = ref [] in
       try
         while true do
@@ -553,7 +568,8 @@ module Make (IO : IO) = struct
       | Header.End_of_stream -> ()
 
     (** Create a tar on file descriptor fd from the stream of headers.  *)
-    let create_gen ?(level = Header.V7) files ofd =
+    let create_gen ?level files ofd =
+      let level = Header.get_level level in
       let file (hdr, write) =
         write_block ~level hdr write ofd;
       in
