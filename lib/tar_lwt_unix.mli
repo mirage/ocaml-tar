@@ -31,10 +31,10 @@ module Header : sig
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. Unix.End_of_file is thrown if the stream
       unexpectedly fails *)
-  val get_next_header : Lwt_unix.file_descr -> t option Lwt.t
+  val get_next_header : ?level:compatibility -> Lwt_unix.file_descr -> t option Lwt.t
     
   (** Return the header needed for a particular file on disk *)
-  val of_file : string -> t Lwt.t
+  val of_file : ?level:compatibility -> string -> t Lwt.t
 end
 
 module Archive : sig
@@ -46,7 +46,7 @@ module Archive : sig
   val with_next_file : Lwt_unix.file_descr -> (Lwt_unix.file_descr -> Header.t -> 'a Lwt.t) -> 'a option Lwt.t
 
   (** List the contents of a tar to stdout *)
-  val list : Lwt_unix.file_descr -> Header.t list Lwt.t
+  val list : ?level:Header.compatibility -> Lwt_unix.file_descr -> Header.t list Lwt.t
 
   (** [extract dest] extract the contents of a tar.
       Apply 'dest' on each source filename to know the destination filename *)

@@ -60,11 +60,11 @@ module Header = struct
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
-  let get_next_header (ifd: Lwt_unix.file_descr) : t option Lwt.t = 
+  let get_next_header ?level (ifd: Lwt_unix.file_descr) : t option Lwt.t =
     let next () =
       let buffer = Cstruct.create length in
       really_read ifd buffer >>= fun () ->
-      return (unmarshal buffer)
+      return (unmarshal ?level buffer)
     in
     next () >>= function
     | Some x -> return (Some x)
@@ -75,8 +75,11 @@ module Header = struct
 	end
 	  
   (** Return the header needed for a particular file on disk *)
-  let of_file (file: string) : t Lwt.t =
+  let of_file ?level (file: string) : t Lwt.t =
+    let level = match level with None -> V7 | Some level -> level in
     Lwt_unix.LargeFile.stat file >>= fun stat ->
+    Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
+    Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
     return { file_name   = file;
       file_mode   = stat.Lwt_unix.LargeFile.st_perm;
       user_id     = stat.Lwt_unix.LargeFile.st_uid;
@@ -85,10 +88,10 @@ module Header = struct
       mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime;
       link_indicator = Link.Normal;
       link_name   = "";
-      uname       = "";
-      gname       = "";
-      devmajor    = 0;
-      devminor    = 0; }
+      uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name;
+      gname       = if level = V7 then "" else grent.Lwt_unix.gr_name;
+      devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0;
+      devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0; }
 end
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) = 
@@ -131,8 +134,8 @@ module Archive = struct
       return None
 
   (** List the contents of a tar *)
-  let list fd = 
-    let rec loop acc = Header.get_next_header fd >>= function
+  let list ?level fd =
+    let rec loop acc = Header.get_next_header ?level fd >>= function
     | None -> return (List.rev acc)
     | Some hdr ->
       skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
