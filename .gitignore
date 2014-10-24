@@ -2,3 +2,4 @@ setup.data
 setup.log
 _build/
 config.mk
+parse_test.native
