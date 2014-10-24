@@ -1,12 +1,49 @@
 OASISFormat: 0.3
-Name:        ocaml-tar
-Version:     0.1
+Name:        tar
+Version:     0.3
 Synopsis:    Pure OCaml library to read and write tar files
-Authors:     Dave Scott, Thomas Gazagnaire
-License:     LGPL
+Authors:     Dave Scott, Thomas Gazagnaire, David Allsopp
+License:     ISC
 Plugins:     META (0.3), DevFiles (0.3)
 
-Library "ocaml-tar"
-  Path:       src
-  BuildTools: ocamlbuild
-  Modules:    Tar
+Flag lwtunix
+  Default:            true
+
+Library tar
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar
+  BuildDepends:       cstruct, re.str
+  Findlibname:        tar
+
+Library tar_unix
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar_unix
+  BuildDepends:       tar
+  Findlibname:        unix
+  Findlibparent:      tar
+
+Library tar_lwt_unix
+  Build$:             flag(lwtunix)
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar_lwt_unix
+  BuildDepends:       tar, lwt, lwt.unix
+  Findlibname:        lwt
+  Findlibparent:      tar
+
+Executable parse_test
+  Build$:             flag(lwtunix)
+  CompiledObject:     best
+  BuildTools:         ocamlbuild
+  Path:               lib_test
+  MainIs:             parse_test.ml
+  Custom:             true
+  Install:            false
+  BuildDepends:       tar, tar.unix, tar.lwt, cstruct, oUnit
+
+Test parse_test
+  Command:            ./parse_test.native
+  Run:                true
+

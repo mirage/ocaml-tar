@@ -1,0 +1,48 @@
+# OASIS_START
+# DO NOT EDIT (digest: ee8c0e8968071b7113641058493daa1f)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
+# useless stuff for the build process
+true: annot, bin_annot
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Library tar
+"lib/tar.cmxs": use_tar
+# Library tar_unix
+"lib/tar_unix.cmxs": use_tar_unix
+# Library tar_lwt_unix
+"lib/tar_lwt_unix.cmxs": use_tar_lwt_unix
+<lib/*.ml{,i,y}>: pkg_cstruct
+<lib/*.ml{,i,y}>: pkg_lwt
+<lib/*.ml{,i,y}>: pkg_lwt.unix
+<lib/*.ml{,i,y}>: pkg_re.str
+<lib/*.ml{,i,y}>: use_tar
+# Executable parse_test
+<lib_test/parse_test.{native,byte}>: pkg_cstruct
+<lib_test/parse_test.{native,byte}>: pkg_lwt
+<lib_test/parse_test.{native,byte}>: pkg_lwt.unix
+<lib_test/parse_test.{native,byte}>: pkg_oUnit
+<lib_test/parse_test.{native,byte}>: pkg_re.str
+<lib_test/parse_test.{native,byte}>: use_tar
+<lib_test/parse_test.{native,byte}>: use_tar_lwt_unix
+<lib_test/parse_test.{native,byte}>: use_tar_unix
+<lib_test/*.ml{,i,y}>: pkg_cstruct
+<lib_test/*.ml{,i,y}>: pkg_lwt
+<lib_test/*.ml{,i,y}>: pkg_lwt.unix
+<lib_test/*.ml{,i,y}>: pkg_oUnit
+<lib_test/*.ml{,i,y}>: pkg_re.str
+<lib_test/*.ml{,i,y}>: use_tar
+<lib_test/*.ml{,i,y}>: use_tar_lwt_unix
+<lib_test/*.ml{,i,y}>: use_tar_unix
+<lib_test/parse_test.{native,byte}>: custom
+# OASIS_STOP
+<lib/*>: syntax_camlp4o, pkg_cstruct.syntax
+
