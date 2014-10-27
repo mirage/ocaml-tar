@@ -29,7 +29,14 @@ module Header = struct
     uint8_t mod_time[12];
     uint8_t chksum[8];
     uint8_t link_indicator;
-    uint8_t link_name[100]
+    uint8_t link_name[100];
+    uint8_t magic[6];
+    uint8_t version[2];
+    uint8_t uname[32];
+    uint8_t gname[32];
+    uint8_t devmajor[8];
+    uint8_t devminor[8];
+    uint8_t prefix[155]
   } as little_endian (* doesn't matter, all are strings *)
 
   let sizeof_hdr_file_name = 100
@@ -40,27 +47,69 @@ module Header = struct
   let sizeof_hdr_mod_time  = 12
   let sizeof_hdr_chksum    = 8
   let sizeof_hdr_link_name = 100
+  let sizeof_hdr_magic = 6
+  let sizeof_hdr_version = 2
+  let sizeof_hdr_uname = 32
+  let sizeof_hdr_gname = 32
+  let sizeof_hdr_devmajor = 8
+  let sizeof_hdr_devminor = 8
+  let sizeof_hdr_prefix = 155
+
+  type compatibility =
+    | OldGNU
+    | GNU
+    | V7
+    | Ustar
+    | Posix
+
+  let compatibility_level = ref V7
+
+  let get_level = function
+    | None -> !compatibility_level
+    | Some level -> level
 
   module Link = struct
     type t =
       | Normal
       | Hard
       | Symbolic
+      | Character
+      | Block
+      | Directory
+      | FIFO
 
-    let to_int = function
-      | Normal   -> 0
-      | Hard     -> 49 (* '1' *)
-      | Symbolic -> 50 (* '2' *)
 
-    let of_int = function
+    (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
+    let to_int ?level =
+      let level = get_level level in function
+      | Normal    -> if level = V7 then 0 else 48 (* '0' *)
+      | Hard      -> 49 (* '1' *)
+      | Symbolic  -> 50 (* '2' *)
+      | Character -> 51 (* '3' *)
+      | Block     -> 52 (* '4' *)
+      | Directory -> 53 (* '5' *)
+      | FIFO      -> 54 (* '6' *)
+
+    let of_int ?level =
+      let level = get_level level in function
       | 49 (* '1' *) -> Hard
       | 50 (* '2' *) -> Symbolic
+      (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
+      | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
+      | 51 (* '3' *) -> Character
+      | 52 (* '4' *) -> Block
+      | 53 (* '5' *) -> Directory
+      | 54 (* '6' *) -> FIFO
       | _ -> Normal (* if value is malformed, treat as a normal file *)
 
     let to_string = function
       | Normal -> "Normal"
       | Hard -> "Hard"
       | Symbolic -> "Symbolic"
+      | Character -> "Character"
+      | Block -> "Block"
+      | Directory -> "Directory"
+      | FIFO -> "FIFO"
   end 
 
   (** Represents a standard (non-USTAR) archive (note checksum not stored) *)
@@ -72,18 +121,26 @@ module Header = struct
 	     mod_time: int64;
 	     link_indicator: Link.t;
 	     link_name: string;
+             uname: string;
+             gname: string;
+             devmajor: int;
+             devminor: int;
 	   }
 
   (** Helper function to make a simple header *)
-  let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") file_name file_size = 
-    { file_name = file_name;
-      file_mode = file_mode;
-      user_id = user_id;
-      group_id = group_id;
-      file_size = file_size;
-      mod_time = mod_time;
+  let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") ?(uname="") ?(gname="") ?(devmajor=0) ?(devminor=0) file_name file_size =
+    { file_name;
+      file_mode;
+      user_id;
+      group_id;
+      file_size;
+      mod_time;
       link_indicator;
-      link_name }
+      link_name;
+      uname;
+      gname;
+      devmajor;
+      devminor}
 
   (** Length of a header block *)
   let length = 512
@@ -194,34 +251,90 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal (c: Cstruct.t) : t option = 
+  let unmarshal ?level (c: Cstruct.t) : t option =
+    let level = get_level level in
     if allzeroes c then None
     else 
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
       if checksum c <> chksum then raise Checksum_mismatch
-      else Some { file_name = unmarshal_string (copy_hdr_file_name c);
+      else let ustar =
+             let magic = unmarshal_string (copy_hdr_magic c) in
+             (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
+             String.sub magic 0 5 = "ustar" in
+           let prefix = if ustar then unmarshal_string (copy_hdr_prefix c) else "" in
+           let file_name =
+             let file_name = unmarshal_string (copy_hdr_file_name c) in
+             if file_name = "" then prefix
+             else if prefix = "" then file_name
+                  else Filename.concat prefix file_name in
+           Some { file_name;
 		  file_mode = unmarshal_int    (copy_hdr_file_mode c);
 		  user_id   = unmarshal_int    (copy_hdr_user_id c);
 		  group_id  = unmarshal_int    (copy_hdr_group_id c);
 		  file_size = unmarshal_int64  (copy_hdr_file_size c);
 		  mod_time  = unmarshal_int64  (copy_hdr_mod_time c);
-		  link_indicator = Link.of_int (get_hdr_link_indicator c);
+		  link_indicator = Link.of_int ~level (get_hdr_link_indicator c);
 		  link_name = unmarshal_string (copy_hdr_link_name c);
+                  uname     = if ustar then unmarshal_string (copy_hdr_uname c) else "";
+                  gname     = if ustar then unmarshal_string (copy_hdr_gname c) else "";
+                  devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0;
+                  devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0;
 		}
 
   (** Marshal a header block, computing and inserting the checksum *)
-  let marshal c (x: t) = 
-    set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
+  let imarshal ~level c link_indicator (x: t) =
+    (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
+    if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
+      if level = Ustar then
+        if String.length x.file_name > 256 then failwith "file_name too long"
+        else let (prefix, file_name) =
+               let is_directory = if x.file_name.[String.length x.file_name - 1] = '/' then "/" else "" in
+                 let rec split prefix file_name =
+                   if String.length file_name > sizeof_hdr_file_name then failwith "file_name can't be split"
+                   else if String.length prefix > sizeof_hdr_prefix then split (Filename.dirname prefix) (Filename.concat (Filename.basename prefix) file_name ^ is_directory)
+                        else (prefix, file_name) in
+                 split (Filename.dirname x.file_name) (Filename.basename x.file_name ^ is_directory) in
+             set_hdr_file_name (marshal_string file_name sizeof_hdr_file_name) 0 c;
+             set_hdr_prefix (marshal_string prefix sizeof_hdr_prefix) 0 c
+      else failwith "file_name too long"
+    else set_hdr_file_name (marshal_string x.file_name sizeof_hdr_file_name) 0 c;
+    (* This relies on the fact that the block was initialised to null characters *)
+    if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
+      if level = Ustar then begin
+        set_hdr_magic (marshal_string "ustar" sizeof_hdr_magic) 0 c;
+        set_hdr_version (marshal_int 0 sizeof_hdr_version) 0 c;
+      end else begin
+        set_hdr_magic "ustar " 0 c;
+        set_hdr_version (marshal_string " " sizeof_hdr_version) 0 c;
+      end;
+      set_hdr_uname (marshal_string x.uname sizeof_hdr_uname) 0 c;
+      set_hdr_gname (marshal_string x.gname sizeof_hdr_gname) 0 c;
+      if level = Ustar then begin
+        set_hdr_devmajor (marshal_int x.devmajor sizeof_hdr_devmajor) 0 c;
+        set_hdr_devminor (marshal_int x.devminor sizeof_hdr_devminor) 0 c;
+      end
+    end else begin
+      if x.devmajor <> 0 then failwith "devmajor not supported in this format";
+      if x.devminor <> 0 then failwith "devminor not supported in this format";
+      if x.uname <> "" then failwith "uname not supported in this format";
+      if x.gname <> "" then failwith "gname not supported in this format";
+    end;
     set_hdr_file_mode (marshal_int x.file_mode sizeof_hdr_file_mode) 0 c;
     set_hdr_user_id   (marshal_int x.user_id sizeof_hdr_user_id) 0 c;
     set_hdr_group_id  (marshal_int x.group_id sizeof_hdr_group_id) 0 c;
     set_hdr_file_size (marshal_int64 x.file_size sizeof_hdr_file_size) 0 c;
     set_hdr_mod_time  (marshal_int64 x.mod_time sizeof_hdr_mod_time) 0 c;
-    set_hdr_link_indicator c (Link.to_int x.link_indicator);
+    set_hdr_link_indicator c link_indicator;
+    (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
+    if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then failwith "link_name too long";
     set_hdr_link_name (marshal_string x.link_name sizeof_hdr_link_name) 0 c;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
     set_hdr_chksum    (marshal_int64 chksum sizeof_hdr_chksum) 0 c
+
+  let marshal ?level c (x: t) =
+    let level = get_level level in
+    imarshal ~level c (Link.to_int ~level x.link_indicator) x
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
@@ -312,12 +425,35 @@ module Make (IO : IO) = struct
     clean_f ();
     result
 
-  let write_block (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+  let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+    let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     for i = 0 to Header.length - 1 do
         Cstruct.set_uint8 buffer i 0
     done;
-    Header.marshal buffer header;
+    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0} in
+    if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
+      if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
+        let file_size = String.length header.Header.link_name + 1 in
+        let blank = {blank with Header.file_size = Int64.of_int file_size} in
+        Header.imarshal ~level buffer 75 blank;
+        really_write fd buffer;
+        IO.output fd (header.Header.link_name ^ "\000") 0 file_size;
+        really_write fd (Header.zero_padding blank)
+      end;
+      if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+        let file_size = String.length header.Header.file_name + 1 in
+        let blank = {blank with Header.file_size = Int64.of_int file_size} in
+        Header.imarshal ~level buffer 76 blank;
+        really_write fd buffer;
+        IO.output fd (header.Header.file_name ^ "\000") 0 file_size;
+        really_write fd (Header.zero_padding blank)
+      end;
+      for i = 0 to Header.length - 1 do
+        Cstruct.set_uint8 buffer i 0
+      done
+    end;
+    Header.marshal ~level buffer header;
     really_write fd buffer;
     body fd;
     really_write fd (Header.zero_padding header)
@@ -330,19 +466,33 @@ module Make (IO : IO) = struct
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
-  let get_next_header (ifd: IO.in_channel) : Header.t =
+  let get_next_header ?level (ifd: IO.in_channel) : Header.t =
+    let level = Header.get_level level in
+    let buffer = Cstruct.create Header.length in
     let next () =
-      let buffer = Cstruct.create Header.length in
       really_read ifd buffer;
-      Header.unmarshal buffer
-    in
-    match next () with
-    | Some x -> x
-    | None ->
-        begin match next () with
-        | Some x -> x
-        | None -> raise Header.End_of_stream
-        end
+      Header.unmarshal ~level buffer in
+    let get_hdr () =
+      match next () with
+      | Some x -> x
+      | None ->
+          begin match next () with
+          | Some x -> x
+          | None -> raise Header.End_of_stream
+          end in
+    let rec read_header (file_name, link_name, hdr) =
+      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
+      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
+        let data = String.create (Int64.to_int hdr.Header.file_size) in
+        let pad = String.create (Header.compute_zero_padding_length hdr) in
+        IO.really_input ifd data 0 (Int64.to_int hdr.Header.file_size);
+        IO.really_input ifd pad 0 (String.length pad);
+        let data = Header.unmarshal_string data in
+        if raw_link_indicator = 75 then read_header (file_name, data, get_hdr ())
+        else read_header (data, link_name, get_hdr ())
+      else {hdr with Header.link_name = if link_name = "" then hdr.Header.link_name else link_name; file_name = if file_name = "" then hdr.Header.file_name else file_name} in
+    let hdr = get_hdr () in
+    read_header ("", "", hdr)
 
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
@@ -369,11 +519,12 @@ module Make (IO : IO) = struct
         (fun () -> skip fd (Header.compute_zero_padding_length hdr))
 
     (** List the contents of a tar *)
-    let list fd =
+    let list ?level fd =
+      let level = Header.get_level level in
       let list = ref [] in
       try
         while true do
-        let hdr = get_next_header fd in
+        let hdr = get_next_header ~level fd in
         list := hdr :: !list;
         skip fd (Int64.to_int hdr.Header.file_size);
         skip fd (Header.compute_zero_padding_length hdr)
@@ -417,9 +568,10 @@ module Make (IO : IO) = struct
       | Header.End_of_stream -> ()
 
     (** Create a tar on file descriptor fd from the stream of headers.  *)
-    let create_gen files ofd =
+    let create_gen ?level files ofd =
+      let level = Header.get_level level in
       let file (hdr, write) =
-        write_block hdr write ofd;
+        write_block ~level hdr write ofd;
       in
       Stream.iter file files;
       (* Add two empty blocks *)

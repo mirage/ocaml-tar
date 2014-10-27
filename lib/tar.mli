@@ -19,16 +19,31 @@
 module Header : sig
   (** Process and create tar file headers *)
 
+  (** tar format assumptions. Default is [V7] (for compatibility with versions of ocaml-tar before this type was introduced). See http://www.gnu.org/software/tar/manual/html_section/tar_68.html for more information. *)
+  type compatibility =
+    | OldGNU (** GNU tar < 1.12 *)
+    | GNU (** GNU tar 1.12 - 1.13.25 *)
+    | V7 (** Origin 7th Release format *)
+    | Ustar (** POSIX.1-1988 *)
+    | Posix (** POSIX.1-2001 *)
+
+  (** Default compatibility if [?level] is omitted. Defaults to [V7] *)
+  val compatibility_level : compatibility ref
+
   module Link : sig
     (** Determines the type of the file *)
     type t =
       | Normal
       | Hard (** a hard link *)
       | Symbolic (** a symbolic link *)
+      | Character (** a character device node *)
+      | Block (** a block device node *)
+      | Directory (** a directory (also indicated by trailing [/] in [file_name]) *)
+      | FIFO (** a FIFO node *)
     val to_string: t -> string
   end
 
-  (** Represents a standard (non-USTAR) archive (note checksum not stored) *)
+  (** Represents a standard archive (note checksum not stored) *)
   type t = {
     file_name : string;
     file_mode: int;
@@ -38,10 +53,14 @@ module Header : sig
     mod_time: int64;
     link_indicator: Link.t;
     link_name: string;
+    uname: string;
+    gname: string;
+    devmajor: int;
+    devminor: int;
   }
 
   (** Helper function to make a simple header *)
-  val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> string -> int64 -> t
+  val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> ?uname:string -> ?gname:string -> ?devmajor:int -> ?devminor:int -> string -> int64 -> t
     
   (** Length of a header block *)
   val length : int  
@@ -62,10 +81,10 @@ module Header : sig
   exception End_of_stream
     
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  val unmarshal : Cstruct.t -> t option
+  val unmarshal : ?level:compatibility -> Cstruct.t -> t option
     
   (** Marshal a header block, computing and inserting the checksum *)
-  val marshal : Cstruct.t -> t -> unit
+  val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
     
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks *)
@@ -116,10 +135,10 @@ module Make (IO : IO) : sig
         zero-filled blocks are discovered. Assumes stream is positioned at the
         possible start of a header block. End_of_file is thrown if the stream
         unexpectedly fails *)
-    val get_next_header : IO.in_channel -> t
+    val get_next_header : ?level:compatibility -> IO.in_channel -> t
   end
 
-  val write_block: Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
+  val write_block: ?level:Header.compatibility -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
   (** [write_block hdr write_body fd] is DEPRECATED.
       It writes [hdr], then calls [write_body fd] to write the body,
       then zero-pads so the stream is positioned for the next block. *)
@@ -137,14 +156,14 @@ module Make (IO : IO) : sig
     val with_next_file : IO.in_channel -> (IO.in_channel -> Header.t -> 'a) -> 'a
 
     (** List the contents of a tar *)
-    val list : IO.in_channel -> Header.t list
+    val list : ?level:Header.compatibility -> IO.in_channel -> Header.t list
 
     (** [extract_gen dest] extract the contents of a tar.
         Apply 'dest' on each header to get a handle to the file to write to *)
     val extract_gen : (Header.t -> IO.out_channel) -> IO.in_channel -> unit
 
     (** Create a tar on file descriptor fd from the stream of headers.  *)
-    val create_gen : (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
+    val create_gen : ?level:Header.compatibility -> (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
 
     (** This function is DEPRECATED.
         [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd] *)
