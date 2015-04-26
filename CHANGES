@@ -1,8 +1,9 @@
-0.3.0 (unreleased)
+0.3.0 (2014-04-06)
 - add Tar.Make functor which allows easier integration with
   camlzip
 - always initialise tar header unused bytes to 0 (previously
   would use uninitialised data)
+- modernise Travis CI scripts to use OPAM 1.2 workflow.
 
 0.2.1 (2013-11-15)
 - Re-add some old deprecated functions
