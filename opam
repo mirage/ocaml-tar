@@ -1,4 +1,6 @@
 opam-version: "1.2"
+name: "tar-format"
+version: "0.3.0"
 maintainer: "dave@recoil.org"
 authors: [ "Dave Scott" "Thomas Gazagnaire" "David Allsopp" ]
 tags: ["org:xapi-project" "org:mirage"]
