@@ -34,7 +34,7 @@ Library tar_lwt_unix
   Findlibparent:      tar
 
 Executable parse_test
-  Build$:             flag(lwtunix)
+  Build$:             flag(lwtunix) && flag(tests)
   CompiledObject:     best
   BuildTools:         ocamlbuild
   Path:               lib_test
