@@ -8,7 +8,7 @@ homepage: "https://github.com/mirage/ocaml-tar"
 bug-reports: "https://github.com/mirage/ocaml-tar/issues"
 dev-repo: "https://github.com/mirage/ocaml-tar.git"
 build: [
-  ["ocaml" "setup.ml" "-configure" "--prefix" prefix "--%{lwt:enable}%-lwtunix" ]
+  ["ocaml" "setup.ml" "-configure" "--prefix" prefix "--%{lwt:enable}%-lwtunix" "--%{ounit:enable}%-tests" ]
   ["ocaml" "setup.ml" "-build"]
 ]
 install: [
