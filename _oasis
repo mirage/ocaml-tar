@@ -9,6 +9,9 @@ Plugins:     META (0.4)
 Flag lwtunix
   Default:            true
 
+Flag Mirage
+  Default:            true
+
 Library tar
   Path:               lib
   BuildTools:         ocamlbuild
@@ -33,6 +36,15 @@ Library tar_lwt_unix
   Findlibname:        lwt
   Findlibparent:      tar
 
+Library tar_mirage
+  Build$:             flag(mirage)
+  Path:               lib
+  BuildTools:         ocamlbuild
+  Modules:            Tar_mirage
+  BuildDepends:       tar, lwt, mirage-types.lwt, io-page
+  Findlibname:        mirage
+  Findlibparent:      tar
+
 Executable parse_test
   Build$:             flag(lwtunix) && flag(tests)
   CompiledObject:     best
@@ -46,4 +58,3 @@ Executable parse_test
 Test parse_test
   Command:            ./parse_test.native
   Run:                true
-
