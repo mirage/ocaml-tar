@@ -34,11 +34,17 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
   type error = Unknown_key of string
   type page_aligned_buffer = Cstruct.t
 
-  (* Compare filenames without a leading / *)
-  let trim_slash = function
-    | "" -> ""
-    | x when x.[0] = '/' -> String.sub x 1 (String.length x - 1)
-    | x -> x
+  (* Compare filenames without a leading / or ./ *)
+  let trim_slash x =
+    let startswith prefix x =
+      let prefix' = String.length prefix in
+      let x' = String.length x in
+      x' >= prefix' && (String.sub x 0 prefix' = prefix) in
+    if startswith "./" x
+    then String.sub x 2 (String.length x - 2)
+    else if startswith "/" x
+    then String.sub x 1 (String.length x - 1)
+    else x
 
   let connect b =
     let buffer = Cstruct.sub Io_page.(to_cstruct @@ get 1) 0 512 in
