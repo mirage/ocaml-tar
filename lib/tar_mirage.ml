@@ -47,12 +47,13 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     else x
 
   let connect b =
-    let buffer = Cstruct.sub Io_page.(to_cstruct @@ get 1) 0 512 in
+    let buffer = Io_page.(to_cstruct @@ get 1) in
     let read sector =
       BLOCK.read b sector [ buffer ]
       >>= function
       | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector))
-      | `Ok () -> Lwt.return buffer in
+      | `Ok () ->
+        Lwt.return (Cstruct.sub buffer 0 512) in
 
     Archive.fold (fun map tar data_offset ->
       let filename = trim_slash tar.Tar.Header.file_name in
@@ -88,11 +89,12 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
 
       let n_bytes = to_int (mul sector_size n_sectors) in
       let n_pages = (n_bytes + 4095) / 4096 in
-      let pages = Cstruct.sub Io_page.(to_cstruct @@ get n_pages) 0 n_bytes in
-      BLOCK.read t.b start_sector [ pages ]
+      let block = Io_page.get n_pages in
+      let pages = List.map Io_page.to_cstruct (Io_page.to_pages block) in
+      BLOCK.read t.b start_sector pages
       >>= function
       | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read %s" key))
-      | `Ok () -> Lwt.return (`Ok [ Cstruct.sub pages (to_int start_padding) (to_int length_bytes) ])
+      | `Ok () -> Lwt.return (`Ok [ Cstruct.sub (Io_page.to_cstruct block) (to_int start_padding) (to_int length_bytes) ])
     end
 
   let size t key =
