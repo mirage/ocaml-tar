@@ -1,4 +1,8 @@
-0.3.0 (2014-04-06)
+0.4.0 (2015-07-19)
+- add tar.mirage in ocamlfind, containing Tar_mirage which
+  exposes a BLOCK device as a KV_RO
+
+0.3.0 (2015-04-06)
 - add Tar.Make functor which allows easier integration with
   camlzip
 - always initialise tar header unused bytes to 0 (previously
