@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: ee8c0e8968071b7113641058493daa1f)
+# DO NOT EDIT (digest: ea55b805b5b213a2c92efad8caa7d9b9)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -20,9 +20,13 @@ true: annot, bin_annot
 "lib/tar_unix.cmxs": use_tar_unix
 # Library tar_lwt_unix
 "lib/tar_lwt_unix.cmxs": use_tar_lwt_unix
-<lib/*.ml{,i,y}>: pkg_cstruct
-<lib/*.ml{,i,y}>: pkg_lwt
 <lib/*.ml{,i,y}>: pkg_lwt.unix
+# Library tar_mirage
+"lib/tar_mirage.cmxs": use_tar_mirage
+<lib/*.ml{,i,y}>: pkg_cstruct
+<lib/*.ml{,i,y}>: pkg_io-page
+<lib/*.ml{,i,y}>: pkg_lwt
+<lib/*.ml{,i,y}>: pkg_mirage-types.lwt
 <lib/*.ml{,i,y}>: pkg_re.str
 <lib/*.ml{,i,y}>: use_tar
 # Executable parse_test

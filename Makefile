@@ -1,5 +1,3 @@
-include config.mk
-
 .PHONY: build
 build: setup.data
 	ocaml setup.ml -build
@@ -19,7 +17,7 @@ distclean: clean
 	rm config.mk setup.data setup.log
 
 setup.data: setup.ml
-	ocaml setup.ml -configure $(ENABLE_LWT_UNIX)
+	ocaml setup.ml -configure
 
 install: setup.data
 	ocaml setup.ml -install $(INSTALLFLAGS)
