@@ -26,6 +26,7 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
   type t = {
     b: BLOCK.t;
     map: (Tar.Header.t * int64) StringMap.t;
+    info: BLOCK.info;
   }
 
   type id = BLOCK.id
@@ -47,23 +48,28 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     else x
 
   let connect b =
+    BLOCK.get_info b
+    >>= fun info ->
     let buffer = Io_page.(to_cstruct @@ get 1) in
     let read sector =
-      BLOCK.read b sector [ buffer ]
+      (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
+      let sector' = Int64.(div (mul sector 512L) (of_int info.BLOCK.sector_size)) in
+      BLOCK.read b sector' [ buffer ]
       >>= function
+      | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device: %s" sector x))
       | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector))
       | `Ok () ->
-        Lwt.return (Cstruct.sub buffer 0 512) in
+        (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
+        let offset = Int64.(to_int (mul 512L (sub sector (mul sector' (of_int info.BLOCK.sector_size))))) in
+        Lwt.return (Cstruct.sub buffer offset 512) in
 
     Archive.fold (fun map tar data_offset ->
       let filename = trim_slash tar.Tar.Header.file_name in
       let map = StringMap.add filename (tar, data_offset) map in
-      Printf.printf "Adding [%s] (size %Ld)\n%!" filename tar.Tar.Header.file_size;
       Lwt.return map
     ) StringMap.empty read
     >>= fun map ->
-    Printf.printf "Indexed %d files\n%!" (StringMap.cardinal map);
-    Lwt.return (`Ok { b; map })
+    Lwt.return (`Ok { b; map; info })
 
   let disconnect _ = Lwt.return ()
 
@@ -79,7 +85,7 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
       let sector_size = of_int info.BLOCK.sector_size in
 
       (* Compute the unaligned data we need to read *)
-      let start_bytes = add (mul start_sector sector_size) (of_int offset) in
+      let start_bytes = add (mul start_sector 512L) (of_int offset) in
       let length_bytes = min (of_int length) (sub hdr.Tar.Header.file_size (of_int offset)) in
       let end_bytes = add start_bytes length_bytes in
       (* Compute the starting sector and ending sector (rounding down then up) *)
