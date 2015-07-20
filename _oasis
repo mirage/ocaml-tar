@@ -53,7 +53,7 @@ Executable parse_test
   MainIs:             parse_test.ml
   Custom:             true
   Install:            false
-  BuildDepends:       tar, tar.unix, cstruct, oUnit
+  BuildDepends:       tar, tar.lwt, tar.unix, tar.mirage, cstruct, oUnit, mirage-block-unix, io-page.unix
 
 Test parse_test
   Command:            ./parse_test.native
