@@ -46,14 +46,14 @@ Library tar_mirage
   Findlibparent:      tar
 
 Executable parse_test
-  Build$:             flag(lwtunix) && flag(tests)
+  Build$:             flag(tests)
   CompiledObject:     best
   BuildTools:         ocamlbuild
   Path:               lib_test
   MainIs:             parse_test.ml
   Custom:             true
   Install:            false
-  BuildDepends:       tar, tar.unix, tar.lwt, cstruct, oUnit
+  BuildDepends:       tar, tar.unix, cstruct, oUnit
 
 Test parse_test
   Command:            ./parse_test.native
