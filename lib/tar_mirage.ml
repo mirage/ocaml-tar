@@ -60,7 +60,7 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
       | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector))
       | `Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
-        let offset = Int64.(to_int (mul 512L (sub sector (mul sector' (of_int info.BLOCK.sector_size))))) in
+        let offset = Int64.(to_int (sub (mul sector 512L) (mul sector' (of_int info.BLOCK.sector_size)))) in
         Lwt.return (Cstruct.sub buffer offset 512) in
 
     Archive.fold (fun map tar data_offset ->
