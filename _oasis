@@ -1,6 +1,6 @@
 OASISFormat: 0.4
 Name:        tar
-Version:     0.4.0
+Version:     0.4.1
 Synopsis:    Pure OCaml library to read and write tar files
 Authors:     Dave Scott, Thomas Gazagnaire, David Allsopp
 License:     ISC
