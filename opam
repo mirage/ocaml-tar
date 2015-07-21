@@ -8,9 +8,10 @@ homepage: "https://github.com/mirage/ocaml-tar"
 bug-reports: "https://github.com/mirage/ocaml-tar/issues"
 dev-repo: "https://github.com/mirage/ocaml-tar.git"
 build: [
-  ["ocaml" "setup.ml" "-configure" "--prefix" prefix "--%{lwt:enable}%-lwtunix" "--%{mirage-types:enable}%-mirage" "--%{ounit:enable}%-tests" ]
+["ocaml" "setup.ml" "-configure" "--prefix" prefix "--%{lwt:enable}%-lwtunix" "--%{mirage-types+io-page+ipaddr:enable}%-mirage" "--%{ounit:enable}%-tests" ]
   ["ocaml" "setup.ml" "-build"]
 ]
+build-test: [make "test"]
 install: [
   ["ocaml" "setup.ml" "-install"]
 ]
@@ -21,9 +22,8 @@ depends: [
   "re"
   "cmdliner"
   "ounit" {test}
-]
-depopts: [
+  "mirage-block-unix" {test}
   "lwt"
-  "mirage-types"
+  "mirage-types-lwt"
 ]
 available: [ ocaml-version >= "4.01.0" ]
