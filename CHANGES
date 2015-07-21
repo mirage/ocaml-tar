@@ -1,3 +1,7 @@
+0.4.1 (2015-07-21)
+- fix Tar_mirage when using block devices with < 4096 byte
+  sectors
+
 0.4.0 (2015-07-19)
 - add tar.mirage in ocamlfind, containing Tar_mirage which
   exposes a BLOCK device as a KV_RO
