@@ -23,8 +23,6 @@ depends: [
   "cmdliner"
   "ounit" {test}
   "mirage-block-unix" {test}
-]
-depopts: [
   "lwt"
   "mirage-types-lwt"
 ]
