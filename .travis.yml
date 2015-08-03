@@ -2,5 +2,7 @@ language: c
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
 script: bash -ex .travis-opam.sh
 env:
-  - PACKAGE="tar-format" OCAML_VERSION=4.01   REVDEPS=false
-  - PACKAGE="tar-format" OCAML_VERSION=latest REVDEPS=false
+  - OCAML_VERSION=4.01
+  - OCAML_VERSION=4.02
+  - OCAML_VERSION=4.02 DEPOPTS=lwt
+  - OCAML_VERSION=4.02 DEPOPTS=mirage-types-lwt
