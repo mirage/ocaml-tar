@@ -14,7 +14,8 @@ build: [
   ["ocaml" "setup.ml" "-build"]
 ]
 build-test: [
-  ["ocaml" "setup.ml" "-configure" "--enable-tests"]
+  ["ocaml" "setup.ml" "-configure"
+    "--enable-tests" "--enable-lwtunix" "--enable-mirage"]
   [make "test"]
 ]
 install: ["ocaml" "setup.ml" "-install"]
@@ -25,8 +26,10 @@ depends: [
   "cstruct" {>= "0.6.0"}
   "re"
   "cmdliner"
-  "ounit" {test}
+  "ounit"             {test}
   "mirage-block-unix" {test}
+  "lwt"               {test}
+  "mirage-types-lwt"  {test}
 ]
 depopts: ["lwt" "mirage-types-lwt"]
 available: [ ocaml-version >= "4.01.0" ]
