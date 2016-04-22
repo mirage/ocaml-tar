@@ -1,3 +1,8 @@
+0.4.2 (2016-04-22)
+- test: only run tests if mirage-block-unix is present
+- improve the opam file
+- travis: simplify the configuration
+
 0.4.1 (2015-07-21)
 - fix Tar_mirage when using block devices with < 4096 byte
   sectors
