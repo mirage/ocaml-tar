@@ -408,7 +408,7 @@ end
 module Make (IO : IO) = struct
   (* XXX: there's no function to read directly into a bigarray *)
   let really_read ifd buffer =
-    let s = String.create (Cstruct.len buffer) in
+    let s = Bytes.create (Cstruct.len buffer) in
     IO.really_input ifd s 0 (Cstruct.len buffer);
     Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
 
@@ -485,8 +485,8 @@ module Make (IO : IO) = struct
     let rec read_header (file_name, link_name, hdr) =
       let raw_link_indicator = Header.get_hdr_link_indicator buffer in
       if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
-        let data = String.create (Int64.to_int hdr.Header.file_size) in
-        let pad = String.create (Header.compute_zero_padding_length hdr) in
+        let data = Bytes.create (Int64.to_int hdr.Header.file_size) in
+        let pad = Bytes.create (Header.compute_zero_padding_length hdr) in
         IO.really_input ifd data 0 (Int64.to_int hdr.Header.file_size);
         IO.really_input ifd pad 0 (String.length pad);
         let data = Header.unmarshal_string data in
@@ -537,7 +537,7 @@ module Make (IO : IO) = struct
       | Header.End_of_stream -> List.rev !list
 
     let copy_n ifd ofd n =
-      let buffer = String.create 16384 in
+      let buffer = Bytes.create 16384 in
       let rec loop remaining =
         if remaining = 0L then () else begin
           let this = Int64.(to_int (min (of_int (String.length buffer)) remaining)) in
