@@ -38,13 +38,13 @@ module List = struct
 
   let filter_map f l =
     let rec g a = function
-      [] -> List.rev a
-    | x::l ->
-      match f x with
-        None -> g a l
-      | Some x -> g (x::a) l
+        [] -> List.rev a
+      | x::l ->
+        match f x with
+          None -> g a l
+        | Some x -> g (x::a) l
     in
-      g [] l
+    g [] l
 end
 
 module T = Tar.Make(Driver)
@@ -98,16 +98,16 @@ module Archive = struct
         let stat = Unix.stat filename in
         if stat.Unix.st_kind <> Unix.S_REG
         then begin
-               Printf.eprintf "Skipping %s: not a regular file\n" filename;
-               None
-             end
+          Printf.eprintf "Skipping %s: not a regular file\n" filename;
+          None
+        end
         else
           let hdr = Header.of_file filename in
           Some (hdr, (fun ofd ->
-            let ifd = Unix.openfile filename [Unix.O_RDONLY] 0644 in
-            copy_n ifd ofd hdr.Header.file_size))
+              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0644 in
+              copy_n ifd ofd hdr.Header.file_size))
       in
-        List.filter_map f files
+      List.filter_map f files
     in
     create_gen (Stream.of_list files) ofd
 
@@ -118,11 +118,11 @@ module Archive = struct
     let rec loop (n: int64) = 
       if n <= 0L then ()
       else 
-       let amount = Int64.to_int (min n (Int64.of_int(String.length buffer))) in
-       let read = Unix.read ifd buffer 0 amount in
-       if read = 0 then raise End_of_file;
-       List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 read)) ofds;
-       loop (Int64.sub n (Int64.of_int read)) in
+        let amount = Int64.to_int (min n (Int64.of_int(String.length buffer))) in
+        let read = Unix.read ifd buffer 0 amount in
+        if read = 0 then raise End_of_file;
+        List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 read)) ofds;
+        loop (Int64.sub n (Int64.of_int read)) in
     loop n
 
   let multicast_n_string buffer ofds n =

@@ -54,22 +54,22 @@ let with_tar f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
   let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
   begin match Unix.system cmdline with
-  | Unix.WEXITED 0 -> ()
-  | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
-  | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
+    | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
   end;
   finally (fun () -> f tar_filename files) (fun () -> Unix.unlink tar_filename)
 
 let can_read_tar () =
   with_tar
     (fun tar_filename files ->
-      let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
-      let files' = List.map (fun t -> t.Tar_unix.Header.file_name) (Tar_unix.Archive.list fd) in
-      Unix.close fd;
-      let missing = set_difference files files' in
-      let missing' = set_difference files' files in
-      assert_equal ~printer:(String.concat "; ") [] missing;
-      assert_equal ~printer:(String.concat "; ") [] missing'
+       let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
+       let files' = List.map (fun t -> t.Tar_unix.Header.file_name) (Tar_unix.Archive.list fd) in
+       Unix.close fd;
+       let missing = set_difference files files' in
+       let missing' = set_difference files' files in
+       assert_equal ~printer:(String.concat "; ") [] missing;
+       assert_equal ~printer:(String.concat "; ") [] missing'
     )
 
 let expect_ok = function
@@ -110,60 +110,60 @@ module type BLOCK = sig
 end
 
 module Test(Block: BLOCK) = struct
-let can_read_through_BLOCK () =
-  with_tar
-    (fun tar_filename files ->
-      let t =
-        Block.connect tar_filename
-        >>= fun r ->
-        let b = expect_ok r in
-        let module KV_RO = Tar_mirage.Make_KV_RO(Block) in
-        KV_RO.connect b
-        >>= fun r ->
-        let k = expect_ok r in
-        Lwt_list.iter_s
-          (fun file ->
-            KV_RO.size k file
-            >>= fun r ->
-            let size = expect_ok r in
-            let stats = Unix.LargeFile.stat file in
-            assert_equal ~printer:Int64.to_string stats.Unix.LargeFile.st_size size;
-            let read_file key ofs len =
-              let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-              finally
-                (fun () ->
-                  let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                  let buf = String.make len '\000' in
-                  let len' = Unix.read fd buf 0 len in
-                  assert_equal ~printer:string_of_int len len';
-                  buf
-                ) (fun () -> Unix.close fd) in
-            let read_tar key ofs len =
-               KV_RO.read k key ofs len
-               >>= function
-               | `Error _ -> failwith "KV_RO.read"
-               | `Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
-            (* Read whole file *)
-            let size = Int64.to_int stats.Unix.LargeFile.st_size in
-            let value = read_file file 0 size in
-            read_tar file 0 size
-            >>= fun value' ->
-            assert_equal ~printer:(fun x -> x) value value';
-            if size > 2 then begin
-              let value = read_file file 1 (size - 2) in
-              read_tar file 1 (size - 2)
-              >>= fun value' ->
-              assert_equal ~printer:(fun x -> x) value value';
-              return ()
-            end else return ()
-          ) files in
-      Lwt_main.run t
-    )
+  let can_read_through_BLOCK () =
+    with_tar
+      (fun tar_filename files ->
+         let t =
+           Block.connect tar_filename
+           >>= fun r ->
+           let b = expect_ok r in
+           let module KV_RO = Tar_mirage.Make_KV_RO(Block) in
+           KV_RO.connect b
+           >>= fun r ->
+           let k = expect_ok r in
+           Lwt_list.iter_s
+             (fun file ->
+                KV_RO.size k file
+                >>= fun r ->
+                let size = expect_ok r in
+                let stats = Unix.LargeFile.stat file in
+                assert_equal ~printer:Int64.to_string stats.Unix.LargeFile.st_size size;
+                let read_file key ofs len =
+                  let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+                  finally
+                    (fun () ->
+                       let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+                       let buf = String.make len '\000' in
+                       let len' = Unix.read fd buf 0 len in
+                       assert_equal ~printer:string_of_int len len';
+                       buf
+                    ) (fun () -> Unix.close fd) in
+                let read_tar key ofs len =
+                  KV_RO.read k key ofs len
+                  >>= function
+                  | `Error _ -> failwith "KV_RO.read"
+                  | `Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
+                (* Read whole file *)
+                let size = Int64.to_int stats.Unix.LargeFile.st_size in
+                let value = read_file file 0 size in
+                read_tar file 0 size
+                >>= fun value' ->
+                assert_equal ~printer:(fun x -> x) value value';
+                if size > 2 then begin
+                  let value = read_file file 1 (size - 2) in
+                  read_tar file 1 (size - 2)
+                  >>= fun value' ->
+                  assert_equal ~printer:(fun x -> x) value value';
+                  return ()
+                end else return ()
+             ) files in
+         Lwt_main.run t
+      )
 end
 
 module Sector512 = Test(Block)
 module Sector4096 = Test(Block4096)
- 
+
 let _ =
   let verbose = ref false in
   Arg.parse [
@@ -172,11 +172,11 @@ let _ =
     "Test tar parser";
 
   let suite = "tar" >:::
-    [
-      "header" >:: header;
-      "can_read_tar" >:: can_read_tar;
-      "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
-      "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
-     ] in
+              [
+                "header" >:: header;
+                "can_read_tar" >:: can_read_tar;
+                "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
+                "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
+              ] in
   run_test_tt ~verbose:!verbose suite
 

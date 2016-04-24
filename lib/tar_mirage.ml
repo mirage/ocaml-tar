@@ -64,10 +64,10 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
         Lwt.return (Cstruct.sub buffer offset 512) in
 
     Archive.fold (fun map tar data_offset ->
-      let filename = trim_slash tar.Tar.Header.file_name in
-      let map = StringMap.add filename (tar, data_offset) map in
-      Lwt.return map
-    ) StringMap.empty read
+        let filename = trim_slash tar.Tar.Header.file_name in
+        let map = StringMap.add filename (tar, data_offset) map in
+        Lwt.return map
+      ) StringMap.empty read
     >>= fun map ->
     Lwt.return (`Ok { b; map; info })
 

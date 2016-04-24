@@ -61,31 +61,31 @@ module Header : sig
 
   (** Helper function to make a simple header *)
   val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> ?uname:string -> ?gname:string -> ?devmajor:int -> ?devminor:int -> string -> int64 -> t
-    
+
   (** Length of a header block *)
   val length : int  
-    
+
   (** A blank header block (two of these in series mark the end of the tar) *)
   val zero_block : Cstruct.t
-    
+
   (** Pretty-print the header record *)
   val to_detailed_string : t -> string
 
   (** For debugging: pretty-print a string as hex *)
   val to_hex : string -> string
-    
+
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch
-    
+
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
-    
+
   (** Unmarshal a header block, returning None if it's all zeroes *)
   val unmarshal : ?level:compatibility -> Cstruct.t -> t option
-    
+
   (** Marshal a header block, computing and inserting the checksum *)
   val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
-    
+
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks *)
   val compute_zero_padding_length : t -> int
