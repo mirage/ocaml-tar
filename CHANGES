@@ -1,3 +1,6 @@
+0.5.0 (2016-04-24)
+- now requires cstruct >= 1.9.0 and OCaml 4.02+
+
 0.4.2 (2016-04-22)
 - test: only run tests if mirage-block-unix is present
 - improve the opam file
