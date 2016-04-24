@@ -17,28 +17,8 @@
 
 open Lwt
 
-let debug_io = ref false
-
-let complete name op fd buffer =
-  if !debug_io
-  then Printf.fprintf stderr "%s length=%d\n%!" name (Cstruct.len buffer);
-  let ofs = buffer.Cstruct.off in
-  let len = buffer.Cstruct.len in
-  let buf = buffer.Cstruct.buffer in
-  let rec loop acc fd buf ofs len =
-    op fd buf ofs len >>= fun n ->
-    let len' = len - n in
-    let acc' = acc + n in
-    if len' = 0 || n = 0
-    then return acc'
-    else loop acc' fd buf (ofs + n) len' in
-  loop 0 fd buf ofs len >>= fun n ->
-  if n = 0 && len <> 0
-  then fail End_of_file
-  else return ()
-
-let really_read = complete "read" Lwt_bytes.read
-let really_write = complete "write" Lwt_bytes.write
+let really_read fd = Lwt_cstruct.(complete (read fd))
+let really_write fd = Lwt_cstruct.(complete (write fd))
 
 let copy_n ifd ofd n =
   let block_size = 32768 in
