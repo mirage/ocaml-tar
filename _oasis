@@ -16,7 +16,7 @@ Library tar
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar
-  BuildDepends:       cstruct, re.str
+  BuildDepends:       cstruct, cstruct.ppx, re.str
   Findlibname:        tar
 
 Library tar_unix
@@ -32,7 +32,7 @@ Library tar_lwt_unix
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar_lwt_unix
-  BuildDepends:       tar, lwt, lwt.unix
+  BuildDepends:       tar, lwt, lwt.unix, cstruct.lwt
   Findlibname:        lwt
   Findlibparent:      tar
 

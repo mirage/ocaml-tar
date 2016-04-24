@@ -32,7 +32,7 @@ module Header : sig
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
   val get_next_header : ?level:compatibility -> Unix.file_descr -> t
-    
+
   (** Return the header needed for a particular file on disk *)
   val of_file : ?level:compatibility -> string -> t
 end
@@ -60,7 +60,7 @@ module Archive : sig
   (** [extract dest] extract the contents of a tar.
       Apply 'dest' on each source filename to know the destination filename *)
   val extract : (string -> string) -> Unix.file_descr -> unit
-    
+
   (** Create a tar on file descriptor fd from the filename list 'files' *)
   val create : string list -> Unix.file_descr -> unit
 
