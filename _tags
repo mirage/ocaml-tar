@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 7bbdf90be3b44f54e13f0dd1fe8e4f98)
+# DO NOT EDIT (digest: d0432a2cb3503938d35c7a1a4da9cea6)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -20,10 +20,12 @@ true: annot, bin_annot
 "lib/tar_unix.cmxs": use_tar_unix
 # Library tar_lwt_unix
 "lib/tar_lwt_unix.cmxs": use_tar_lwt_unix
+<lib/*.ml{,i,y}>: pkg_cstruct.lwt
 <lib/*.ml{,i,y}>: pkg_lwt.unix
 # Library tar_mirage
 "lib/tar_mirage.cmxs": use_tar_mirage
 <lib/*.ml{,i,y}>: pkg_cstruct
+<lib/*.ml{,i,y}>: pkg_cstruct.ppx
 <lib/*.ml{,i,y}>: pkg_io-page
 <lib/*.ml{,i,y}>: pkg_lwt
 <lib/*.ml{,i,y}>: pkg_mirage-types.lwt
@@ -31,6 +33,8 @@ true: annot, bin_annot
 <lib/*.ml{,i,y}>: use_tar
 # Executable parse_test
 <lib_test/parse_test.{native,byte}>: pkg_cstruct
+<lib_test/parse_test.{native,byte}>: pkg_cstruct.lwt
+<lib_test/parse_test.{native,byte}>: pkg_cstruct.ppx
 <lib_test/parse_test.{native,byte}>: pkg_io-page
 <lib_test/parse_test.{native,byte}>: pkg_io-page.unix
 <lib_test/parse_test.{native,byte}>: pkg_lwt
@@ -44,6 +48,8 @@ true: annot, bin_annot
 <lib_test/parse_test.{native,byte}>: use_tar_mirage
 <lib_test/parse_test.{native,byte}>: use_tar_unix
 <lib_test/*.ml{,i,y}>: pkg_cstruct
+<lib_test/*.ml{,i,y}>: pkg_cstruct.lwt
+<lib_test/*.ml{,i,y}>: pkg_cstruct.ppx
 <lib_test/*.ml{,i,y}>: pkg_io-page
 <lib_test/*.ml{,i,y}>: pkg_io-page.unix
 <lib_test/*.ml{,i,y}>: pkg_lwt
