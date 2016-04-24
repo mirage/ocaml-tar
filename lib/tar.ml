@@ -20,24 +20,26 @@ module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
       http://en.wikipedia.org/w/index.php?title=Tar_%28file_format%29&oldid=83554041 *)
 
-  cstruct hdr {
-    uint8_t file_name[100];
-    uint8_t file_mode[8];
-    uint8_t user_id[8];
-    uint8_t group_id[8];
-    uint8_t file_size[12];
-    uint8_t mod_time[12];
-    uint8_t chksum[8];
-    uint8_t link_indicator;
-    uint8_t link_name[100];
-    uint8_t magic[6];
-    uint8_t version[2];
-    uint8_t uname[32];
-    uint8_t gname[32];
-    uint8_t devmajor[8];
-    uint8_t devminor[8];
-    uint8_t prefix[155]
-  } as little_endian (* doesn't matter, all are strings *)
+  [%%cstruct
+  type hdr = {
+    file_name:      uint8_t [@len 100];
+    file_mode:      uint8_t [@len 8];
+    user_id:        uint8_t [@len 8];
+    group_id:       uint8_t [@len 8];
+    file_size:      uint8_t [@len 12];
+    mod_time:       uint8_t [@len 12];
+    chksum:         uint8_t [@len 8];
+    link_indicator: uint8_t ;
+    link_name:      uint8_t [@len 100];
+    magic:          uint8_t [@len 6];
+    version:        uint8_t [@len 2];
+    uname:          uint8_t [@len 32];
+    gname:          uint8_t [@len 32];
+    devmajor:       uint8_t [@len 8];
+    devminor:       uint8_t [@len 8];
+    prefix:         uint8_t [@len 155]
+  } [@@little_endian]
+  ] (* doesn't matter, all are strings *)
 
   let sizeof_hdr_file_name = 100
   let sizeof_hdr_file_mode = 8

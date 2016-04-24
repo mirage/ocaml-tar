@@ -58,5 +58,3 @@ true: annot, bin_annot
 <lib_test/*.ml{,i,y}>: use_tar_unix
 <lib_test/parse_test.{native,byte}>: custom
 # OASIS_STOP
-<lib/*>: syntax_camlp4o, pkg_cstruct.syntax
-
