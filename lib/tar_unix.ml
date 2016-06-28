@@ -27,7 +27,7 @@ module Driver = struct
 
   let output fd str off n =
     let written = Unix.write fd str off n in
-    if str <> "" && String.length str > written then failwith "Truncated write"
+    if written < n then failwith "Truncated write"
 
   let input = Unix.read
   let close_out = Unix.close
