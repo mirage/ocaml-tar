@@ -19,17 +19,29 @@ module Driver = struct
   type in_channel = Unix.file_descr
   type out_channel = Unix.file_descr
 
-  let rec really_input fd string off n =
-    if n=0 then () else
-      let m = Unix.read fd string off n in
+
+  let rec with_restart op fd buf off len =
+    try op fd buf off len with
+      Unix.Unix_error (Unix.EINTR,_,_) ->
+      with_restart op fd buf off len
+
+  let rec really_input fd buf off = function
+    | 0 -> ()
+    | len ->
+      let m = Unix.read fd buf off len in
       if m = 0 then raise End_of_file;
-      really_input fd string (off+m) (n-m)
+      really_input fd buf (off+m) (len-m)
 
-  let output fd str off n =
-    let written = Unix.write fd str off n in
-    if written < n then failwith "Truncated write"
 
-  let input = Unix.read
+  let rec really_output fd buf off = function
+    | 0 -> ()
+    | len ->
+      let m = Unix.write fd buf off len in
+      really_output fd buf (off+m) (len-m)
+
+  let output = with_restart really_output
+  let input = with_restart Unix.read
+  let really_input = with_restart really_input
   let close_out = Unix.close
 end
 
