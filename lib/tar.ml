@@ -222,7 +222,7 @@ module Header = struct
     let tmp = "0o0" ^ (trim_numerical x) in
     try
       int_of_string tmp
-    with Failure "int_of_string" as e ->
+    with Failure _ as e ->
       Printf.eprintf "Failed to parse integer [%s] == %s\n" tmp (to_hex tmp);
       raise e
 
