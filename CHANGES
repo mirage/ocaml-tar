@@ -1,3 +1,7 @@
+0.5.1 (2016-08-30)
+- handle EINTR and short writes properly (@ivg)
+- avoid a warning catching `Failure` exceptions from `int_of_string`
+
 0.5.0 (2016-04-24)
 - now requires cstruct >= 1.9.0 and OCaml 4.02+
 
