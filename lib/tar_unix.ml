@@ -72,18 +72,19 @@ module Header = struct
   let of_file ?level (file: string) : t =
     let level = match level with None -> V7 | Some level -> level in
     let stat = Unix.LargeFile.lstat file in
-    { file_name   = file;
-      file_mode   = stat.Unix.LargeFile.st_perm;
-      user_id     = stat.Unix.LargeFile.st_uid;
-      group_id    = stat.Unix.LargeFile.st_gid;
-      file_size   = stat.Unix.LargeFile.st_size;
-      mod_time    = Int64.of_float stat.Unix.LargeFile.st_mtime;
-      link_indicator = Link.Normal;
-      link_name   = "";
-      uname       = if level = V7 then "" else (Unix.getpwuid stat.Unix.LargeFile.st_uid).Unix.pw_name;
-      gname       = if level = V7 then "" else (Unix.getgrgid stat.Unix.LargeFile.st_gid).Unix.gr_name;
-      devmajor    = if level = Ustar then stat.Unix.LargeFile.st_dev else 0;
-      devminor    = if level = Ustar then stat.Unix.LargeFile.st_rdev else 0; }
+    let file_mode = stat.Unix.LargeFile.st_perm in
+    let user_id = stat.Unix.LargeFile.st_uid in
+    let group_id = stat.Unix.LargeFile.st_gid in
+    let file_size = stat.Unix.LargeFile.st_size in
+    let mod_time = Int64.of_float stat.Unix.LargeFile.st_mtime in
+    let link_indicator = Link.Normal in
+    let link_name = "" in
+    let uname = if level = V7 then "" else (Unix.getpwuid stat.Unix.LargeFile.st_uid).Unix.pw_name in
+    let devmajor = if level = Ustar then stat.Unix.LargeFile.st_dev else 0 in
+    let gname = if level = V7 then "" else (Unix.getgrgid stat.Unix.LargeFile.st_gid).Unix.gr_name in
+    let devminor = if level = Ustar then stat.Unix.LargeFile.st_rdev else 0 in
+    make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+      ~uname ~gname ~devmajor ~devminor file stat.Unix.LargeFile.st_size
 end
 
 let write_block = T.write_block

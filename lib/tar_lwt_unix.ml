@@ -33,6 +33,19 @@ let copy_n ifd ofd n =
     end in
   loop n
 
+(** Skip 'n' bytes from input channel 'ifd' *)
+let skip (ifd: Lwt_unix.file_descr) (n: int) =
+  let buffer_size = 32768 in
+  let buffer = Cstruct.create buffer_size in
+  let rec loop (n: int) =
+    if n <= 0 then return ()
+    else
+      let amount = min n buffer_size in
+      let block = Cstruct.sub buffer 0 amount in
+      really_read ifd block >>= fun () ->
+      loop (n - amount) in
+  loop n
+
 module Header = struct
   include Tar.Header
 
@@ -41,12 +54,36 @@ module Header = struct
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
   let get_next_header ?level (ifd: Lwt_unix.file_descr) : t option Lwt.t =
-    let next () =
+    let next_block () =
       let buffer = Cstruct.create length in
       really_read ifd buffer >>= fun () ->
       return (unmarshal ?level buffer)
     in
+    let next () =
+      next_block () >>= function
+      | Some x when x.link_indicator = Link.GlobalExtendedHeader -> next_block ()
+      | Some x -> return (Some x)
+      | None -> return None
+    in
     next () >>= function
+    | Some x when x.link_indicator = Link.PerFileExtendedHeader ->
+      let extra_header_buf = Cstruct.create (Int64.to_int x.Tar.Header.file_size) in
+      really_read ifd extra_header_buf
+      >>= fun () ->
+      skip ifd (compute_zero_padding_length x) >>= fun () ->
+      let _extended = Extended.unmarshal extra_header_buf in
+      let real_header_buf = Cstruct.create length in
+      really_read ifd real_header_buf
+      >>= fun () ->
+      begin match unmarshal ?level real_header_buf with
+      | Some y ->
+        (* The header data is stored in the payload *)
+        (* XXX: do something with extra header *)
+        return (Some y)
+      | None ->
+        (* Malformed tar stream: needed a header following the extended header *)
+        Lwt.fail End_of_file
+      end
     | Some x -> return (Some x)
     | None ->
       begin next () >>= function
@@ -60,18 +97,19 @@ module Header = struct
     Lwt_unix.LargeFile.stat file >>= fun stat ->
     Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
     Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
-    return { file_name   = file;
-             file_mode   = stat.Lwt_unix.LargeFile.st_perm;
-             user_id     = stat.Lwt_unix.LargeFile.st_uid;
-             group_id    = stat.Lwt_unix.LargeFile.st_gid;
-             file_size   = stat.Lwt_unix.LargeFile.st_size;
-             mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime;
-             link_indicator = Link.Normal;
-             link_name   = "";
-             uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name;
-             gname       = if level = V7 then "" else grent.Lwt_unix.gr_name;
-             devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0;
-             devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0; }
+    let file_mode   = stat.Lwt_unix.LargeFile.st_perm in
+    let user_id     = stat.Lwt_unix.LargeFile.st_uid in
+    let group_id    = stat.Lwt_unix.LargeFile.st_gid in
+    let file_size   = stat.Lwt_unix.LargeFile.st_size in
+    let mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime in
+    let link_indicator = Link.Normal in
+    let link_name   = "" in
+    let uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name in
+    let gname       = if level = V7 then "" else grent.Lwt_unix.gr_name in
+    let devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0 in
+    let devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
+    Lwt.return (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+      ~uname ~gname ~devmajor ~devminor file file_size)
 end
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
@@ -88,18 +126,6 @@ let write_end (fd: Lwt_unix.file_descr) =
 (** Utility functions for operating over whole tar archives *)
 module Archive = struct
 
-  (** Skip 'n' bytes from input channel 'ifd' *)
-  let skip (ifd: Lwt_unix.file_descr) (n: int) =
-    let buffer_size = 32768 in
-    let buffer = Cstruct.create buffer_size in
-    let rec loop (n: int) =
-      if n <= 0 then return ()
-      else
-        let amount = min n buffer_size in
-        let block = Cstruct.sub buffer 0 amount in
-        really_read ifd block >>= fun () ->
-        loop (n - amount) in
-    loop n
 
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
