@@ -134,6 +134,28 @@ module Archive : functor(ASYNC: ASYNC) -> sig
       files within the archive *)
 end
 
+module type READER = sig
+  type in_channel
+  type 'a t
+  val really_read: in_channel -> Cstruct.t -> unit t
+end
+
+module type WRITER = sig
+  type out_channel
+  type 'a t
+  val really_write: out_channel -> Cstruct.t -> unit t
+end
+
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
+ sig
+  (** Returns the next header block or throws End_of_stream if two consecutive
+      zero-filled blocks are discovered. Assumes stream is positioned at the
+      possible start of a header block. End_of_file is thrown if the stream
+      unexpectedly fails *)
+  val read : ?level:Header.compatibility -> Reader.in_channel -> (Header.t, [`Eof]) Result.result Async.t
+end
+
+
 module type IO = sig
   type in_channel
   type out_channel
@@ -156,7 +178,7 @@ module Make (IO : IO) : sig
   module Header : sig
     include module type of Header
 
-    (** Returns the next header block or throws End_of_stream if two consecutive
+    (** Returns the next header block or fails with `Eof if two consecutive
         zero-filled blocks are discovered. Assumes stream is positioned at the
         possible start of a header block. End_of_file is thrown if the stream
         unexpectedly fails *)

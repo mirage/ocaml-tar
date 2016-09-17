@@ -501,6 +501,14 @@ module type ASYNC = sig
   val return: 'a -> 'a t
 end
 
+(* If we aren't using Lwt/Async style threads, instantiate the functor with
+   this. *)
+module Direct = struct
+  type 'a t = 'a
+  let return x = x
+  let ( >>= ) m f = f m
+end
+
 module Archive = functor(ASYNC: ASYNC) -> struct
   open ASYNC
 
@@ -522,6 +530,116 @@ module Archive = functor(ASYNC: ASYNC) -> struct
 
 end
 
+module type READER = sig
+  type in_channel
+  type 'a t
+  val really_read: in_channel -> Cstruct.t -> unit t
+end
+
+module type WRITER = sig
+  type out_channel
+  type 'a t
+  val really_write: out_channel -> Cstruct.t -> unit t
+end
+
+module Skip(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
+  open Async
+  open Reader
+
+  let skip (ifd: in_channel) (n: int) =
+    let buffer = Cstruct.create 4096 in
+    let rec loop (n: int) =
+      if n <= 0 then return ()
+      else
+        let amount = min n (Cstruct.len buffer) in
+        really_read ifd (Cstruct.sub buffer 0 amount)
+        >>= fun () ->
+        loop (n - amount) in
+    loop n
+end
+
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
+  open Async
+  open Reader
+
+  module S = Skip(Async)(Reader)
+  open S
+
+  let read ?level (ifd: Reader.in_channel) : (Header.t, [ `Eof ]) Result.result t =
+    let level = Header.get_level level in
+    (* We might need to read 2 headers at once if we encounter a Pax header *)
+    let buffer = Cstruct.create Header.length in
+    let real_header_buf = Cstruct.create Header.length in
+
+    let next_block () =
+      really_read ifd buffer
+      >>= fun () ->
+      return (Header.unmarshal ~level buffer) in
+
+    (* Skip Pax GlobalExtendedHeaders *)
+    let next () =
+      next_block ()
+      >>= function
+      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader -> next_block ()
+      | x -> return x in
+
+    let get_hdr () =
+      next ()
+      >>= function
+      | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
+        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        really_read ifd extra_header_buf
+        >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x)
+        >>= fun () ->
+        let extended = Header.Extended.unmarshal extra_header_buf in
+        really_read ifd real_header_buf
+        >>= fun () ->
+        begin match Header.unmarshal ~level ~extended real_header_buf with
+        | None ->
+          (* Corrupt pax headers *)
+          return (Result.Error `Eof)
+        | Some x -> return (Result.Ok x)
+        end
+      | Some x -> return (Result.Ok x)
+      | None ->
+        begin
+          next ()
+          >>= function
+          | Some x -> return (Result.Ok x)
+          | None -> return (Result.Error `Eof)
+        end in
+
+    let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) Result.result Async.t =
+      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
+      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
+        let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
+        let pad = Cstruct.create (Header.compute_zero_padding_length hdr) in
+        really_read ifd data
+        >>= fun () ->
+        really_read ifd pad
+        >>= fun () ->
+        let data = Header.unmarshal_string (Cstruct.to_string data) in
+        get_hdr ()
+        >>= function
+        | Result.Error `Eof -> return (Result.Error `Eof)
+        | Result.Ok hdr ->
+          if raw_link_indicator = 75
+          then read_header (file_name, data, hdr)
+          else read_header (data, link_name, hdr)
+      else begin
+        let link_name = if link_name = "" then hdr.Header.link_name else link_name in
+        let file_name = if file_name = "" then hdr.Header.file_name else file_name in
+        return (Result.Ok {hdr with Header.link_name; file_name })
+      end in
+    get_hdr ()
+    >>= function
+    | Result.Error `Eof -> return (Result.Error `Eof)
+    | Result.Ok hdr ->
+      read_header ("", "", hdr)
+
+end
+
 module type IO = sig
   type in_channel
   type out_channel
@@ -533,11 +651,16 @@ module type IO = sig
 end
 
 module Make (IO : IO) = struct
-  (* XXX: there's no function to read directly into a bigarray *)
-  let really_read ifd buffer =
-    let s = Bytes.create (Cstruct.len buffer) in
-    IO.really_input ifd s 0 (Cstruct.len buffer);
-    Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+  module Reader = struct
+    type in_channel = IO.in_channel
+    type 'a t = 'a Direct.t
+    (* XXX: there's no function to read directly into a bigarray *)
+    let really_read (ifd: IO.in_channel) buffer : unit t =
+      let s = Bytes.create (Cstruct.len buffer) in
+      IO.really_input ifd s 0 (Cstruct.len buffer);
+      Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+  end
+  let really_read = Reader.really_read
 
   (* XXX: there's no function to write directly from a bigarray *)
   let really_write fd buffer =
@@ -554,17 +677,8 @@ module Make (IO : IO) = struct
     clean_f ();
     result
 
-  (** Skip 'n' bytes from input channel 'ifd' *)
-  let skip (ifd: IO.in_channel) (n: int) =
-    let buffer = String.make 4096 '\000' in
-    let rec loop (n: int) =
-      if n <= 0 then ()
-      else
-        let amount = min n (String.length buffer) in
-        let m = IO.input ifd buffer 0 amount in
-        if m = 0 then raise End_of_file;
-        loop (n - m) in
-    loop n
+  module S = Skip(Direct)(Reader)
+  open S
 
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
     let level = Header.get_level level in
@@ -603,60 +717,7 @@ module Make (IO : IO) = struct
     really_write fd Header.zero_block;
     really_write fd Header.zero_block
 
-  (** Returns the next header block or throws End_of_stream if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block. End_of_file is thrown if the stream
-      unexpectedly fails *)
-  let get_next_header ?level (ifd: IO.in_channel) : Header.t =
-    let level = Header.get_level level in
-    (* We might need to read 2 headers at once if we encounter a Pax header *)
-    let buffer = Cstruct.create Header.length in
-    let real_header_buf = Cstruct.create Header.length in
-
-    let next_block () =
-      really_read ifd buffer;
-      Header.unmarshal ~level buffer in
-
-    (* Skip Pax GlobalExtendedHeaders *)
-    let next () =
-      match next_block () with
-      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader -> next_block ()
-      | x -> x in
-
-    let get_hdr () =
-      match next () with
-      | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
-        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
-        really_read ifd extra_header_buf;
-        skip ifd (Header.compute_zero_padding_length x);
-        let extended = Header.Extended.unmarshal extra_header_buf in
-        really_read ifd real_header_buf;
-        begin match Header.unmarshal ~level ~extended real_header_buf with
-        | None ->
-          (* Corrupt pax headers *)
-          raise Header.End_of_stream
-        | Some x -> x
-        end
-      | Some x -> x
-      | None ->
-        begin match next () with
-          | Some x -> x
-          | None -> raise Header.End_of_stream
-        end in
-
-    let rec read_header (file_name, link_name, hdr) =
-      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
-      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
-        let data = Bytes.create (Int64.to_int hdr.Header.file_size) in
-        let pad = Bytes.create (Header.compute_zero_padding_length hdr) in
-        IO.really_input ifd data 0 (Int64.to_int hdr.Header.file_size);
-        IO.really_input ifd pad 0 (String.length pad);
-        let data = Header.unmarshal_string data in
-        if raw_link_indicator = 75 then read_header (file_name, data, get_hdr ())
-        else read_header (data, link_name, get_hdr ())
-      else {hdr with Header.link_name = if link_name = "" then hdr.Header.link_name else link_name; file_name = if file_name = "" then hdr.Header.file_name else file_name} in
-    let hdr = get_hdr () in
-    read_header ("", "", hdr)
+  module HR = HeaderReader(Direct)(Reader)
 
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
@@ -667,10 +728,12 @@ module Make (IO : IO) = struct
         should leave the fd positioned immediately after the datablock. Finally the function
         skips past the zero padding to the next header *)
     let with_next_file (fd: IO.in_channel) (f: IO.in_channel -> Header.t -> 'a) =
-      let hdr = get_next_header fd in
-      (* NB if the function 'f' fails we're boned *)
-      finally (fun () -> f fd hdr)
-        (fun () -> skip fd (Header.compute_zero_padding_length hdr))
+      match HR.read fd with
+      | Result.Ok hdr ->
+        (* NB if the function 'f' fails we're boned *)
+        finally (fun () -> f fd hdr)
+          (fun () -> skip fd (Header.compute_zero_padding_length hdr))
+      | Result.Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
     let list ?level fd =
@@ -678,10 +741,12 @@ module Make (IO : IO) = struct
       let list = ref [] in
       try
         while true do
-          let hdr = get_next_header ~level fd in
-          list := hdr :: !list;
-          skip fd (Int64.to_int hdr.Header.file_size);
-          skip fd (Header.compute_zero_padding_length hdr)
+          match HR.read ~level fd with
+          | Result.Ok hdr ->
+            list := hdr :: !list;
+            skip fd (Int64.to_int hdr.Header.file_size);
+            skip fd (Header.compute_zero_padding_length hdr)
+          | Result.Error `Eof -> raise Header.End_of_stream
         done;
         List.rev !list;
       with
@@ -709,13 +774,15 @@ module Make (IO : IO) = struct
     let extract_gen dest ifd =
       try
         while true do
-          let hdr = get_next_header ifd in
-          let size = hdr.Header.file_size in
-          let padding = Header.compute_zero_padding_length hdr in
-          let ofd = dest hdr in
-          copy_n ifd ofd size;
-          IO.close_out ofd;
-          skip ifd padding
+          match HR.read ifd with
+          | Result.Ok hdr ->
+            let size = hdr.Header.file_size in
+            let padding = Header.compute_zero_padding_length hdr in
+            let ofd = dest hdr in
+            copy_n ifd ofd size;
+            IO.close_out ofd;
+            skip ifd padding
+          | Result.Error `Eof -> raise Header.End_of_stream
         done
       with
       | End_of_file -> failwith "Unexpected end of file while reading stream"
@@ -736,6 +803,9 @@ module Make (IO : IO) = struct
   module Header = struct
     include Header
 
-    let get_next_header = get_next_header
+    let get_next_header ?level ic = match HR.read ?level ic with
+      | Result.Ok hdr -> hdr
+      | Result.Error `Eof -> raise Header.End_of_stream
+
   end
 end

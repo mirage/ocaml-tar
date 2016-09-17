@@ -17,8 +17,18 @@
 
 open Lwt
 
-let really_read fd = Lwt_cstruct.(complete (read fd))
-let really_write fd = Lwt_cstruct.(complete (write fd))
+module Reader = struct
+  type in_channel = Lwt_unix.file_descr
+  type 'a t = 'a Lwt.t
+  let really_read fd = Lwt_cstruct.(complete (read fd))
+end
+let really_read = Reader.really_read
+module Writer = struct
+  type out_channel = Lwt_unix.file_descr
+  type 'a t = 'a Lwt.t
+  let really_write fd = Lwt_cstruct.(complete (write fd))
+end
+let really_write = Writer.really_write
 
 let copy_n ifd ofd n =
   let block_size = 32768 in
@@ -49,47 +59,12 @@ let skip (ifd: Lwt_unix.file_descr) (n: int) =
 module Header = struct
   include Tar.Header
 
-  (** Returns the next header block or None if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block. End_of_file is thrown if the stream
-      unexpectedly fails *)
-  let get_next_header ?level (ifd: Lwt_unix.file_descr) : t option Lwt.t =
-    let next_block () =
-      let buffer = Cstruct.create length in
-      really_read ifd buffer >>= fun () ->
-      return (unmarshal ?level buffer)
-    in
-    let next () =
-      next_block () >>= function
-      | Some x when x.link_indicator = Link.GlobalExtendedHeader -> next_block ()
-      | Some x -> return (Some x)
-      | None -> return None
-    in
-    next () >>= function
-    | Some x when x.link_indicator = Link.PerFileExtendedHeader ->
-      let extra_header_buf = Cstruct.create (Int64.to_int x.Tar.Header.file_size) in
-      really_read ifd extra_header_buf
-      >>= fun () ->
-      skip ifd (compute_zero_padding_length x) >>= fun () ->
-      let _extended = Extended.unmarshal extra_header_buf in
-      let real_header_buf = Cstruct.create length in
-      really_read ifd real_header_buf
-      >>= fun () ->
-      begin match unmarshal ?level real_header_buf with
-      | Some y ->
-        (* The header data is stored in the payload *)
-        (* XXX: do something with extra header *)
-        return (Some y)
-      | None ->
-        (* Malformed tar stream: needed a header following the extended header *)
-        Lwt.fail End_of_file
-      end
-    | Some x -> return (Some x)
-    | None ->
-      begin next () >>= function
-        | Some x -> return (Some x)
-        | None -> return None
-      end
+  module HR = Tar.HeaderReader(Lwt)(Reader)
+  let get_next_header ?level ic =
+    HR.read ?level ic
+    >>= function
+    | Result.Error `Eof -> return None
+    | Result.Ok hdr -> return (Some hdr)
 
   (** Return the header needed for a particular file on disk *)
   let of_file ?level (file: string) : t Lwt.t =
