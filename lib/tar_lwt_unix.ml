@@ -56,10 +56,12 @@ let skip (ifd: Lwt_unix.file_descr) (n: int) =
       loop (n - amount) in
   loop n
 
+module HR = Tar.HeaderReader(Lwt)(Reader)
+module HW = Tar.HeaderWriter(Lwt)(Writer)
+
 module Header = struct
   include Tar.Header
 
-  module HR = Tar.HeaderReader(Lwt)(Reader)
   let get_next_header ?level ic =
     HR.read ?level ic
     >>= function
@@ -88,9 +90,8 @@ module Header = struct
 end
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
-  let buffer = Cstruct.create Tar.Header.length in
-  Tar.Header.marshal buffer header;
-  really_write fd buffer >>= fun () ->
+  HW.write header fd
+  >>= fun () ->
   body fd >>= fun () ->
   really_write fd (Tar.Header.zero_padding header)
 

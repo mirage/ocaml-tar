@@ -155,6 +155,9 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
   val read : ?level:Header.compatibility -> Reader.in_channel -> (Header.t, [`Eof]) Result.result Async.t
 end
 
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) : sig
+  val write : ?level:Header.compatibility -> Header.t -> Writer.out_channel -> unit Async.t
+end
 
 module type IO = sig
   type in_channel

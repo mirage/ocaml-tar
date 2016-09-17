@@ -640,6 +640,49 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
 
 end
 
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = struct
+  open Async
+  open Writer
+  let write ?level header fd =
+    let level = Header.get_level level in
+    let buffer = Cstruct.create Header.length in
+    Cstruct.memset buffer 0;
+    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
+    ( if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
+        ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
+            let file_size = String.length header.Header.link_name + 1 in
+            let blank = {blank with Header.file_size = Int64.of_int file_size} in
+            Header.imarshal ~level buffer 75 blank;
+            really_write fd buffer
+            >>= fun () ->
+            let text = header.Header.link_name ^ "\000" in
+            let payload = Cstruct.create (String.length text) in
+            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            really_write fd payload
+            >>= fun () ->
+            really_write fd (Header.zero_padding blank)
+          end else return () )
+        >>= fun () ->
+        ( if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+            let file_size = String.length header.Header.file_name + 1 in
+            let blank = {blank with Header.file_size = Int64.of_int file_size} in
+            Header.imarshal ~level buffer 76 blank;
+            really_write fd buffer
+            >>= fun () ->
+            let text = header.Header.file_name ^ "\000" in
+            let payload = Cstruct.create (String.length text) in
+            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            really_write fd payload
+          end else return () )
+        >>= fun () ->
+        Cstruct.memset buffer 0;
+        return ()
+      end else return () )
+    >>= fun () ->
+    Header.marshal ~level buffer header;
+    really_write fd buffer
+end
+
 module type IO = sig
   type in_channel
   type out_channel
@@ -660,13 +703,17 @@ module Make (IO : IO) = struct
       IO.really_input ifd s 0 (Cstruct.len buffer);
       Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
   end
+  module Writer = struct
+    type out_channel = IO.out_channel
+    type 'a t = 'a Direct.t
+    (* XXX: there's no function to write directly from a bigarray *)
+    let really_write fd buffer =
+      let s = Cstruct.to_string buffer in
+      if String.length s > 0
+      then IO.output fd s 0 (String.length s)
+  end
   let really_read = Reader.really_read
-
-  (* XXX: there's no function to write directly from a bigarray *)
-  let really_write fd buffer =
-    let s = Cstruct.to_string buffer in
-    if String.length s > 0
-    then IO.output fd s 0 (String.length s)
+  let really_write = Writer.really_write
 
   let finally fct clean_f =
     let result =
@@ -680,36 +727,10 @@ module Make (IO : IO) = struct
   module S = Skip(Direct)(Reader)
   open S
 
+  module HW = HeaderWriter(Direct)(Writer)
+
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
-    let level = Header.get_level level in
-    let buffer = Cstruct.create Header.length in
-    for i = 0 to Header.length - 1 do
-      Cstruct.set_uint8 buffer i 0
-    done;
-    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
-    if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
-      if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
-        let file_size = String.length header.Header.link_name + 1 in
-        let blank = {blank with Header.file_size = Int64.of_int file_size} in
-        Header.imarshal ~level buffer 75 blank;
-        really_write fd buffer;
-        IO.output fd (header.Header.link_name ^ "\000") 0 file_size;
-        really_write fd (Header.zero_padding blank)
-      end;
-      if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
-        let file_size = String.length header.Header.file_name + 1 in
-        let blank = {blank with Header.file_size = Int64.of_int file_size} in
-        Header.imarshal ~level buffer 76 blank;
-        really_write fd buffer;
-        IO.output fd (header.Header.file_name ^ "\000") 0 file_size;
-        really_write fd (Header.zero_padding blank)
-      end;
-      for i = 0 to Header.length - 1 do
-        Cstruct.set_uint8 buffer i 0
-      done
-    end;
-    Header.marshal ~level buffer header;
-    really_write fd buffer;
+    HW.write ?level header fd;
     body fd;
     really_write fd (Header.zero_padding header)
 
