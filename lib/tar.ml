@@ -193,6 +193,28 @@ module Header = struct
       { access_time; charset; comment; group_id; gname; header_charset;
         link_path; mod_time; path; file_size; user_id; uname }
 
+    let marshal t =
+      let pairs =
+        (match t.access_time    with None -> [] | Some x -> [ "atime", Int64.to_string x ])
+      @ (match t.charset        with None -> [] | Some x -> [ "charset", x ])
+      @ (match t.comment        with None -> [] | Some x -> [ "comment", x ])
+      @ (match t.group_id       with None -> [] | Some x -> [ "gid", string_of_int x ])
+      @ (match t.gname          with None -> [] | Some x -> [ "group_name", x ])
+      @ (match t.header_charset with None -> [] | Some x -> [ "hdrcharset", x ])
+      @ (match t.link_path      with None -> [] | Some x -> [ "linkpath", x ])
+      @ (match t.mod_time       with None -> [] | Some x -> [ "mtime", Int64.to_string x ])
+      @ (match t.path           with None -> [] | Some x -> [ "path", x ])
+      @ (match t.file_size      with None -> [] | Some x -> [ "size", Int64.to_string x ])
+      @ (match t.user_id        with None -> [] | Some x -> [ "uid", string_of_int x ])
+      @ (match t.uname          with None -> [] | Some x -> [ "uname", x ]) in
+      let txt = String.concat "" (List.map (fun (k, v) ->
+        let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
+        Printf.sprintf "%08d %s=%s\n" length k v
+      ) pairs) in
+      let buffer = Cstruct.create (String.length txt) in
+      Cstruct.blit_from_string txt 0 buffer 0 (String.length txt);
+      buffer
+
     let unmarshal (c: Cstruct.t) : t =
       (* "%d %s=%s\n", <length>, <keyword>, <value> with constraints that
          - the <keyword> cannot contain an equals sign
@@ -643,7 +665,7 @@ end
 module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = struct
   open Async
   open Writer
-  let write ?level header fd =
+  let write_unextended ?level header fd =
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     Cstruct.memset buffer 0;
@@ -681,6 +703,21 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
     >>= fun () ->
     Header.marshal ~level buffer header;
     really_write fd buffer
+
+  let write ?level header fd =
+    ( match header.Header.extended with
+      | None -> return ()
+      | Some e ->
+        let pax_payload = Header.Extended.marshal e in
+        let pax = Header.make ~link_indicator:Header.Link.PerFileExtendedHeader
+          "paxheader" (Int64.of_int @@ Cstruct.len pax_payload) in
+        write_unextended ?level pax fd
+        >>= fun () ->
+        really_write fd pax_payload
+        >>= fun () ->
+        really_write fd (Header.zero_padding pax) )
+    >>= fun () ->
+    write_unextended ?level header fd
 end
 
 module type IO = sig
