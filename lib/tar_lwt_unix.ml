@@ -21,6 +21,17 @@ module Reader = struct
   type in_channel = Lwt_unix.file_descr
   type 'a t = 'a Lwt.t
   let really_read fd = Lwt_cstruct.(complete (read fd))
+  let skip (ifd: Lwt_unix.file_descr) (n: int) =
+    let buffer_size = 32768 in
+    let buffer = Cstruct.create buffer_size in
+    let rec loop (n: int) =
+      if n <= 0 then return ()
+      else
+        let amount = min n buffer_size in
+        let block = Cstruct.sub buffer 0 amount in
+        really_read ifd block >>= fun () ->
+        loop (n - amount) in
+    loop n
 end
 let really_read = Reader.really_read
 module Writer = struct
@@ -41,19 +52,6 @@ let copy_n ifd ofd n =
       really_write ofd block >>= fun () ->
       loop (Int64.(sub remaining (of_int this)))
     end in
-  loop n
-
-(** Skip 'n' bytes from input channel 'ifd' *)
-let skip (ifd: Lwt_unix.file_descr) (n: int) =
-  let buffer_size = 32768 in
-  let buffer = Cstruct.create buffer_size in
-  let rec loop (n: int) =
-    if n <= 0 then return ()
-    else
-      let amount = min n buffer_size in
-      let block = Cstruct.sub buffer 0 amount in
-      really_read ifd block >>= fun () ->
-      loop (n - amount) in
   loop n
 
 module HR = Tar.HeaderReader(Lwt)(Reader)
@@ -110,7 +108,7 @@ module Archive = struct
     Header.get_next_header fd >>= function
     | Some hdr ->
       f fd hdr >>= fun result ->
-      skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+      Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
       return (Some result)
     | None ->
       return None
@@ -120,8 +118,8 @@ module Archive = struct
     let rec loop acc = Header.get_next_header ?level fd >>= function
       | None -> return (List.rev acc)
       | Some hdr ->
-        skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
-        skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+        Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
+        Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop (hdr :: acc) in
     loop []
 
@@ -134,7 +132,7 @@ module Archive = struct
         print_endline filename;
         Lwt_unix.openfile filename [Unix.O_WRONLY] 0644 >>= fun ofd ->
         copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
-        skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+        Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop () in
     loop ()
 

@@ -556,6 +556,7 @@ module type READER = sig
   type in_channel
   type 'a t
   val really_read: in_channel -> Cstruct.t -> unit t
+  val skip: in_channel -> int -> unit t
 end
 
 module type WRITER = sig
@@ -564,28 +565,10 @@ module type WRITER = sig
   val really_write: out_channel -> Cstruct.t -> unit t
 end
 
-module Skip(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
-  open Async
-  open Reader
-
-  let skip (ifd: in_channel) (n: int) =
-    let buffer = Cstruct.create 4096 in
-    let rec loop (n: int) =
-      if n <= 0 then return ()
-      else
-        let amount = min n (Cstruct.len buffer) in
-        really_read ifd (Cstruct.sub buffer 0 amount)
-        >>= fun () ->
-        loop (n - amount) in
-    loop n
-end
-
 module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
   open Async
   open Reader
 
-  module S = Skip(Async)(Reader)
-  open S
 
   let read ?level (ifd: Reader.in_channel) : (Header.t, [ `Eof ]) Result.result t =
     let level = Header.get_level level in
@@ -739,6 +722,16 @@ module Make (IO : IO) = struct
       let s = Bytes.create (Cstruct.len buffer) in
       IO.really_input ifd s 0 (Cstruct.len buffer);
       Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+
+    let skip (ifd: in_channel) (n: int) =
+      let buffer = Cstruct.create 4096 in
+      let rec loop (n: int) =
+        if n <= 0 then ()
+        else
+          let amount = min n (Cstruct.len buffer) in
+          really_read ifd (Cstruct.sub buffer 0 amount);
+          loop (n - amount) in
+      loop n
   end
   module Writer = struct
     type out_channel = IO.out_channel
@@ -761,9 +754,6 @@ module Make (IO : IO) = struct
     clean_f ();
     result
 
-  module S = Skip(Direct)(Reader)
-  open S
-
   module HW = HeaderWriter(Direct)(Writer)
 
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
@@ -780,7 +770,7 @@ module Make (IO : IO) = struct
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
 
-    let skip = skip
+    let skip = Reader.skip
 
     (** Read the next header, apply the function 'f' to the fd and the header. The function
         should leave the fd positioned immediately after the datablock. Finally the function
@@ -790,7 +780,7 @@ module Make (IO : IO) = struct
       | Result.Ok hdr ->
         (* NB if the function 'f' fails we're boned *)
         finally (fun () -> f fd hdr)
-          (fun () -> skip fd (Header.compute_zero_padding_length hdr))
+          (fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
       | Result.Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
@@ -802,8 +792,8 @@ module Make (IO : IO) = struct
           match HR.read ~level fd with
           | Result.Ok hdr ->
             list := hdr :: !list;
-            skip fd (Int64.to_int hdr.Header.file_size);
-            skip fd (Header.compute_zero_padding_length hdr)
+            Reader.skip fd (Int64.to_int hdr.Header.file_size);
+            Reader.skip fd (Header.compute_zero_padding_length hdr)
           | Result.Error `Eof -> raise Header.End_of_stream
         done;
         List.rev !list;
@@ -839,7 +829,7 @@ module Make (IO : IO) = struct
             let ofd = dest hdr in
             copy_n ifd ofd size;
             IO.close_out ofd;
-            skip ifd padding
+            Reader.skip ifd padding
           | Result.Error `Eof -> raise Header.End_of_stream
         done
       with

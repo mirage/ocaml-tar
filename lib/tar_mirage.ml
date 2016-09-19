@@ -47,27 +47,53 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     then String.sub x 1 (String.length x - 1)
     else x
 
+  module Reader = struct
+    type in_channel = {
+      b: BLOCK.t;
+      mutable offset: int64;
+      info: BLOCK.info;
+    }
+    type 'a t = 'a Lwt.t
+    let really_read in_channel buffer =
+      assert(Cstruct.len buffer <= 512);
+      (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
+      let sector' = Int64.(div in_channel.offset (of_int in_channel.info.BLOCK.sector_size)) in
+      let page = Io_page.(to_cstruct @@ get 1) in
+      BLOCK.read in_channel.b sector' [ page ]
+      >>= function
+      | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
+      ce: %s" sector' x))
+      | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector'))
+      | `Ok () ->
+        (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
+        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.BLOCK.sector_size)))) in
+        in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.len buffer)));
+        Cstruct.blit page offset buffer 0 (Cstruct.len buffer);
+        Lwt.return_unit
+    let skip in_channel n =
+      in_channel.offset <- Int64.(add in_channel.offset (of_int n));
+      Lwt.return_unit
+    let get_current_tar_sector in_channel = Int64.div in_channel.offset 512L
+
+  end
+  module HR = Tar.HeaderReader(Lwt)(Reader)
+
   let connect b =
     BLOCK.get_info b
     >>= fun info ->
-    let buffer = Io_page.(to_cstruct @@ get 1) in
-    let read sector =
-      (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector' = Int64.(div (mul sector 512L) (of_int info.BLOCK.sector_size)) in
-      BLOCK.read b sector' [ buffer ]
+    let in_channel = { Reader.b; offset = 0L; info } in
+    let rec loop map =
+      HR.read in_channel
       >>= function
-      | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device: %s" sector x))
-      | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector))
-      | `Ok () ->
-        (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
-        let offset = Int64.(to_int (sub (mul sector 512L) (mul sector' (of_int info.BLOCK.sector_size)))) in
-        Lwt.return (Cstruct.sub buffer offset 512) in
-
-    Archive.fold (fun map tar data_offset ->
+      | Result.Error `Eof -> Lwt.return map
+      | Result.Ok tar ->
         let filename = trim_slash tar.Tar.Header.file_name in
-        let map = StringMap.add filename (tar, data_offset) map in
-        Lwt.return map
-      ) StringMap.empty read
+        let data_tar_offset = Int64.div in_channel.Reader.offset 512L in
+        let map = StringMap.add filename (tar, data_tar_offset) map in
+        Reader.skip in_channel (Int64.to_int tar.Tar.Header.file_size) >>= fun () ->
+        Reader.skip in_channel (Tar.Header.compute_zero_padding_length tar) >>= fun () ->
+        loop map in
+    loop StringMap.empty
     >>= fun map ->
     Lwt.return (`Ok { b; map; info })
 
