@@ -1,4 +1,4 @@
-trunk (unreleased)
+0.6.0 (2016-09-19)
 - support for pax headers
 - removed Tar.Archive.fold: please use HeaderReader instead
 
