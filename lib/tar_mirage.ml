@@ -18,7 +18,6 @@
 
 open Lwt.Infix
 
-module Archive = Tar.Archive(Lwt)
 module StringMap = Map.Make(String)
 
 module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct

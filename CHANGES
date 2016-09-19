@@ -1,3 +1,7 @@
+trunk (unreleased)
+- support for pax headers
+- removed Tar.Archive.fold: please use HeaderReader instead
+
 0.5.1 (2016-08-30)
 - handle EINTR and short writes properly (@ivg)
 - avoid a warning catching `Failure` exceptions from `int_of_string`

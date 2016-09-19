@@ -128,12 +128,6 @@ module type ASYNC = sig
   val return: 'a -> 'a t
 end
 
-module Archive : functor(ASYNC: ASYNC) -> sig
-  val fold: ('a -> Header.t -> int64 -> 'a ASYNC.t) -> 'a -> (int64 -> Cstruct.t ASYNC.t) -> 'a ASYNC.t
-  (** [fold f initial read] folds [f acc hdr data_offset] over all the
-      files within the archive. *)
-end
-
 module type READER = sig
   type in_channel
   type 'a t

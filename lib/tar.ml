@@ -531,27 +531,6 @@ module Direct = struct
   let ( >>= ) m f = f m
 end
 
-module Archive = functor(ASYNC: ASYNC) -> struct
-  open ASYNC
-
-  let fold f initial read =
-    let rec aux zeroes_so_far from acc =
-      if zeroes_so_far = 2
-      then return acc
-      else
-        read from >>= fun hdr ->
-        if is_zero hdr
-        then aux (zeroes_so_far + 1) (Int64.succ from) acc
-        else
-          match Header.unmarshal hdr with
-          | None -> return acc
-          | Some tar ->
-            f acc tar (Int64.succ from) >>= fun acc ->
-            aux 0 (Int64.(add (add from (Header.to_sectors tar)) 1L)) acc in
-    aux 0 0L initial
-
-end
-
 module type READER = sig
   type in_channel
   type 'a t
