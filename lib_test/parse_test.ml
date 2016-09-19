@@ -49,16 +49,23 @@ let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
 let finally f g = try let results = f () in g (); results with e -> g (); raise e
 
+let with_temp_file f =
+  let tar_filename = Filename.temp_file "tar-test" ".tar" in
+  finally (fun () -> f tar_filename) (fun () -> Unix.unlink tar_filename)
+
 let with_tar f =
   let files = List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib")) in
-  let tar_filename = Filename.temp_file "tar-test" ".tar" in
-  let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
-  begin match Unix.system cmdline with
-    | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
-    | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
-  end;
-  finally (fun () -> f tar_filename files) (fun () -> Unix.unlink tar_filename)
+  with_temp_file
+    (fun tar_filename ->
+      let tar_filename = Filename.temp_file "tar-test" ".tar" in
+      let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
+      begin match Unix.system cmdline with
+        | Unix.WEXITED 0 -> ()
+        | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
+        | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
+      end;
+      f tar_filename files
+    )
 
 let can_read_tar () =
   with_tar
@@ -70,6 +77,33 @@ let can_read_tar () =
        let missing' = set_difference files' files in
        assert_equal ~printer:(String.concat "; ") [] missing;
        assert_equal ~printer:(String.concat "; ") [] missing'
+    )
+
+let can_write_pax () =
+  let open Tar_unix in
+  with_temp_file
+    (fun filename ->
+      (* This userid is too large for a regular ustar header *)
+      let user_id = 2116562692 in
+      (* Write a file which would need a pax header *)
+      let filename = "/tmp/foo.tar" in
+      let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
+      finally
+        (fun () ->
+          let hdr = Header.make ~user_id "test" 0L in
+          write_block hdr (fun _ -> ()) fd;
+          write_end fd;
+        ) (fun () -> Unix.close fd);
+      (* Read it back and verify the header was read *)
+      let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
+      finally
+        (fun () ->
+          match Archive.list fd with
+          | [ one ] -> assert (one.Header.user_id = user_id)
+          | xs ->
+            Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Header.to_detailed_string xs));
+            assert false
+        ) (fun () -> Unix.close fd);
     )
 
 let expect_ok = function
@@ -170,13 +204,12 @@ let _ =
     "-verbose", Arg.Unit (fun _ -> verbose := true), "Run in verbose mode";
   ] (fun x -> Printf.fprintf stderr "Ignoring argument: %s" x)
     "Test tar parser";
-
   let suite = "tar" >:::
               [
                 "header" >:: header;
                 "can_read_tar" >:: can_read_tar;
                 "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
                 "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
+                "can write pax headers" >:: can_write_pax;
               ] in
   run_test_tt ~verbose:!verbose suite
-

@@ -40,7 +40,29 @@ module Header : sig
       | Block (** a block device node *)
       | Directory (** a directory (also indicated by trailing [/] in [file_name]) *)
       | FIFO (** a FIFO node *)
+      | GlobalExtendedHeader (** a PaxExtension global header *)
+      | PerFileExtendedHeader (** a PaxExtension per-file header *)
     val to_string: t -> string
+  end
+
+  module Extended: sig
+    type t = {
+      access_time: int64 option;
+      charset: string option;
+      comment: string option;
+      group_id: int option;
+      gname: string option;
+      header_charset: string option;
+      link_path: string option;
+      mod_time: int64 option;
+      path: string option;
+      file_size: int64 option;
+      user_id: int option;
+      uname: string option;
+    }
+    (** Represents a "Pax" extended header *)
+
+    val unmarshal : Cstruct.t -> t
   end
 
   (** Represents a standard archive (note checksum not stored) *)
@@ -57,13 +79,14 @@ module Header : sig
     gname: string;
     devmajor: int;
     devminor: int;
+    extended: Extended.t option;
   }
 
   (** Helper function to make a simple header *)
   val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> ?uname:string -> ?gname:string -> ?devmajor:int -> ?devminor:int -> string -> int64 -> t
 
   (** Length of a header block *)
-  val length : int  
+  val length : int
 
   (** A blank header block (two of these in series mark the end of the tar) *)
   val zero_block : Cstruct.t
@@ -80,8 +103,10 @@ module Header : sig
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
 
-  (** Unmarshal a header block, returning None if it's all zeroes *)
-  val unmarshal : ?level:compatibility -> Cstruct.t -> t option
+  (** Unmarshal a header block, returning None if it's all zeroes.
+      This header block may be preceeded by an [?extended] block which
+      will override some fields. *)
+  val unmarshal : ?level:compatibility -> ?extended:Extended.t -> Cstruct.t -> t option
 
   (** Marshal a header block, computing and inserting the checksum *)
   val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
@@ -103,10 +128,30 @@ module type ASYNC = sig
   val return: 'a -> 'a t
 end
 
-module Archive : functor(ASYNC: ASYNC) -> sig
-  val fold: ('a -> Header.t -> int64 -> 'a ASYNC.t) -> 'a -> (int64 -> Cstruct.t ASYNC.t) -> 'a ASYNC.t
-  (** [fold f initial read] folds [f acc hdr data_offset] over all the
-      files within the archive *)
+module type READER = sig
+  type in_channel
+  type 'a t
+  val really_read: in_channel -> Cstruct.t -> unit t
+  val skip: in_channel -> int -> unit t
+end
+
+module type WRITER = sig
+  type out_channel
+  type 'a t
+  val really_write: out_channel -> Cstruct.t -> unit t
+end
+
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
+ sig
+  (** Returns the next header block or throws End_of_stream if two consecutive
+      zero-filled blocks are discovered. Assumes stream is positioned at the
+      possible start of a header block. End_of_file is thrown if the stream
+      unexpectedly fails *)
+  val read : ?level:Header.compatibility -> Reader.in_channel -> (Header.t, [`Eof]) Result.result Async.t
+end
+
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) : sig
+  val write : ?level:Header.compatibility -> Header.t -> Writer.out_channel -> unit Async.t
 end
 
 module type IO = sig
@@ -131,7 +176,7 @@ module Make (IO : IO) : sig
   module Header : sig
     include module type of Header
 
-    (** Returns the next header block or throws End_of_stream if two consecutive
+    (** Returns the next header block or fails with `Eof if two consecutive
         zero-filled blocks are discovered. Assumes stream is positioned at the
         possible start of a header block. End_of_file is thrown if the stream
         unexpectedly fails *)

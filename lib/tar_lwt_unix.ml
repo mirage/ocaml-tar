@@ -17,8 +17,29 @@
 
 open Lwt
 
-let really_read fd = Lwt_cstruct.(complete (read fd))
-let really_write fd = Lwt_cstruct.(complete (write fd))
+module Reader = struct
+  type in_channel = Lwt_unix.file_descr
+  type 'a t = 'a Lwt.t
+  let really_read fd = Lwt_cstruct.(complete (read fd))
+  let skip (ifd: Lwt_unix.file_descr) (n: int) =
+    let buffer_size = 32768 in
+    let buffer = Cstruct.create buffer_size in
+    let rec loop (n: int) =
+      if n <= 0 then return ()
+      else
+        let amount = min n buffer_size in
+        let block = Cstruct.sub buffer 0 amount in
+        really_read ifd block >>= fun () ->
+        loop (n - amount) in
+    loop n
+end
+let really_read = Reader.really_read
+module Writer = struct
+  type out_channel = Lwt_unix.file_descr
+  type 'a t = 'a Lwt.t
+  let really_write fd = Lwt_cstruct.(complete (write fd))
+end
+let really_write = Writer.really_write
 
 let copy_n ifd ofd n =
   let block_size = 32768 in
@@ -33,26 +54,17 @@ let copy_n ifd ofd n =
     end in
   loop n
 
+module HR = Tar.HeaderReader(Lwt)(Reader)
+module HW = Tar.HeaderWriter(Lwt)(Writer)
+
 module Header = struct
   include Tar.Header
 
-  (** Returns the next header block or None if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block. End_of_file is thrown if the stream
-      unexpectedly fails *)
-  let get_next_header ?level (ifd: Lwt_unix.file_descr) : t option Lwt.t =
-    let next () =
-      let buffer = Cstruct.create length in
-      really_read ifd buffer >>= fun () ->
-      return (unmarshal ?level buffer)
-    in
-    next () >>= function
-    | Some x -> return (Some x)
-    | None ->
-      begin next () >>= function
-        | Some x -> return (Some x)
-        | None -> return None
-      end
+  let get_next_header ?level ic =
+    HR.read ?level ic
+    >>= function
+    | Result.Error `Eof -> return None
+    | Result.Ok hdr -> return (Some hdr)
 
   (** Return the header needed for a particular file on disk *)
   let of_file ?level (file: string) : t Lwt.t =
@@ -60,24 +72,24 @@ module Header = struct
     Lwt_unix.LargeFile.stat file >>= fun stat ->
     Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
     Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
-    return { file_name   = file;
-             file_mode   = stat.Lwt_unix.LargeFile.st_perm;
-             user_id     = stat.Lwt_unix.LargeFile.st_uid;
-             group_id    = stat.Lwt_unix.LargeFile.st_gid;
-             file_size   = stat.Lwt_unix.LargeFile.st_size;
-             mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime;
-             link_indicator = Link.Normal;
-             link_name   = "";
-             uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name;
-             gname       = if level = V7 then "" else grent.Lwt_unix.gr_name;
-             devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0;
-             devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0; }
+    let file_mode   = stat.Lwt_unix.LargeFile.st_perm in
+    let user_id     = stat.Lwt_unix.LargeFile.st_uid in
+    let group_id    = stat.Lwt_unix.LargeFile.st_gid in
+    let file_size   = stat.Lwt_unix.LargeFile.st_size in
+    let mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime in
+    let link_indicator = Link.Normal in
+    let link_name   = "" in
+    let uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name in
+    let gname       = if level = V7 then "" else grent.Lwt_unix.gr_name in
+    let devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0 in
+    let devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
+    Lwt.return (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+      ~uname ~gname ~devmajor ~devminor file file_size)
 end
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
-  let buffer = Cstruct.create Tar.Header.length in
-  Tar.Header.marshal buffer header;
-  really_write fd buffer >>= fun () ->
+  HW.write header fd
+  >>= fun () ->
   body fd >>= fun () ->
   really_write fd (Tar.Header.zero_padding header)
 
@@ -88,18 +100,6 @@ let write_end (fd: Lwt_unix.file_descr) =
 (** Utility functions for operating over whole tar archives *)
 module Archive = struct
 
-  (** Skip 'n' bytes from input channel 'ifd' *)
-  let skip (ifd: Lwt_unix.file_descr) (n: int) =
-    let buffer_size = 32768 in
-    let buffer = Cstruct.create buffer_size in
-    let rec loop (n: int) =
-      if n <= 0 then return ()
-      else
-        let amount = min n buffer_size in
-        let block = Cstruct.sub buffer 0 amount in
-        really_read ifd block >>= fun () ->
-        loop (n - amount) in
-    loop n
 
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
@@ -108,7 +108,7 @@ module Archive = struct
     Header.get_next_header fd >>= function
     | Some hdr ->
       f fd hdr >>= fun result ->
-      skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+      Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
       return (Some result)
     | None ->
       return None
@@ -118,8 +118,8 @@ module Archive = struct
     let rec loop acc = Header.get_next_header ?level fd >>= function
       | None -> return (List.rev acc)
       | Some hdr ->
-        skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
-        skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+        Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
+        Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop (hdr :: acc) in
     loop []
 
@@ -132,7 +132,7 @@ module Archive = struct
         print_endline filename;
         Lwt_unix.openfile filename [Unix.O_WRONLY] 0644 >>= fun ofd ->
         copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
-        skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
+        Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop () in
     loop ()
 

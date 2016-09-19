@@ -1,8 +1,8 @@
 # OASIS_START
-# DO NOT EDIT (digest: b9c9e9fc155ce2137fcb6061330dcbf9)
+# DO NOT EDIT (digest: df1c3a52583c75eea525295e460151b7)
 version = "0.5.1"
 description = "Pure OCaml library to read and write tar files"
-requires = "cstruct cstruct.ppx re.str"
+requires = "cstruct cstruct.ppx re.str result"
 archive(byte) = "tar.cma"
 archive(byte, plugin) = "tar.cma"
 archive(native) = "tar.cmxa"

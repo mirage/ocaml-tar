@@ -26,6 +26,7 @@ depends: [
   "cstruct"           {>= "1.9.0"}
   "ppx_tools"         {build}
   "re"
+  "result"
   "cmdliner"
   "ounit"             {test}
   "mirage-block-unix" {test}

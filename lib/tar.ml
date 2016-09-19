@@ -15,10 +15,43 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+
 (** Process and create tar file headers *)
 module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
       http://en.wikipedia.org/w/index.php?title=Tar_%28file_format%29&oldid=83554041 *)
+
+  (** For debugging: pretty-print a string as hex *)
+  let to_hex (x: string) : string =
+    let result = String.make (String.length x * 3) ' ' in
+    for i = 0 to String.length x - 1 do
+      let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
+      String.blit byte 0 result (i * 3) 2
+    done;
+    result
+
+  let trim regexp x = match Re_str.split regexp x with
+    | [] -> ""
+    | x :: _ -> x
+  let trim_numerical = trim (Re_str.regexp "[\000 ]+")
+  let trim_string = trim (Re_str.regexp "[\000]+")
+
+  (** Unmarshal an integer field (stored as 0-padded octal) *)
+  let unmarshal_int (x: string) : int =
+    let tmp = "0o0" ^ (trim_numerical x) in
+    try
+      int_of_string tmp
+    with Failure _ as e ->
+      Printf.eprintf "Failed to parse integer [%s] == %s\n" tmp (to_hex tmp);
+      raise e
+
+  (** Unmarshal an int64 field (stored as 0-padded octal) *)
+  let unmarshal_int64 (x: string) : int64 =
+    let tmp = "0o0" ^ (trim_numerical x) in
+    Int64.of_string tmp
+
+  (** Unmarshal a string *)
+  let unmarshal_string (x: string) : string = trim_string x
 
   [%%cstruct
       type hdr = {
@@ -79,23 +112,28 @@ module Header = struct
       | Block
       | Directory
       | FIFO
-
+      | GlobalExtendedHeader
+      | PerFileExtendedHeader
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
     let to_int ?level =
       let level = get_level level in function
-        | Normal    -> if level = V7 then 0 else 48 (* '0' *)
-        | Hard      -> 49 (* '1' *)
-        | Symbolic  -> 50 (* '2' *)
-        | Character -> 51 (* '3' *)
-        | Block     -> 52 (* '4' *)
-        | Directory -> 53 (* '5' *)
-        | FIFO      -> 54 (* '6' *)
+        | Normal                -> if level = V7 then 0 else 48 (* '0' *)
+        | Hard                  -> 49 (* '1' *)
+        | Symbolic              -> 50 (* '2' *)
+        | Character             -> 51 (* '3' *)
+        | Block                 -> 52 (* '4' *)
+        | Directory             -> 53 (* '5' *)
+        | FIFO                  -> 54 (* '6' *)
+        | GlobalExtendedHeader  -> 103 (* 'g' *)
+        | PerFileExtendedHeader -> 120 (* 'x' *)
 
     let of_int ?level =
       let level = get_level level in function
         | 49 (* '1' *) -> Hard
         | 50 (* '2' *) -> Symbolic
+        | 103 (* 'g' *) -> GlobalExtendedHeader
+        | 120 (* 'x' *) -> PerFileExtendedHeader
         (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
         | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
         | 51 (* '3' *) -> Character
@@ -112,6 +150,125 @@ module Header = struct
       | Block -> "Block"
       | Directory -> "Directory"
       | FIFO -> "FIFO"
+      | GlobalExtendedHeader -> "GlobalExtendedHeader"
+      | PerFileExtendedHeader -> "PerFileExtendedHeader"
+  end
+
+  module Extended = struct
+    type t = {
+      access_time: int64 option;
+      charset: string option;
+      comment: string option;
+      group_id: int option;
+      gname: string option;
+      header_charset: string option;
+      link_path: string option;
+      mod_time: int64 option;
+      path: string option;
+      file_size: int64 option;
+      user_id: int option;
+      uname: string option;
+    }
+    (** Represents a "Pax" extended header *)
+
+    let to_detailed_string (x: t) =
+      let opt f = function None -> "None" | Some x -> f x in
+      let int64 = Int64.to_string and string x = x and int = string_of_int in
+      let table = [ "access_time",    opt int64 x.access_time;
+                    "charset",        opt string x.charset;
+                    "comment",        opt string x.comment;
+                    "group_id",       opt int x.group_id;
+                    "gname",          opt string x.gname;
+                    "header_charset", opt string x.header_charset;
+                    "link_path",      opt string x.link_path;
+                    "mod_time",       opt int64 x.mod_time;
+                    "path",           opt string x.path;
+                    "file_size",      opt int64 x.file_size;
+                    "user_id",        opt int x.user_id;
+                    "uname",          opt string x.uname ] in
+      "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
+
+    let make ?access_time ?charset ?comment ?group_id ?gname ?header_charset
+      ?link_path ?mod_time ?path ?file_size ?user_id ?uname () =
+      { access_time; charset; comment; group_id; gname; header_charset;
+        link_path; mod_time; path; file_size; user_id; uname }
+
+    let marshal t =
+      let pairs =
+        (match t.access_time    with None -> [] | Some x -> [ "atime", Int64.to_string x ])
+      @ (match t.charset        with None -> [] | Some x -> [ "charset", x ])
+      @ (match t.comment        with None -> [] | Some x -> [ "comment", x ])
+      @ (match t.group_id       with None -> [] | Some x -> [ "gid", string_of_int x ])
+      @ (match t.gname          with None -> [] | Some x -> [ "group_name", x ])
+      @ (match t.header_charset with None -> [] | Some x -> [ "hdrcharset", x ])
+      @ (match t.link_path      with None -> [] | Some x -> [ "linkpath", x ])
+      @ (match t.mod_time       with None -> [] | Some x -> [ "mtime", Int64.to_string x ])
+      @ (match t.path           with None -> [] | Some x -> [ "path", x ])
+      @ (match t.file_size      with None -> [] | Some x -> [ "size", Int64.to_string x ])
+      @ (match t.user_id        with None -> [] | Some x -> [ "uid", string_of_int x ])
+      @ (match t.uname          with None -> [] | Some x -> [ "uname", x ]) in
+      let txt = String.concat "" (List.map (fun (k, v) ->
+        let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
+        Printf.sprintf "%08d %s=%s\n" length k v
+      ) pairs) in
+      let buffer = Cstruct.create (String.length txt) in
+      Cstruct.blit_from_string txt 0 buffer 0 (String.length txt);
+      buffer
+
+    let unmarshal (c: Cstruct.t) : t =
+      (* "%d %s=%s\n", <length>, <keyword>, <value> with constraints that
+         - the <keyword> cannot contain an equals sign
+         - the <length> is the number of octets of the record, including \n
+        *)
+      let find buffer char =
+        let rec loop i =
+          if i = Cstruct.len buffer
+          then None
+          else if Cstruct.get_char buffer i = char
+          then Some i
+          else loop (i + 1) in
+        loop 0 in
+      let rec loop remaining =
+        if Cstruct.len remaining = 0
+        then []
+        else begin
+          (* Find the space, then decode the length *)
+          match find remaining ' ' with
+          | None -> failwith "Failed to decode pax extended header record"
+          | Some i ->
+            let length = int_of_string @@ Cstruct.to_string @@ Cstruct.sub remaining 0 i in
+            let record = Cstruct.sub remaining 0 length in
+            let remaining = Cstruct.shift remaining length in
+            begin match find record '=' with
+            | None -> failwith "Failed to decode pax extended header record"
+            | Some j ->
+              let keyword = Cstruct.to_string @@ Cstruct.sub record (i + 1) (j - i - 1) in
+              let v = Cstruct.to_string @@ Cstruct.sub record (j + 1) (Cstruct.len record - j - 2) in
+              (keyword, v) :: (loop remaining)
+            end
+        end in
+      let pairs = loop c in
+      let option name f =
+        if List.mem_assoc name pairs
+        then Some (f (List.assoc name pairs))
+        else None in
+      (* integers are stored as decimal, not octal here *)
+      let access_time    = option "atime" Int64.of_string in
+      let charset        = option "charset" unmarshal_string in
+      let comment        = option "comment" unmarshal_string in
+      let group_id       = option "gid" int_of_string in
+      let gname          = option "group_name" unmarshal_string in
+      let header_charset = option "hdrcharset" unmarshal_string in
+      let link_path      = option "linkpath" unmarshal_string in
+      let mod_time       = option "mtime" Int64.of_string in
+      let path           = option "path" unmarshal_string in
+      let file_size      = option "size" Int64.of_string in
+      let user_id        = option "uid" int_of_string in
+      let uname          = option "uname" unmarshal_string in
+      { access_time; charset; comment; group_id; gname;
+        header_charset; link_path; mod_time; path; file_size;
+        user_id; uname }
+
   end
 
   (** Represents a standard (non-USTAR) archive (note checksum not stored) *)
@@ -127,10 +284,20 @@ module Header = struct
              gname: string;
              devmajor: int;
              devminor: int;
+             extended: Extended.t option;
            }
 
   (** Helper function to make a simple header *)
   let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") ?(uname="") ?(gname="") ?(devmajor=0) ?(devminor=0) file_name file_size =
+    (* If some fields are too big, we must use a pax header *)
+    let need_pax_header =
+       file_size   > 0o077777777777L
+       || user_id  > 0x07777777
+       || group_id > 0x07777777 in
+    let extended =
+      if need_pax_header
+      then Some (Extended.make ~file_size ~user_id ~group_id ())
+      else None in
     { file_name;
       file_mode;
       user_id;
@@ -142,7 +309,8 @@ module Header = struct
       uname;
       gname;
       devmajor;
-      devminor}
+      devminor;
+      extended }
 
   (** Length of a header block *)
   let length = 512
@@ -187,15 +355,6 @@ module Header = struct
                   "link_name",      x.link_name ] in
     "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
-  (** For debugging: pretty-print a string as hex *)
-  let to_hex (x: string) : string =
-    let result = String.make (String.length x * 3) ' ' in
-    for i = 0 to String.length x - 1 do
-      let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
-      String.blit byte 0 result (i * 3) 2
-    done;
-    result
-
   (** Marshal an integer field of size 'n' *)
   let marshal_int (x: int) (n: int) =
     let octal = Printf.sprintf "%o" x in
@@ -210,29 +369,6 @@ module Header = struct
 
   (** Marshal an string field of size 'n' *)
   let marshal_string (x: string) (n: int) = pad_right x n '\000'
-
-  let trim regexp x = match Re_str.split regexp x with
-    | [] -> ""
-    | x :: _ -> x
-  let trim_numerical = trim (Re_str.regexp "[\000 ]+")
-  let trim_string = trim (Re_str.regexp "[\000]+")
-
-  (** Unmarshal an integer field (stored as 0-padded octal) *)
-  let unmarshal_int (x: string) : int =
-    let tmp = "0o0" ^ (trim_numerical x) in
-    try
-      int_of_string tmp
-    with Failure _ as e ->
-      Printf.eprintf "Failed to parse integer [%s] == %s\n" tmp (to_hex tmp);
-      raise e
-
-  (** Unmarshal an int64 field (stored as 0-padded octal) *)
-  let unmarshal_int64 (x: string) : int64 =
-    let tmp = "0o0" ^ (trim_numerical x) in
-    Int64.of_string tmp
-
-  (** Unmarshal a string *)
-  let unmarshal_string (x: string) : string = trim_string x
 
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch
@@ -253,7 +389,7 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal ?level (c: Cstruct.t) : t option =
+  let unmarshal ?level ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
     let level = get_level level in
     if allzeroes c then None
     else
@@ -269,19 +405,32 @@ module Header = struct
           if file_name = "" then prefix
           else if prefix = "" then file_name
           else Filename.concat prefix file_name in
-        Some { file_name;
-               file_mode = unmarshal_int    (copy_hdr_file_mode c);
-               user_id   = unmarshal_int    (copy_hdr_user_id c);
-               group_id  = unmarshal_int    (copy_hdr_group_id c);
-               file_size = unmarshal_int64  (copy_hdr_file_size c);
-               mod_time  = unmarshal_int64  (copy_hdr_mod_time c);
-               link_indicator = Link.of_int ~level (get_hdr_link_indicator c);
-               link_name = unmarshal_string (copy_hdr_link_name c);
-               uname     = if ustar then unmarshal_string (copy_hdr_uname c) else "";
-               gname     = if ustar then unmarshal_string (copy_hdr_gname c) else "";
-               devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0;
-               devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0;
-             }
+        let file_mode = unmarshal_int (copy_hdr_file_mode c) in
+        let user_id = match extended.Extended.user_id with
+          | None -> unmarshal_int (copy_hdr_user_id c)
+          | Some x -> x in
+        let group_id = match extended.Extended.group_id with
+          | None -> unmarshal_int (copy_hdr_group_id c)
+          | Some x -> x in
+        let file_size = match extended.Extended.file_size with
+          | None -> unmarshal_int64 (copy_hdr_file_size c)
+          | Some x -> x in
+        let mod_time = match extended.Extended.mod_time with
+          | None -> unmarshal_int64  (copy_hdr_mod_time c)
+          | Some x -> x in
+        let link_indicator = Link.of_int ~level (get_hdr_link_indicator c) in
+        let uname = match extended.Extended.uname with
+          | None -> if ustar then unmarshal_string (copy_hdr_uname c) else ""
+          | Some x -> x in
+        let gname = match extended.Extended.gname with
+          | None -> if ustar then unmarshal_string (copy_hdr_gname c) else ""
+          | Some x -> x in
+        let devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0 in
+        let devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0 in
+
+        let link_name = unmarshal_string (copy_hdr_link_name c) in
+        Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
+           ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 
   (** Marshal a header block, computing and inserting the checksum *)
   let imarshal ~level c link_indicator (x: t) =
@@ -374,25 +523,163 @@ module type ASYNC = sig
   val return: 'a -> 'a t
 end
 
-module Archive = functor(ASYNC: ASYNC) -> struct
-  open ASYNC
+(* If we aren't using Lwt/Async style threads, instantiate the functor with
+   this. *)
+module Direct = struct
+  type 'a t = 'a
+  let return x = x
+  let ( >>= ) m f = f m
+end
 
-  let fold f initial read =
-    let rec aux zeroes_so_far from acc =
-      if zeroes_so_far = 2
-      then return acc
-      else
-        read from >>= fun hdr ->
-        if is_zero hdr
-        then aux (zeroes_so_far + 1) (Int64.succ from) acc
-        else
-          match Header.unmarshal hdr with
-          | None -> return acc
-          | Some tar ->
-            f acc tar (Int64.succ from) >>= fun acc ->
-            aux 0 (Int64.(add (add from (Header.to_sectors tar)) 1L)) acc in
-    aux 0 0L initial
+module type READER = sig
+  type in_channel
+  type 'a t
+  val really_read: in_channel -> Cstruct.t -> unit t
+  val skip: in_channel -> int -> unit t
+end
 
+module type WRITER = sig
+  type out_channel
+  type 'a t
+  val really_write: out_channel -> Cstruct.t -> unit t
+end
+
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
+  open Async
+  open Reader
+
+
+  let read ?level (ifd: Reader.in_channel) : (Header.t, [ `Eof ]) Result.result t =
+    let level = Header.get_level level in
+    (* We might need to read 2 headers at once if we encounter a Pax header *)
+    let buffer = Cstruct.create Header.length in
+    let real_header_buf = Cstruct.create Header.length in
+
+    let next_block () =
+      really_read ifd buffer
+      >>= fun () ->
+      return (Header.unmarshal ~level buffer) in
+
+    (* Skip Pax GlobalExtendedHeaders *)
+    let next () =
+      next_block ()
+      >>= function
+      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader -> next_block ()
+      | x -> return x in
+
+    let get_hdr () =
+      next ()
+      >>= function
+      | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
+        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        really_read ifd extra_header_buf
+        >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x)
+        >>= fun () ->
+        let extended = Header.Extended.unmarshal extra_header_buf in
+        really_read ifd real_header_buf
+        >>= fun () ->
+        begin match Header.unmarshal ~level ~extended real_header_buf with
+        | None ->
+          (* Corrupt pax headers *)
+          return (Result.Error `Eof)
+        | Some x -> return (Result.Ok x)
+        end
+      | Some x -> return (Result.Ok x)
+      | None ->
+        begin
+          next ()
+          >>= function
+          | Some x -> return (Result.Ok x)
+          | None -> return (Result.Error `Eof)
+        end in
+
+    let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) Result.result Async.t =
+      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
+      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
+        let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
+        let pad = Cstruct.create (Header.compute_zero_padding_length hdr) in
+        really_read ifd data
+        >>= fun () ->
+        really_read ifd pad
+        >>= fun () ->
+        let data = Header.unmarshal_string (Cstruct.to_string data) in
+        get_hdr ()
+        >>= function
+        | Result.Error `Eof -> return (Result.Error `Eof)
+        | Result.Ok hdr ->
+          if raw_link_indicator = 75
+          then read_header (file_name, data, hdr)
+          else read_header (data, link_name, hdr)
+      else begin
+        let link_name = if link_name = "" then hdr.Header.link_name else link_name in
+        let file_name = if file_name = "" then hdr.Header.file_name else file_name in
+        return (Result.Ok {hdr with Header.link_name; file_name })
+      end in
+    get_hdr ()
+    >>= function
+    | Result.Error `Eof -> return (Result.Error `Eof)
+    | Result.Ok hdr ->
+      read_header ("", "", hdr)
+
+end
+
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = struct
+  open Async
+  open Writer
+  let write_unextended ?level header fd =
+    let level = Header.get_level level in
+    let buffer = Cstruct.create Header.length in
+    Cstruct.memset buffer 0;
+    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
+    ( if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
+        ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
+            let file_size = String.length header.Header.link_name + 1 in
+            let blank = {blank with Header.file_size = Int64.of_int file_size} in
+            Header.imarshal ~level buffer 75 blank;
+            really_write fd buffer
+            >>= fun () ->
+            let text = header.Header.link_name ^ "\000" in
+            let payload = Cstruct.create (String.length text) in
+            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            really_write fd payload
+            >>= fun () ->
+            really_write fd (Header.zero_padding blank)
+          end else return () )
+        >>= fun () ->
+        ( if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+            let file_size = String.length header.Header.file_name + 1 in
+            let blank = {blank with Header.file_size = Int64.of_int file_size} in
+            Header.imarshal ~level buffer 76 blank;
+            really_write fd buffer
+            >>= fun () ->
+            let text = header.Header.file_name ^ "\000" in
+            let payload = Cstruct.create (String.length text) in
+            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            really_write fd payload
+          end else return () )
+        >>= fun () ->
+        Cstruct.memset buffer 0;
+        return ()
+      end else return () )
+    >>= fun () ->
+    Header.marshal ~level buffer header;
+    really_write fd buffer
+
+  let write ?level header fd =
+    ( match header.Header.extended with
+      | None -> return ()
+      | Some e ->
+        let pax_payload = Header.Extended.marshal e in
+        let pax = Header.make ~link_indicator:Header.Link.PerFileExtendedHeader
+          "paxheader" (Int64.of_int @@ Cstruct.len pax_payload) in
+        write_unextended ?level pax fd
+        >>= fun () ->
+        really_write fd pax_payload
+        >>= fun () ->
+        really_write fd (Header.zero_padding pax) )
+    >>= fun () ->
+    write_unextended ?level header fd
 end
 
 module type IO = sig
@@ -406,17 +693,36 @@ module type IO = sig
 end
 
 module Make (IO : IO) = struct
-  (* XXX: there's no function to read directly into a bigarray *)
-  let really_read ifd buffer =
-    let s = Bytes.create (Cstruct.len buffer) in
-    IO.really_input ifd s 0 (Cstruct.len buffer);
-    Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+  module Reader = struct
+    type in_channel = IO.in_channel
+    type 'a t = 'a Direct.t
+    (* XXX: there's no function to read directly into a bigarray *)
+    let really_read (ifd: IO.in_channel) buffer : unit t =
+      let s = Bytes.create (Cstruct.len buffer) in
+      IO.really_input ifd s 0 (Cstruct.len buffer);
+      Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
 
-  (* XXX: there's no function to write directly from a bigarray *)
-  let really_write fd buffer =
-    let s = Cstruct.to_string buffer in
-    if String.length s > 0
-    then IO.output fd s 0 (String.length s)
+    let skip (ifd: in_channel) (n: int) =
+      let buffer = Cstruct.create 4096 in
+      let rec loop (n: int) =
+        if n <= 0 then ()
+        else
+          let amount = min n (Cstruct.len buffer) in
+          really_read ifd (Cstruct.sub buffer 0 amount);
+          loop (n - amount) in
+      loop n
+  end
+  module Writer = struct
+    type out_channel = IO.out_channel
+    type 'a t = 'a Direct.t
+    (* XXX: there's no function to write directly from a bigarray *)
+    let really_write fd buffer =
+      let s = Cstruct.to_string buffer in
+      if String.length s > 0
+      then IO.output fd s 0 (String.length s)
+  end
+  let really_read = Reader.really_read
+  let really_write = Writer.really_write
 
   let finally fct clean_f =
     let result =
@@ -427,36 +733,10 @@ module Make (IO : IO) = struct
     clean_f ();
     result
 
+  module HW = HeaderWriter(Direct)(Writer)
+
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
-    let level = Header.get_level level in
-    let buffer = Cstruct.create Header.length in
-    for i = 0 to Header.length - 1 do
-      Cstruct.set_uint8 buffer i 0
-    done;
-    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0} in
-    if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
-      if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
-        let file_size = String.length header.Header.link_name + 1 in
-        let blank = {blank with Header.file_size = Int64.of_int file_size} in
-        Header.imarshal ~level buffer 75 blank;
-        really_write fd buffer;
-        IO.output fd (header.Header.link_name ^ "\000") 0 file_size;
-        really_write fd (Header.zero_padding blank)
-      end;
-      if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
-        let file_size = String.length header.Header.file_name + 1 in
-        let blank = {blank with Header.file_size = Int64.of_int file_size} in
-        Header.imarshal ~level buffer 76 blank;
-        really_write fd buffer;
-        IO.output fd (header.Header.file_name ^ "\000") 0 file_size;
-        really_write fd (Header.zero_padding blank)
-      end;
-      for i = 0 to Header.length - 1 do
-        Cstruct.set_uint8 buffer i 0
-      done
-    end;
-    Header.marshal ~level buffer header;
-    really_write fd buffer;
+    HW.write ?level header fd;
     body fd;
     really_write fd (Header.zero_padding header)
 
@@ -464,61 +744,23 @@ module Make (IO : IO) = struct
     really_write fd Header.zero_block;
     really_write fd Header.zero_block
 
-  (** Returns the next header block or throws End_of_stream if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block. End_of_file is thrown if the stream
-      unexpectedly fails *)
-  let get_next_header ?level (ifd: IO.in_channel) : Header.t =
-    let level = Header.get_level level in
-    let buffer = Cstruct.create Header.length in
-    let next () =
-      really_read ifd buffer;
-      Header.unmarshal ~level buffer in
-    let get_hdr () =
-      match next () with
-      | Some x -> x
-      | None ->
-        begin match next () with
-          | Some x -> x
-          | None -> raise Header.End_of_stream
-        end in
-    let rec read_header (file_name, link_name, hdr) =
-      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
-      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
-        let data = Bytes.create (Int64.to_int hdr.Header.file_size) in
-        let pad = Bytes.create (Header.compute_zero_padding_length hdr) in
-        IO.really_input ifd data 0 (Int64.to_int hdr.Header.file_size);
-        IO.really_input ifd pad 0 (String.length pad);
-        let data = Header.unmarshal_string data in
-        if raw_link_indicator = 75 then read_header (file_name, data, get_hdr ())
-        else read_header (data, link_name, get_hdr ())
-      else {hdr with Header.link_name = if link_name = "" then hdr.Header.link_name else link_name; file_name = if file_name = "" then hdr.Header.file_name else file_name} in
-    let hdr = get_hdr () in
-    read_header ("", "", hdr)
+  module HR = HeaderReader(Direct)(Reader)
 
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
 
-    (** Skip 'n' bytes from input channel 'ifd' *)
-    let skip (ifd: IO.in_channel) (n: int) =
-      let buffer = String.make 4096 '\000' in
-      let rec loop (n: int) =
-        if n <= 0 then ()
-        else
-          let amount = min n (String.length buffer) in
-          let m = IO.input ifd buffer 0 amount in
-          if m = 0 then raise End_of_file;
-          loop (n - m) in
-      loop n
+    let skip = Reader.skip
 
     (** Read the next header, apply the function 'f' to the fd and the header. The function
         should leave the fd positioned immediately after the datablock. Finally the function
         skips past the zero padding to the next header *)
     let with_next_file (fd: IO.in_channel) (f: IO.in_channel -> Header.t -> 'a) =
-      let hdr = get_next_header fd in
-      (* NB if the function 'f' fails we're boned *)
-      finally (fun () -> f fd hdr)
-        (fun () -> skip fd (Header.compute_zero_padding_length hdr))
+      match HR.read fd with
+      | Result.Ok hdr ->
+        (* NB if the function 'f' fails we're boned *)
+        finally (fun () -> f fd hdr)
+          (fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
+      | Result.Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
     let list ?level fd =
@@ -526,10 +768,12 @@ module Make (IO : IO) = struct
       let list = ref [] in
       try
         while true do
-          let hdr = get_next_header ~level fd in
-          list := hdr :: !list;
-          skip fd (Int64.to_int hdr.Header.file_size);
-          skip fd (Header.compute_zero_padding_length hdr)
+          match HR.read ~level fd with
+          | Result.Ok hdr ->
+            list := hdr :: !list;
+            Reader.skip fd (Int64.to_int hdr.Header.file_size);
+            Reader.skip fd (Header.compute_zero_padding_length hdr)
+          | Result.Error `Eof -> raise Header.End_of_stream
         done;
         List.rev !list;
       with
@@ -557,13 +801,15 @@ module Make (IO : IO) = struct
     let extract_gen dest ifd =
       try
         while true do
-          let hdr = get_next_header ifd in
-          let size = hdr.Header.file_size in
-          let padding = Header.compute_zero_padding_length hdr in
-          let ofd = dest hdr in
-          copy_n ifd ofd size;
-          IO.close_out ofd;
-          skip ifd padding
+          match HR.read ifd with
+          | Result.Ok hdr ->
+            let size = hdr.Header.file_size in
+            let padding = Header.compute_zero_padding_length hdr in
+            let ofd = dest hdr in
+            copy_n ifd ofd size;
+            IO.close_out ofd;
+            Reader.skip ifd padding
+          | Result.Error `Eof -> raise Header.End_of_stream
         done
       with
       | End_of_file -> failwith "Unexpected end of file while reading stream"
@@ -584,6 +830,9 @@ module Make (IO : IO) = struct
   module Header = struct
     include Header
 
-    let get_next_header = get_next_header
+    let get_next_header ?level ic = match HR.read ?level ic with
+      | Result.Ok hdr -> hdr
+      | Result.Error `Eof -> raise Header.End_of_stream
+
   end
 end
