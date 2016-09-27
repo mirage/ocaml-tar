@@ -31,7 +31,7 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
   type id = BLOCK.id
   type 'a io = 'a Lwt.t
 
-  type error = Unknown_key of string
+  type error = Unknown_key of string | Failure of string
   type page_aligned_buffer = Cstruct.t
 
   (* Compare filenames without a leading / or ./ *)
