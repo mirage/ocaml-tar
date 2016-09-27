@@ -98,6 +98,9 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
 
   let disconnect _ = Lwt.return ()
 
+  let mem t key =
+    Lwt.return (`Ok (StringMap.mem key t.map))
+
   let read t key offset length =
     let key = trim_slash key in
     if not(StringMap.mem key t.map)
