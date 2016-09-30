@@ -53,8 +53,10 @@ let with_temp_file f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
   finally (fun () -> f tar_filename) (fun () -> Unix.unlink tar_filename)
 
-let with_tar f =
-  let files = List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib")) in
+let with_tar ?files f =
+  let files = match files with
+    | None -> List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib"))
+    | Some files -> files in
   with_temp_file
     (fun tar_filename ->
       let tar_filename = Filename.temp_file "tar-test" ".tar" in
@@ -116,7 +118,8 @@ module Block4096 = struct
   let get_info b =
     Block.get_info b
     >>= fun info ->
-    return { info with Block.sector_size = 4096; size_sectors = Int64.div info.size_sectors 8L }
+    let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
+    return { info with Block.sector_size = 4096; size_sectors }
 
   let read b ofs bufs =
     Block.get_info b
@@ -136,6 +139,7 @@ module Block4096 = struct
         Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
     let trimmed =  (trimmed 0 bufs) in
     Block.read b (Int64.mul ofs 8L) trimmed
+  let connect name = connect name
 end
 
 module type BLOCK = sig
@@ -143,15 +147,21 @@ module type BLOCK = sig
   val connect: string -> [ `Ok of t | `Error of error ] Lwt.t
 end
 
-module Test(Block: BLOCK) = struct
-  let can_read_through_BLOCK () =
-    with_tar
+module B = struct
+  include Block
+
+  let connect name = connect name
+end
+
+module Test(B: BLOCK) = struct
+  let can_read_through_BLOCK ?files () =
+    with_tar ?files
       (fun tar_filename files ->
          let t =
-           Block.connect tar_filename
+           B.connect tar_filename
            >>= fun r ->
            let b = expect_ok r in
-           let module KV_RO = Tar_mirage.Make_KV_RO(Block) in
+           let module KV_RO = Tar_mirage.Make_KV_RO(B) in
            KV_RO.connect b
            >>= fun r ->
            let k = expect_ok r in
@@ -193,9 +203,12 @@ module Test(Block: BLOCK) = struct
              ) files in
          Lwt_main.run t
       )
+    let check_not_padded () =
+      Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644;
+      can_read_through_BLOCK ~files:["empty"] ()
 end
 
-module Sector512 = Test(Block)
+module Sector512 = Test(B)
 module Sector4096 = Test(Block4096)
 
 let _ =
@@ -209,6 +222,7 @@ let _ =
                 "header" >:: header;
                 "can_read_tar" >:: can_read_tar;
                 "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
+                "not 4KiB padded" >:: Sector512.check_not_padded;
                 "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
               ] in

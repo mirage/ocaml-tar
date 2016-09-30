@@ -56,9 +56,13 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     let really_read in_channel buffer =
       assert(Cstruct.len buffer <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector' = Int64.(div in_channel.offset (of_int in_channel.info.BLOCK.sector_size)) in
+      let sector_size = Int64.of_int in_channel.info.BLOCK.sector_size in
+      let sector' = Int64.(div in_channel.offset sector_size) in
       let page = Io_page.(to_cstruct @@ get 1) in
-      BLOCK.read in_channel.b sector' [ page ]
+      (* However don't try to read beyond the end of the disk *)
+      let total_size_bytes = Int64.(mul in_channel.info.BLOCK.size_sectors sector_size) in
+      let tmp = Cstruct.sub page 0 (min 4096 Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
+      BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
       | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
       ce: %s" sector' x))
@@ -120,12 +124,14 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
 
       let n_bytes = to_int (mul sector_size n_sectors) in
       let n_pages = (n_bytes + 4095) / 4096 in
-      let block = Io_page.get n_pages in
-      let pages = List.map Io_page.to_cstruct (Io_page.to_pages block) in
-      BLOCK.read t.b start_sector pages
+      let block = Io_page.(to_cstruct @@ get n_pages) in
+      (* Don't try to read beyond the end of the archive *)
+      let total_size_bytes = Int64.(mul t.info.BLOCK.size_sectors sector_size) in
+      let tmp = Cstruct.sub block 0 (min (Cstruct.len block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
+      BLOCK.read t.b start_sector [ tmp ]
       >>= function
       | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read %s" key))
-      | `Ok () -> Lwt.return (`Ok [ Cstruct.sub (Io_page.to_cstruct block) (to_int start_padding) (to_int length_bytes) ])
+      | `Ok () -> Lwt.return (`Ok [ Cstruct.sub block (to_int start_padding) (to_int length_bytes) ])
     end
 
   let size t key =
