@@ -56,9 +56,13 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     let really_read in_channel buffer =
       assert(Cstruct.len buffer <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector' = Int64.(div in_channel.offset (of_int in_channel.info.BLOCK.sector_size)) in
+      let sector_size = Int64.of_int in_channel.info.BLOCK.sector_size in
+      let sector' = Int64.(div in_channel.offset sector_size) in
       let page = Io_page.(to_cstruct @@ get 1) in
-      BLOCK.read in_channel.b sector' [ page ]
+      (* However don't try to read beyond the end of the disk *)
+      let total_size_bytes = Int64.(mul in_channel.info.BLOCK.size_sectors sector_size) in
+      let tmp = Cstruct.sub page 0 (min 4096 Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
+      BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
       | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
       ce: %s" sector' x))
