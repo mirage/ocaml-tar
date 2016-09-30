@@ -1,3 +1,7 @@
+0.6.1 (2016-09-30)
+- fix a bug in the key=value interface when the archive isn't a multiple
+  of 4KiB in size
+
 0.6.0 (2016-09-19)
 - support for pax headers
 - removed Tar.Archive.fold: please use HeaderReader instead
