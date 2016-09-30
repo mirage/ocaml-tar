@@ -118,7 +118,8 @@ module Block4096 = struct
   let get_info b =
     Block.get_info b
     >>= fun info ->
-    return { info with Block.sector_size = 4096; size_sectors = Int64.div info.size_sectors 8L }
+    let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
+    return { info with Block.sector_size = 4096; size_sectors }
 
   let read b ofs bufs =
     Block.get_info b
