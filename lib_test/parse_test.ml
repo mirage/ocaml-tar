@@ -203,6 +203,9 @@ module Test(B: BLOCK) = struct
              ) files in
          Lwt_main.run t
       )
+    let check_not_padded () =
+      Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644;
+      can_read_through_BLOCK ~files:["empty"] ()
 end
 
 module Sector512 = Test(B)
@@ -219,6 +222,7 @@ let _ =
                 "header" >:: header;
                 "can_read_tar" >:: can_read_tar;
                 "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
+                "not 4KiB padded" >:: Sector512.check_not_padded;
                 "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
               ] in
