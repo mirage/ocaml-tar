@@ -144,7 +144,7 @@ end
 
 module type BLOCK = sig
   include V1_LWT.BLOCK
-  val connect: string -> [ `Ok of t | `Error of error ] Lwt.t
+  val connect: string -> t Lwt.t
 end
 
 module B = struct
@@ -158,13 +158,9 @@ module Test(B: BLOCK) = struct
     with_tar ?files
       (fun tar_filename files ->
          let t =
-           B.connect tar_filename
-           >>= fun r ->
-           let b = expect_ok r in
+           B.connect tar_filename >>= fun b ->
            let module KV_RO = Tar_mirage.Make_KV_RO(B) in
-           KV_RO.connect b
-           >>= fun r ->
-           let k = expect_ok r in
+           KV_RO.connect b >>= fun k ->
            Lwt_list.iter_s
              (fun file ->
                 KV_RO.size k file

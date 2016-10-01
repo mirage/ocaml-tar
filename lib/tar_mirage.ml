@@ -82,12 +82,10 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
   module HR = Tar.HeaderReader(Lwt)(Reader)
 
   let connect b =
-    BLOCK.get_info b
-    >>= fun info ->
+    BLOCK.get_info b >>= fun info ->
     let in_channel = { Reader.b; offset = 0L; info } in
     let rec loop map =
-      HR.read in_channel
-      >>= function
+      HR.read in_channel >>= function
       | Result.Error `Eof -> Lwt.return map
       | Result.Ok tar ->
         let filename = trim_slash tar.Tar.Header.file_name in
@@ -96,9 +94,8 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
         Reader.skip in_channel (Int64.to_int tar.Tar.Header.file_size) >>= fun () ->
         Reader.skip in_channel (Tar.Header.compute_zero_padding_length tar) >>= fun () ->
         loop map in
-    loop StringMap.empty
-    >>= fun map ->
-    Lwt.return (`Ok { b; map; info })
+    loop StringMap.empty >>= fun map ->
+    Lwt.return ({ b; map; info })
 
   let disconnect _ = Lwt.return ()
 
