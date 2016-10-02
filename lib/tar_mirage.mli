@@ -22,5 +22,5 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) : sig
 
   include V1_LWT.KV_RO
 
-  val connect: BLOCK.t -> [> `Ok of t ] Lwt.t
+  val connect: BLOCK.t -> t Lwt.t
 end
