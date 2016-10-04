@@ -28,7 +28,6 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
     info: BLOCK.info;
   }
 
-  type id = BLOCK.id
   type 'a io = 'a Lwt.t
 
   type error = Unknown_key of string | Failure of string
