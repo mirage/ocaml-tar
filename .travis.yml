@@ -2,6 +2,9 @@ language: c
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
 script: bash -ex .travis-opam.sh
 env:
+  global:
+  - EXTRA_REMOTES="https://github.com/mirage/mirage-dev.git"
+  matrix:
   - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt"
   - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt" DEPOPTS=lwt
   - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt" DEPOPTS=mirage-types-lwt
