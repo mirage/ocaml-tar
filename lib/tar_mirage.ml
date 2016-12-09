@@ -30,7 +30,6 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
 
   type 'a io = 'a Lwt.t
 
-  type error = Unknown_key of string | Failure of string
   type page_aligned_buffer = Cstruct.t
 
   (* Compare filenames without a leading / or ./ *)
@@ -63,10 +62,10 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
       let tmp = Cstruct.sub page 0 (min 4096 Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
       BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
-      | `Error (`Unknown x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
+      | Error (`Msg x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
       ce: %s" sector' x))
-      | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector'))
-      | `Ok () ->
+      | Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector'))
+      | Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
         let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.BLOCK.sector_size)))) in
         in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.len buffer)));
@@ -99,12 +98,12 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
   let disconnect _ = Lwt.return ()
 
   let mem t key =
-    Lwt.return (`Ok (StringMap.mem key t.map))
+    Lwt.return (Ok (StringMap.mem key t.map))
 
-  let read t key offset length =
+  let read t key (offset:int64) (length:int64) =
     let key = trim_slash key in
     if not(StringMap.mem key t.map)
-    then Lwt.return (`Error (Unknown_key key))
+    then Lwt.return (Error `Unknown_key)
     else begin
       let hdr, start_sector = StringMap.find key t.map in
 
@@ -113,8 +112,8 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
       let sector_size = of_int info.BLOCK.sector_size in
 
       (* Compute the unaligned data we need to read *)
-      let start_bytes = add (mul start_sector 512L) (of_int offset) in
-      let length_bytes = min (of_int length) (sub hdr.Tar.Header.file_size (of_int offset)) in
+      let start_bytes = add (mul start_sector 512L) offset in
+      let length_bytes = min length (sub hdr.Tar.Header.file_size offset) in
       let end_bytes = add start_bytes length_bytes in
       (* Compute the starting sector and ending sector (rounding down then up) *)
       let start_sector, start_padding = div start_bytes sector_size, rem start_bytes sector_size in
@@ -129,16 +128,16 @@ module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
       let tmp = Cstruct.sub block 0 (min (Cstruct.len block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
       BLOCK.read t.b start_sector [ tmp ]
       >>= function
-      | `Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read %s" key))
-      | `Ok () -> Lwt.return (`Ok [ Cstruct.sub block (to_int start_padding) (to_int length_bytes) ])
+      | Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read %s" key))
+      | Ok () -> Lwt.return (Ok [ Cstruct.sub block (to_int start_padding) (to_int length_bytes) ])
     end
 
   let size t key =
     let key = trim_slash key in
     if not(StringMap.mem key t.map)
-    then Lwt.return (`Error (Unknown_key key))
+    then Lwt.return (Error `Unknown_key)
     else begin
       let hdr, start_sector = StringMap.find key t.map in
-      Lwt.return (`Ok hdr.Tar.Header.file_size)
+      Lwt.return (Ok hdr.Tar.Header.file_size)
     end
 end
