@@ -34,4 +34,4 @@ depends: [
   "mirage-types-lwt"  {test}
 ]
 depopts: ["lwt" "mirage-types-lwt"]
-available: [ ocaml-version >= "4.01.0" ]
+available: [ ocaml-version >= "4.03.0" ]
