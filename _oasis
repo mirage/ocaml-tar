@@ -1,6 +1,6 @@
 OASISFormat: 0.4
 Name:        tar
-Version:     0.6.1
+Version:     0.7.0
 Synopsis:    Pure OCaml library to read and write tar files
 Authors:     Dave Scott, Thomas Gazagnaire, David Allsopp
 License:     ISC
@@ -41,7 +41,7 @@ Library tar_mirage
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar_mirage
-  BuildDepends:       tar, lwt, mirage-types.lwt, io-page
+  BuildDepends:       tar, lwt, mirage-types-lwt, io-page
   Findlibname:        mirage
   Findlibparent:      tar
 

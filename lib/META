@@ -1,6 +1,6 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4edac6efad8c1a04647b50dcf9bec69a)
-version = "0.6.1"
+# DO NOT EDIT (digest: fde0492f71aa924bd063b24d4d18f1b4)
+version = "0.7.0"
 description = "Pure OCaml library to read and write tar files"
 requires = "cstruct cstruct.ppx re.str result"
 archive(byte) = "tar.cma"
@@ -9,7 +9,7 @@ archive(native) = "tar.cmxa"
 archive(native, plugin) = "tar.cmxs"
 exists_if = "tar.cma"
 package "unix" (
- version = "0.6.1"
+ version = "0.7.0"
  description = "Pure OCaml library to read and write tar files"
  requires = "tar"
  archive(byte) = "tar_unix.cma"
@@ -20,9 +20,9 @@ package "unix" (
 )
 
 package "mirage" (
- version = "0.6.1"
+ version = "0.7.0"
  description = "Pure OCaml library to read and write tar files"
- requires = "tar lwt mirage-types.lwt io-page"
+ requires = "tar lwt mirage-types-lwt io-page"
  archive(byte) = "tar_mirage.cma"
  archive(byte, plugin) = "tar_mirage.cma"
  archive(native) = "tar_mirage.cmxa"
@@ -31,7 +31,7 @@ package "mirage" (
 )
 
 package "lwt" (
- version = "0.6.1"
+ version = "0.7.0"
  description = "Pure OCaml library to read and write tar files"
  requires = "tar lwt lwt.unix cstruct.lwt"
  archive(byte) = "tar_lwt_unix.cma"
