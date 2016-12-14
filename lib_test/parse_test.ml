@@ -109,8 +109,8 @@ let can_write_pax () =
     )
 
 let expect_ok = function
-  | `Ok x -> x
-  | `Error _ -> failwith "expect_ok: got Error"
+  | Ok x -> x
+  | Error _ -> failwith "expect_ok: got Error"
 
 module Block4096 = struct
   include Block
@@ -181,8 +181,8 @@ module Test(B: BLOCK) = struct
                 let read_tar key ofs len =
                   KV_RO.read k key ofs len
                   >>= function
-                  | `Error _ -> failwith "KV_RO.read"
-                  | `Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
+                  | Error _ -> failwith "KV_RO.read"
+                  | Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
                 (* Read whole file *)
                 let size = Int64.to_int stats.Unix.LargeFile.st_size in
                 let value = read_file file 0 size in
