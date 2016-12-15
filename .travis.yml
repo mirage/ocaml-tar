@@ -5,6 +5,6 @@ env:
   global:
   - EXTRA_REMOTES="https://github.com/mirage/mirage-dev.git"
   matrix:
-  - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt"
-  - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt" DEPOPTS=lwt
-  - OCAML_VERSION=4.02 PINS="mirage-block-unix mirage-types mirage-types-lwt" DEPOPTS=mirage-types-lwt
+  - OCAML_VERSION=4.03
+  - OCAML_VERSION=4.03 DEPOPTS=lwt
+  - OCAML_VERSION=4.03 DEPOPTS=mirage-types-lwt
