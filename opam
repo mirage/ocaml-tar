@@ -31,7 +31,7 @@ depends: [
   "ounit"             {test}
   "mirage-block-unix" {test}
   "lwt"               {test}
-  "mirage-types-lwt"  {test}
+  "mirage-types-lwt"  {test & >= "3.0.0"}
 ]
 depopts: ["lwt" "mirage-types-lwt"]
-available: [ ocaml-version >= "4.03.0" ]
+available: [ ocaml-version >= "4.01.0" ]
