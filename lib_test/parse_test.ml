@@ -109,8 +109,8 @@ let can_write_pax () =
     )
 
 let expect_ok = function
-  | `Ok x -> x
-  | `Error _ -> failwith "expect_ok: got Error"
+  | Ok x -> x
+  | Error _ -> failwith "expect_ok: got Error"
 
 module Block4096 = struct
   include Block
@@ -181,17 +181,17 @@ module Test(B: BLOCK) = struct
                 let read_tar key ofs len =
                   KV_RO.read k key ofs len
                   >>= function
-                  | `Error _ -> failwith "KV_RO.read"
-                  | `Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
+                  | Error _ -> failwith "KV_RO.read"
+                  | Ok bufs -> return (String.concat "" (List.map Cstruct.to_string bufs)) in
                 (* Read whole file *)
-                let size = Int64.to_int stats.Unix.LargeFile.st_size in
-                let value = read_file file 0 size in
-                read_tar file 0 size
+                let size = stats.Unix.LargeFile.st_size in
+                let value = read_file file 0 (Int64.to_int size) in
+                read_tar file 0L size
                 >>= fun value' ->
                 assert_equal ~printer:(fun x -> x) value value';
-                if size > 2 then begin
-                  let value = read_file file 1 (size - 2) in
-                  read_tar file 1 (size - 2)
+                if Int64.compare size 2L = 1 then begin
+                  let value = read_file file 1 ((Int64.to_int size) - 2) in
+                  read_tar file 1L (Int64.sub size 2L)
                   >>= fun value' ->
                   assert_equal ~printer:(fun x -> x) value value';
                   return ()
@@ -200,7 +200,7 @@ module Test(B: BLOCK) = struct
          Lwt_main.run t
       )
     let check_not_padded () =
-      Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644;
+      ignore (Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644);
       can_read_through_BLOCK ~files:["empty"] ()
 end
 
