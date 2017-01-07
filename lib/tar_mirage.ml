@@ -20,7 +20,7 @@ open Lwt.Infix
 
 module StringMap = Map.Make(String)
 
-module Make_KV_RO (BLOCK : V1_LWT.BLOCK) = struct
+module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
 
   type t = {
     b: BLOCK.t;
