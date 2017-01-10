@@ -143,7 +143,7 @@ module Block4096 = struct
 end
 
 module type BLOCK = sig
-  include V1_LWT.BLOCK
+  include Mirage_types_lwt.BLOCK
   val connect: string -> t Lwt.t
 end
 
