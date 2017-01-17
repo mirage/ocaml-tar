@@ -20,17 +20,21 @@ open Lwt.Infix
 
 module StringMap = Map.Make(String)
 
-module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
+module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
 
   type t = {
     b: BLOCK.t;
     map: (Tar.Header.t * int64) StringMap.t;
-    info: BLOCK.info;
+    info: Mirage_block.info;
   }
+
+  type error = Mirage_kv.error
 
   type 'a io = 'a Lwt.t
 
   type page_aligned_buffer = Cstruct.t
+
+  let pp_error = Mirage_kv.pp_error
 
   (* Compare filenames without a leading / or ./ *)
   let trim_slash x =
@@ -48,26 +52,25 @@ module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
     type in_channel = {
       b: BLOCK.t;
       mutable offset: int64;
-      info: BLOCK.info;
+      info: Mirage_block.info;
     }
     type 'a t = 'a Lwt.t
     let really_read in_channel buffer =
       assert(Cstruct.len buffer <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector_size = Int64.of_int in_channel.info.BLOCK.sector_size in
+      let sector_size = Int64.of_int in_channel.info.Mirage_block.sector_size in
       let sector' = Int64.(div in_channel.offset sector_size) in
       let page = Io_page.(to_cstruct @@ get 1) in
       (* However don't try to read beyond the end of the disk *)
-      let total_size_bytes = Int64.(mul in_channel.info.BLOCK.size_sectors sector_size) in
+      let total_size_bytes = Int64.(mul in_channel.info.Mirage_block.size_sectors sector_size) in
       let tmp = Cstruct.sub page 0 (min 4096 Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
       BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
-      | Error (`Msg x) -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block devi
-      ce: %s" sector' x))
-      | Error _ -> Lwt.fail (Failure (Printf.sprintf "Failed to read sector %Ld from block device" sector'))
+      | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
+                             BLOCK.pp_error e))
       | Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
-        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.BLOCK.sector_size)))) in
+        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.Mirage_block.sector_size)))) in
         in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.len buffer)));
         Cstruct.blit page offset buffer 0 (Cstruct.len buffer);
         Lwt.return_unit
@@ -103,13 +106,13 @@ module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
   let read t key (offset:int64) (length:int64) =
     let key = trim_slash key in
     if not(StringMap.mem key t.map)
-    then Lwt.return (Error `Unknown_key)
+    then Lwt.return (Error (`Unknown_key key))
     else begin
       let hdr, start_sector = StringMap.find key t.map in
 
       BLOCK.get_info t.b >>= fun info ->
       let open Int64 in
-      let sector_size = of_int info.BLOCK.sector_size in
+      let sector_size = of_int info.Mirage_block.sector_size in
 
       (* Compute the unaligned data we need to read *)
       let start_bytes = add (mul start_sector 512L) offset in
@@ -124,7 +127,7 @@ module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
       let n_pages = (n_bytes + 4095) / 4096 in
       let block = Io_page.(to_cstruct @@ get n_pages) in
       (* Don't try to read beyond the end of the archive *)
-      let total_size_bytes = Int64.(mul t.info.BLOCK.size_sectors sector_size) in
+      let total_size_bytes = Int64.(mul t.info.Mirage_block.size_sectors sector_size) in
       let tmp = Cstruct.sub block 0 (min (Cstruct.len block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
       BLOCK.read t.b start_sector [ tmp ]
       >>= function
@@ -135,7 +138,7 @@ module Make_KV_RO (BLOCK : Mirage_types_lwt.BLOCK) = struct
   let size t key =
     let key = trim_slash key in
     if not(StringMap.mem key t.map)
-    then Lwt.return (Error `Unknown_key)
+    then Lwt.return (Error (`Unknown_key key))
     else begin
       let hdr, start_sector = StringMap.find key t.map in
       Lwt.return (Ok hdr.Tar.Header.file_size)

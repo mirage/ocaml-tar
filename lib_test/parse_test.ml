@@ -119,7 +119,7 @@ module Block4096 = struct
     Block.get_info b
     >>= fun info ->
     let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
-    return { info with Block.sector_size = 4096; size_sectors }
+    return { info with Mirage_block.sector_size = 4096; size_sectors }
 
   let read b ofs bufs =
     Block.get_info b

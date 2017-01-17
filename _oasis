@@ -41,7 +41,7 @@ Library tar_mirage
   Path:               lib
   BuildTools:         ocamlbuild
   Modules:            Tar_mirage
-  BuildDepends:       tar, lwt, mirage-types-lwt, io-page
+  BuildDepends:       tar, lwt, mirage-types-lwt, mirage-block, mirage-block-lwt, io-page
   Findlibname:        mirage
   Findlibparent:      tar
 

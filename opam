@@ -10,7 +10,7 @@ build: [
   ["ocaml" "setup.ml" "-configure"
      "--prefix" prefix
      "--%{lwt:enable}%-lwtunix"
-     "--%{mirage-types-lwt:enable}%-mirage" ]
+     "--%{mirage-types-lwt+mirage-block:enable}%-mirage" ]
   ["ocaml" "setup.ml" "-build"]
 ]
 build-test: [
@@ -33,5 +33,5 @@ depends: [
   "lwt"               {test}
   "mirage-types-lwt"  {test & >= "3.0.0"}
 ]
-depopts: ["lwt" "mirage-types-lwt"]
+depopts: ["lwt" "mirage-types-lwt" "mirage-block"]
 available: [ ocaml-version >= "4.01.0" ]
