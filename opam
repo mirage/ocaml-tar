@@ -28,10 +28,10 @@ depends: [
   "re"
   "result"
   "cmdliner"
-  "ounit"             {test}
-  "mirage-block-unix" {test}
-  "lwt"               {test}
-  "mirage-types-lwt"  {test & >= "3.0.0"}
+  "ounit" {test}
+  "mirage-block-unix" {test & >= "2.5.0"}
+  "lwt" {test}
+  "mirage-types-lwt" {test & >= "3.0.0"}
 ]
 depopts: ["lwt" "mirage-types-lwt" "mirage-block"]
 available: [ ocaml-version >= "4.01.0" ]
