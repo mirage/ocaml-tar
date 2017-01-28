@@ -1,8 +1,0 @@
-#!/bin/sh
-
-trap "rm -f /tmp/configure.$$" EXIT
-
-ocamlfind ocamlc -package cmdliner,findlib -linkpkg -o /tmp/configure.$$ configure.ml
-rm -f configure.c*
-/tmp/configure.$$ $*
-
