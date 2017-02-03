@@ -5,33 +5,31 @@ tags:         ["org:xapi-project" "org:mirage"]
 homepage:     "https://github.com/mirage/ocaml-tar"
 bug-reports:  "https://github.com/mirage/ocaml-tar/issues"
 dev-repo:     "https://github.com/mirage/ocaml-tar.git"
+doc:          "https://mirage.github.io/ocaml-tar/"
 
 build: [
-  ["ocaml" "setup.ml" "-configure"
-     "--prefix" prefix
-     "--%{lwt:enable}%-lwtunix"
-     "--%{mirage-types-lwt+mirage-block:enable}%-mirage" ]
-  ["ocaml" "setup.ml" "-build"]
+  [ "ocaml" "pkg/pkg.ml" "build" "--pinned" "%{pinned}%" "--tests" "false"
+    "--with-mirage" "%{mirage-types-lwt+mirage-block+mirage-block-lwt+io-page:installed}%"
+    "--with-lwt" "%{lwt:installed}%" ]
 ]
+
 build-test: [
-  ["ocaml" "setup.ml" "-configure"
-    "--enable-tests" "--enable-lwtunix" "--enable-mirage"]
-  [make "test"]
+  [ "ocaml" "pkg/pkg.ml" "build" "--pinned" "%{pinned}%" "--tests" "true" "--with-lwt" "true" ]
+  [ "ocaml" "pkg/pkg.ml" "test" ]
 ]
-install: ["ocaml" "setup.ml" "-install"]
-remove:  ["ocamlfind" "remove" "tar"]
 
 depends: [
-  "ocamlfind"
-  "cstruct"           {>= "1.9.0"}
+  "ocamlbuild"        {build}
+  "ocamlfind"         {build}
+  "topkg"             {build & >= "0.8.0"}
   "ppx_tools"         {build}
+  "cstruct"           {>= "1.9.0"}
   "re"
   "result"
-  "cmdliner"
-  "ounit" {test}
   "mirage-block-unix" {test & >= "2.5.0"}
-  "lwt" {test}
-  "mirage-types-lwt" {test & >= "3.0.0"}
+  "mirage-types-lwt"  {test & >= "3.0.0"}
+  "ounit"             {test}
+  "lwt"               {test}
 ]
-depopts: ["lwt" "mirage-types-lwt" "mirage-block"]
+depopts: ["lwt" "mirage-types-lwt" "mirage-block" "mirage-block-lwt" "io-page"]
 available: [ ocaml-version >= "4.01.0" ]

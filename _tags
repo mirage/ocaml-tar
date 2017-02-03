@@ -1,75 +1,10 @@
-# OASIS_START
-# DO NOT EDIT (digest: 4ce4c2ef08c6f6c8b8be13cd9319d254)
-# Ignore VCS directories, you can use the same kind of rule outside
-# OASIS_START/STOP if you want to exclude directories that contains
-# useless stuff for the build process
-true: annot, bin_annot
-<**/.svn>: -traverse
-<**/.svn>: not_hygienic
-".bzr": -traverse
-".bzr": not_hygienic
-".hg": -traverse
-".hg": not_hygienic
-".git": -traverse
-".git": not_hygienic
-"_darcs": -traverse
-"_darcs": not_hygienic
-# Library tar
-"lib/tar.cmxs": use_tar
-# Library tar_unix
-"lib/tar_unix.cmxs": use_tar_unix
-# Library tar_lwt_unix
-"lib/tar_lwt_unix.cmxs": use_tar_lwt_unix
-<lib/*.ml{,i,y}>: pkg_cstruct.lwt
-<lib/*.ml{,i,y}>: pkg_lwt.unix
-# Library tar_mirage
-"lib/tar_mirage.cmxs": use_tar_mirage
-<lib/*.ml{,i,y}>: pkg_cstruct
-<lib/*.ml{,i,y}>: pkg_cstruct.ppx
-<lib/*.ml{,i,y}>: pkg_io-page
-<lib/*.ml{,i,y}>: pkg_lwt
-<lib/*.ml{,i,y}>: pkg_mirage-block
-<lib/*.ml{,i,y}>: pkg_mirage-block-lwt
-<lib/*.ml{,i,y}>: pkg_mirage-types-lwt
-<lib/*.ml{,i,y}>: pkg_re.str
-<lib/*.ml{,i,y}>: pkg_result
-<lib/*.ml{,i,y}>: use_tar
-# Executable parse_test
-<lib_test/parse_test.{native,byte}>: pkg_cstruct
-<lib_test/parse_test.{native,byte}>: pkg_cstruct.lwt
-<lib_test/parse_test.{native,byte}>: pkg_cstruct.ppx
-<lib_test/parse_test.{native,byte}>: pkg_io-page
-<lib_test/parse_test.{native,byte}>: pkg_io-page.unix
-<lib_test/parse_test.{native,byte}>: pkg_lwt
-<lib_test/parse_test.{native,byte}>: pkg_lwt.unix
-<lib_test/parse_test.{native,byte}>: pkg_mirage-block
-<lib_test/parse_test.{native,byte}>: pkg_mirage-block-lwt
-<lib_test/parse_test.{native,byte}>: pkg_mirage-block-unix
-<lib_test/parse_test.{native,byte}>: pkg_mirage-types-lwt
-<lib_test/parse_test.{native,byte}>: pkg_oUnit
-<lib_test/parse_test.{native,byte}>: pkg_re.str
-<lib_test/parse_test.{native,byte}>: pkg_result
-<lib_test/parse_test.{native,byte}>: use_tar
-<lib_test/parse_test.{native,byte}>: use_tar_lwt_unix
-<lib_test/parse_test.{native,byte}>: use_tar_mirage
-<lib_test/parse_test.{native,byte}>: use_tar_unix
-<lib_test/*.ml{,i,y}>: pkg_cstruct
-<lib_test/*.ml{,i,y}>: pkg_cstruct.lwt
-<lib_test/*.ml{,i,y}>: pkg_cstruct.ppx
-<lib_test/*.ml{,i,y}>: pkg_io-page
-<lib_test/*.ml{,i,y}>: pkg_io-page.unix
-<lib_test/*.ml{,i,y}>: pkg_lwt
-<lib_test/*.ml{,i,y}>: pkg_lwt.unix
-<lib_test/*.ml{,i,y}>: pkg_mirage-block
-<lib_test/*.ml{,i,y}>: pkg_mirage-block-lwt
-<lib_test/*.ml{,i,y}>: pkg_mirage-block-unix
-<lib_test/*.ml{,i,y}>: pkg_mirage-types-lwt
-<lib_test/*.ml{,i,y}>: pkg_oUnit
-<lib_test/*.ml{,i,y}>: pkg_re.str
-<lib_test/*.ml{,i,y}>: pkg_result
-<lib_test/*.ml{,i,y}>: use_tar
-<lib_test/*.ml{,i,y}>: use_tar_lwt_unix
-<lib_test/*.ml{,i,y}>: use_tar_mirage
-<lib_test/*.ml{,i,y}>: use_tar_unix
-<lib_test/parse_test.{native,byte}>: custom
-# OASIS_STOP
+true : color(always), bin_annot, principal
+true : warn(+A)
+true : package(cstruct result re re.str)
+"lib" : include
+
+<lib/tar.ml>: package(cstruct.ppx)
+<lib/tar_mirage.{ml,mli}>: package(io-page lwt mirage-types-lwt mirage-block mirage-block-lwt)
+<lib/tar_lwt_unix.{ml,mli}>: package(lwt)
+
+<lib_test/parse_test.{ml,native}>: package(mirage-block-unix mirage-types-lwt oUnit lwt io-page.unix)
