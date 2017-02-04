@@ -1,6 +1,6 @@
-## 0.7.1 (??)
+## 0.7.1 (2017-02-03)
 
-- convert build system to topkg
+- convert build system to topkg (#43, @hannesm)
 
 ## 0.7.0 (2017-01-19)
 
