@@ -1,0 +1,45 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<link rel="stylesheet" href="style.css" type="text/css">
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="Start" href="index.html">
+<link rel="Up" href="Tar_mirage.html">
+<link title="Index of types" rel=Appendix href="index_types.html">
+<link title="Index of exceptions" rel=Appendix href="index_exceptions.html">
+<link title="Index of values" rel=Appendix href="index_values.html">
+<link title="Index of modules" rel=Appendix href="index_modules.html">
+<link title="Index of module types" rel=Appendix href="index_module_types.html">
+<link title="Tar" rel="Chapter" href="Tar.html">
+<link title="Tar_unix" rel="Chapter" href="Tar_unix.html">
+<link title="Tar_lwt_unix" rel="Chapter" href="Tar_lwt_unix.html">
+<link title="Tar_mirage" rel="Chapter" href="Tar_mirage.html"><title>Tar_mirage.Make_KV_RO</title>
+</head>
+<body>
+<div class="navbar">&nbsp;<a class="up" href="Tar_mirage.html" title="Tar_mirage">Up</a>
+&nbsp;</div>
+<h1>Functor <a href="type_Tar_mirage.Make_KV_RO.html">Tar_mirage.Make_KV_RO</a></h1>
+
+<pre><span class="keyword">module</span> Make_KV_RO: <div class="sig_block"><code class="code"><span class="keyword">functor</span>&nbsp;(</code><code class="code"><span class="constructor">BLOCK</span></code><code class="code">&nbsp;:&nbsp;</code><code class="type">Mirage_block_lwt.S</code><code class="code">)&nbsp;<span class="keywordsign">-&gt;</span>&nbsp;</code><code class="code"><span class="keyword">sig</span></code> <a href="Tar_mirage.Make_KV_RO.html">..</a> <code class="code"><span class="keyword">end</span></code></div></pre><table border="0" cellpadding="3" width="100%">
+<tr>
+<td align="left" valign="top" width="1%%"><b>Parameters: </b></td>
+<td>
+<table class="paramstable">
+<tr>
+<td align="center" valign="top" width="15%">
+<code>BLOCK</code></td>
+<td align="center" valign="top">:</td>
+<td><code class="type">Mirage_block_lwt.S</code>
+</table>
+</td>
+</tr>
+</table>
+<hr width="100%">
+<br>
+Construct a read-only key-value store from an existing block device
+      containing tar-format data.<br>
+
+<pre><span class="keyword">include</span> Mirage_types_lwt.KV_RO</pre>
+
+<pre><span id="VALconnect"><span class="keyword">val</span> connect</span> : <code class="type">BLOCK.t -> t Lwt.t</code></pre></body></html>

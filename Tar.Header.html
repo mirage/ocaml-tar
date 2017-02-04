@@ -1,0 +1,244 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<link rel="stylesheet" href="style.css" type="text/css">
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="Start" href="index.html">
+<link rel="next" href="Tar.HeaderReader.html">
+<link rel="Up" href="Tar.html">
+<link title="Index of types" rel=Appendix href="index_types.html">
+<link title="Index of exceptions" rel=Appendix href="index_exceptions.html">
+<link title="Index of values" rel=Appendix href="index_values.html">
+<link title="Index of modules" rel=Appendix href="index_modules.html">
+<link title="Index of module types" rel=Appendix href="index_module_types.html">
+<link title="Tar" rel="Chapter" href="Tar.html">
+<link title="Tar_unix" rel="Chapter" href="Tar_unix.html">
+<link title="Tar_lwt_unix" rel="Chapter" href="Tar_lwt_unix.html">
+<link title="Tar_mirage" rel="Chapter" href="Tar_mirage.html"><title>Tar.Header</title>
+</head>
+<body>
+<div class="navbar">&nbsp;<a class="up" href="Tar.html" title="Tar">Up</a>
+&nbsp;<a class="post" href="Tar.HeaderReader.html" title="Tar.HeaderReader">Next</a>
+</div>
+<h1>Module <a href="type_Tar.Header.html">Tar.Header</a></h1>
+
+<pre><span class="keyword">module</span> Header: <code class="code"><span class="keyword">sig</span></code> <a href="Tar.Header.html">..</a> <code class="code"><span class="keyword">end</span></code></pre><hr width="100%">
+<br>
+Process and create tar file headers<br>
+
+<pre><code><span id="TYPEcompatibility"><span class="keyword">type</span> <code class="type"></code>compatibility</span> = </code></pre><table class="typetable">
+<tr>
+<td align="left" valign="top" >
+<code><span class="keyword">|</span></code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTcompatibility.OldGNU"><span class="constructor">OldGNU</span></span></code></td>
+<td class="typefieldcomment" align="left" valign="top" ><code>(*</code></td><td class="typefieldcomment" align="left" valign="top" ><div class="info ">
+GNU tar &lt; 1.12<br>
+</div>
+</td><td class="typefieldcomment" align="left" valign="bottom" ><code>*)</code></td>
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code><span class="keyword">|</span></code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTcompatibility.GNU"><span class="constructor">GNU</span></span></code></td>
+<td class="typefieldcomment" align="left" valign="top" ><code>(*</code></td><td class="typefieldcomment" align="left" valign="top" ><div class="info ">
+GNU tar 1.12 - 1.13.25<br>
+</div>
+</td><td class="typefieldcomment" align="left" valign="bottom" ><code>*)</code></td>
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code><span class="keyword">|</span></code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTcompatibility.V7"><span class="constructor">V7</span></span></code></td>
+<td class="typefieldcomment" align="left" valign="top" ><code>(*</code></td><td class="typefieldcomment" align="left" valign="top" ><div class="info ">
+Origin 7th Release format<br>
+</div>
+</td><td class="typefieldcomment" align="left" valign="bottom" ><code>*)</code></td>
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code><span class="keyword">|</span></code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTcompatibility.Ustar"><span class="constructor">Ustar</span></span></code></td>
+<td class="typefieldcomment" align="left" valign="top" ><code>(*</code></td><td class="typefieldcomment" align="left" valign="top" ><div class="info ">
+POSIX.1-1988<br>
+</div>
+</td><td class="typefieldcomment" align="left" valign="bottom" ><code>*)</code></td>
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code><span class="keyword">|</span></code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTcompatibility.Posix"><span class="constructor">Posix</span></span></code></td>
+<td class="typefieldcomment" align="left" valign="top" ><code>(*</code></td><td class="typefieldcomment" align="left" valign="top" ><div class="info ">
+POSIX.1-2001<br>
+</div>
+</td><td class="typefieldcomment" align="left" valign="bottom" ><code>*)</code></td>
+</tr></table>
+
+<div class="info ">
+tar format assumptions. Default is <code class="code"><span class="constructor">V7</span></code> (for compatibility with versions of ocaml-tar before this type was introduced). See http://www.gnu.org/software/tar/manual/html_section/tar_68.html for more information.<br>
+</div>
+
+
+<pre><span id="VALcompatibility_level"><span class="keyword">val</span> compatibility_level</span> : <code class="type"><a href="Tar.Header.html#TYPEcompatibility">compatibility</a> Pervasives.ref</code></pre><div class="info ">
+Default compatibility if <code class="code">?level</code> is omitted. Defaults to <code class="code"><span class="constructor">V7</span></code><br>
+</div>
+
+<pre><span class="keyword">module</span> <a href="Tar.Header.Link.html">Link</a>: <code class="code"><span class="keyword">sig</span></code> <a href="Tar.Header.Link.html">..</a> <code class="code"><span class="keyword">end</span></code></pre>
+<pre><span class="keyword">module</span> <a href="Tar.Header.Extended.html">Extended</a>: <code class="code"><span class="keyword">sig</span></code> <a href="Tar.Header.Extended.html">..</a> <code class="code"><span class="keyword">end</span></code></pre>
+<pre><code><span id="TYPEt"><span class="keyword">type</span> <code class="type"></code>t</span> = {</code></pre><table class="typetable">
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.file_name">file_name</span>&nbsp;: <code class="type">string</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.file_mode">file_mode</span>&nbsp;: <code class="type">int</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.user_id">user_id</span>&nbsp;: <code class="type">int</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.group_id">group_id</span>&nbsp;: <code class="type">int</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.file_size">file_size</span>&nbsp;: <code class="type">int64</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.mod_time">mod_time</span>&nbsp;: <code class="type">int64</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.link_indicator">link_indicator</span>&nbsp;: <code class="type"><a href="Tar.Header.Link.html#TYPEt">Link.t</a></code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.link_name">link_name</span>&nbsp;: <code class="type">string</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.uname">uname</span>&nbsp;: <code class="type">string</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.gname">gname</span>&nbsp;: <code class="type">string</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.devmajor">devmajor</span>&nbsp;: <code class="type">int</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.devminor">devminor</span>&nbsp;: <code class="type">int</code>;</code></td>
+
+</tr>
+<tr>
+<td align="left" valign="top" >
+<code>&nbsp;&nbsp;</code></td>
+<td align="left" valign="top" >
+<code><span id="TYPEELTt.extended">extended</span>&nbsp;: <code class="type"><a href="Tar.Header.Extended.html#TYPEt">Extended.t</a> option</code>;</code></td>
+
+</tr></table>
+}
+
+<div class="info ">
+Represents a standard archive (note checksum not stored)<br>
+</div>
+
+
+<pre><span id="VALmake"><span class="keyword">val</span> make</span> : <code class="type">?file_mode:int -><br>       ?user_id:int -><br>       ?group_id:int -><br>       ?mod_time:int64 -><br>       ?link_indicator:<a href="Tar.Header.Link.html#TYPEt">Link.t</a> -><br>       ?link_name:string -><br>       ?uname:string -><br>       ?gname:string -><br>       ?devmajor:int -> ?devminor:int -> string -> int64 -> <a href="Tar.Header.html#TYPEt">t</a></code></pre><div class="info ">
+Helper function to make a simple header<br>
+</div>
+
+<pre><span id="VALlength"><span class="keyword">val</span> length</span> : <code class="type">int</code></pre><div class="info ">
+Length of a header block<br>
+</div>
+
+<pre><span id="VALzero_block"><span class="keyword">val</span> zero_block</span> : <code class="type">Cstruct.t</code></pre><div class="info ">
+A blank header block (two of these in series mark the end of the tar)<br>
+</div>
+
+<pre><span id="VALto_detailed_string"><span class="keyword">val</span> to_detailed_string</span> : <code class="type"><a href="Tar.Header.html#TYPEt">t</a> -> string</code></pre><div class="info ">
+Pretty-print the header record<br>
+</div>
+
+<pre><span id="VALto_hex"><span class="keyword">val</span> to_hex</span> : <code class="type">string -> string</code></pre><div class="info ">
+For debugging: pretty-print a string as hex<br>
+</div>
+
+<pre><span id="EXCEPTIONChecksum_mismatch"><span class="keyword">exception</span> Checksum_mismatch</span></pre>
+<div class="info ">
+Thrown when unmarshalling a header if the checksums don't match<br>
+</div>
+
+<pre><span id="EXCEPTIONEnd_of_stream"><span class="keyword">exception</span> End_of_stream</span></pre>
+<div class="info ">
+Thrown if we detect the end of the tar (at least two zero blocks in sequence)<br>
+</div>
+
+<pre><span id="VALunmarshal"><span class="keyword">val</span> unmarshal</span> : <code class="type">?level:<a href="Tar.Header.html#TYPEcompatibility">compatibility</a> -><br>       ?extended:<a href="Tar.Header.Extended.html#TYPEt">Extended.t</a> -> Cstruct.t -> <a href="Tar.Header.html#TYPEt">t</a> option</code></pre><div class="info ">
+Unmarshal a header block, returning None if it's all zeroes.
+      This header block may be preceeded by an <code class="code">?extended</code> block which
+      will override some fields.<br>
+</div>
+
+<pre><span id="VALmarshal"><span class="keyword">val</span> marshal</span> : <code class="type">?level:<a href="Tar.Header.html#TYPEcompatibility">compatibility</a> -> Cstruct.t -> <a href="Tar.Header.html#TYPEt">t</a> -> unit</code></pre><div class="info ">
+Marshal a header block, computing and inserting the checksum<br>
+</div>
+
+<pre><span id="VALcompute_zero_padding_length"><span class="keyword">val</span> compute_zero_padding_length</span> : <code class="type"><a href="Tar.Header.html#TYPEt">t</a> -> int</code></pre><div class="info ">
+Compute the amount of zero-padding required to round up the file size
+      to a whole number of blocks<br>
+</div>
+
+<pre><span id="VALzero_padding"><span class="keyword">val</span> zero_padding</span> : <code class="type"><a href="Tar.Header.html#TYPEt">t</a> -> Cstruct.t</code></pre><div class="info ">
+Return the required zero-padding as a string<br>
+</div>
+
+<pre><span id="VALto_sectors"><span class="keyword">val</span> to_sectors</span> : <code class="type"><a href="Tar.Header.html#TYPEt">t</a> -> int64</code></pre><div class="info ">
+<code class="code">to_sectors&nbsp;t</code> is the number of sectors occupied by the data<br>
+</div>
+</body></html>
