@@ -1,5 +1,5 @@
 true : color(always), bin_annot, principal
-true : warn(+A)
+true : warn(+A-44-41-32-26-27)
 true : package(cstruct result re re.str)
 "lib" : include
 
