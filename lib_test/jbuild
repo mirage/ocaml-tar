@@ -1,0 +1,9 @@
+(executables
+ ((names (parse_test))
+  (libraries (mirage-block-unix mirage-types-lwt oUnit lwt io-page.unix
+              tar-unix tar-mirage))
+))
+(alias
+ ((name    runtest)
+  (deps    (parse_test.exe))
+  (action  (run ${<}))))
