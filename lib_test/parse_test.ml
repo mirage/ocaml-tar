@@ -64,7 +64,7 @@ let rm_rf dir =
   loop dir
 
 let with_temp_dir f =
-  let dir = Filename.(concat temp_dir_name (Printf.sprintf "test.%d" (Unix.getpid()))) in
+  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Unix.getpid()))) in
   Unix.mkdir dir 0o0755;
   finally (fun () -> f dir) (fun () -> rm_rf dir)
 
