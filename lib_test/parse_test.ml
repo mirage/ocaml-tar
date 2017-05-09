@@ -53,6 +53,21 @@ let with_temp_file f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
   finally (fun () -> f tar_filename) (fun () -> Unix.unlink tar_filename)
 
+let rm_rf dir =
+  let rec loop file_or_dir =
+    Printf.fprintf stderr "rm %s\n%!" file_or_dir;
+    match Unix.unlink file_or_dir with
+    | () -> ()
+    | exception Unix.Unix_error((Unix.EISDIR | Unix.EPERM), _, _) ->
+      Array.iter (fun name -> loop (Filename.concat file_or_dir name)) (Sys.readdir file_or_dir);
+      Unix.rmdir file_or_dir in
+  loop dir
+
+let with_temp_dir f =
+  let dir = Filename.(concat temp_dir_name (Printf.sprintf "test.%d" (Unix.getpid()))) in
+  Unix.mkdir dir 0o0755;
+  finally (fun () -> f dir) (fun () -> rm_rf dir)
+
 let with_tar ?files f =
   let files = match files with
     | None -> List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib"))
@@ -105,6 +120,25 @@ let can_write_pax () =
           | xs ->
             Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Header.to_detailed_string xs));
             assert false
+        ) (fun () -> Unix.close fd);
+    )
+
+let can_list_longlink_tar () =
+  let open Tar_unix in
+  with_temp_dir
+    (fun dir ->
+      let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
+      finally
+        (fun () ->
+          let all = Archive.list fd in
+          let filenames = List.map (fun h -> h.Tar_unix.Header.file_name) all in
+          (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+          let expected = [
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
+          ] in
+          OUnit.assert_equal ~printer:(String.concat ", ") expected filenames
         ) (fun () -> Unix.close fd);
     )
 
@@ -221,5 +255,6 @@ let _ =
                 "not 4KiB padded" >:: Sector512.check_not_padded;
                 "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
+                "can read @Longlink" >:: can_list_longlink_tar;
               ] in
   run_test_tt ~verbose:!verbose suite
