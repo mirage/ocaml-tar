@@ -44,6 +44,7 @@ module Header : sig
       | FIFO (** a FIFO node *)
       | GlobalExtendedHeader (** a PaxExtension global header *)
       | PerFileExtendedHeader (** a PaxExtension per-file header *)
+      | LongLink (** a @LongLink i.e. a very long filename *)
     val to_string: t -> string
   end
 
