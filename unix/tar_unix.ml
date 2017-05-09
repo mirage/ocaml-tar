@@ -75,7 +75,6 @@ module Header = struct
     let file_mode = stat.Unix.LargeFile.st_perm in
     let user_id = stat.Unix.LargeFile.st_uid in
     let group_id = stat.Unix.LargeFile.st_gid in
-    let file_size = stat.Unix.LargeFile.st_size in
     let mod_time = Int64.of_float stat.Unix.LargeFile.st_mtime in
     let link_indicator = Link.Normal in
     let link_name = "" in
