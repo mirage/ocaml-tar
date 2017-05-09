@@ -114,6 +114,7 @@ module Header = struct
       | FIFO
       | GlobalExtendedHeader
       | PerFileExtendedHeader
+      | LongLink
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
     let to_int ?level =
@@ -127,6 +128,7 @@ module Header = struct
         | FIFO                  -> 54 (* '6' *)
         | GlobalExtendedHeader  -> 103 (* 'g' *)
         | PerFileExtendedHeader -> 120 (* 'x' *)
+        | LongLink              -> 76  (* 'L' *)
 
     let of_int ?level =
       let level = get_level level in function
@@ -134,6 +136,7 @@ module Header = struct
         | 50 (* '2' *) -> Symbolic
         | 103 (* 'g' *) -> GlobalExtendedHeader
         | 120 (* 'x' *) -> PerFileExtendedHeader
+        | 76 (* 'L' *) -> LongLink
         (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
         | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
         | 51 (* '3' *) -> Character
@@ -152,6 +155,7 @@ module Header = struct
       | FIFO -> "FIFO"
       | GlobalExtendedHeader -> "GlobalExtendedHeader"
       | PerFileExtendedHeader -> "PerFileExtendedHeader"
+      | LongLink -> "LongLink"
   end
 
   module Extended = struct
@@ -544,6 +548,8 @@ module type WRITER = sig
   val really_write: out_channel -> Cstruct.t -> unit t
 end
 
+let longlink = "././@LongLink"
+
 module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
   open Async
   open Reader
@@ -584,6 +590,18 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
           (* Corrupt pax headers *)
           return (Result.Error `Eof)
         | Some x -> return (Result.Ok x)
+        end
+      | Some x when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
+        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        really_read ifd extra_header_buf
+        >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x)
+        >>= fun () ->
+        let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (len extra_header_buf - 1)) in
+        begin next ()
+        >>= function
+        | None -> return (Result.Error `Eof)
+        | Some x -> return (Result.Ok { x with file_name })
         end
       | Some x -> return (Result.Ok x)
       | None ->
@@ -631,7 +649,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     Cstruct.memset buffer 0;
-    let blank = {Header.file_name = "././@LongLink"; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.Normal; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
+    let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
     ( if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
         ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
