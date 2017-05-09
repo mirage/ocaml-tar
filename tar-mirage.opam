@@ -8,30 +8,24 @@ dev-repo:     "https://github.com/mirage/ocaml-tar.git"
 doc:          "https://mirage.github.io/ocaml-tar/"
 
 build: [
-  [ "ocaml" "pkg/pkg.ml" "build" "--pinned" "%{pinned}%" "--tests" "false"
-    "--with-mirage" "%{mirage-types-lwt+mirage-block+mirage-block-lwt+io-page:installed}%"
-    "--with-lwt" "%{lwt:installed}%" ]
+  [ "jbuilder" "build" "--only-packages=tar,tar-unix" ]
 ]
 
 build-test: [
-  [ "ocaml" "pkg/pkg.ml" "build" "--pinned" "%{pinned}%" "--tests" "true" "--with-lwt" "true" ]
-  [ "ocaml" "pkg/pkg.ml" "test" ]
+  [ "jbuilder" "runtest" ]
 ]
 
 depends: [
-  "ocamlbuild"        {build}
+  "jbuilder"          {build}
   "ocamlfind"         {build}
-  "topkg"             {build & >= "0.8.0"}
   "ppx_tools"         {build}
   "cstruct"           {>= "1.9.0"}
   "re"
   "result"
   "mirage-block-unix" {test & >= "2.5.0"}
   "mirage-types-lwt"  {test & >= "3.0.0"}
-  "ounit"             {test}
   "lwt"               {test}
 ]
-depopts: ["lwt" "mirage-types-lwt" "mirage-block" "mirage-block-lwt" "io-page"]
 conflicts: [
   "mirage-types-lwt" {< "3.0.0"}
 ]
