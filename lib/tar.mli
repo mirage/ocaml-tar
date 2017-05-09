@@ -187,13 +187,13 @@ module Make (IO : IO) : sig
   end
 
   val write_block: ?level:Header.compatibility -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
-  (** [write_block hdr write_body fd] is DEPRECATED.
-      It writes [hdr], then calls [write_body fd] to write the body,
+    [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]
+  (** Write [hdr], then call [write_body fd] to write the body,
       then zero-pads so the stream is positioned for the next block. *)
 
   val write_end: IO.out_channel -> unit
-  (** [write_end fd] is DEPRECATED.
-      It writes a stream terminator to [fd]  *)
+    [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]
+  (** Writes a stream terminator to [fd]  *)
 
   module Archive : sig
     (** Utility functions for operating over whole tar archives *)
@@ -213,12 +213,12 @@ module Make (IO : IO) : sig
     (** Create a tar on file descriptor fd from the stream of headers.  *)
     val create_gen : ?level:Header.compatibility -> (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
 
-    (** This function is DEPRECATED.
-        [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd] *)
+    (** [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd] *)
     val copy_n : IO.in_channel -> IO.out_channel -> int64 -> unit
+      [@@ocaml.deprecated "Deprecated: use your own helper function"]
 
-    (** This function is DEPRECATED.
-        [skip fd n] reads and throws away [n] bytes from [fd] *)
+    (** [skip fd n] reads and throws away [n] bytes from [fd] *)
     val skip : IO.in_channel -> int -> unit
+      [@@ocaml.deprecated "Deprecated: use your own helper function"]
   end
 end
