@@ -222,4 +222,6 @@ let _ =
                 "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
               ] in
+  (* pwd = _build/default/lib_test *)
+  Unix.chdir "../../..";
   run_test_tt ~verbose:!verbose suite
