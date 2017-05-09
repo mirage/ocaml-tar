@@ -1,3 +1,11 @@
+## v0.8.0 (2017-05-09)
+
+- split into 3 packages: `tar`, `tar-unix`, `tar-mirage`
+- use jbuilder for building
+- add support for reading @LongLink headers
+- mark deprecated functions with @@ocaml.deprecated
+- fix some warnings
+
 ## v0.7.1 (2017-02-03)
 
 - convert build system to topkg (#43, @hannesm)
