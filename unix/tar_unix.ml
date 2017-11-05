@@ -126,18 +126,15 @@ module Archive = struct
   (** Multicast 'n' bytes from input fd 'ifd' to output fds 'ofds'. NB if one deadlocks
       they all stop.*)
   let multicast_n ?(buffer_size=1024*1024) (ifd: Unix.file_descr) (ofds: Unix.file_descr list) (n: int64) =
-    let buffer = String.make buffer_size '\000' in
+    let buffer = Bytes.make buffer_size '\000' in
     let rec loop (n: int64) =
       if n <= 0L then ()
       else
-        let amount = Int64.to_int (min n (Int64.of_int(String.length buffer))) in
+        let amount = Int64.to_int (min n (Int64.of_int(Bytes.length buffer))) in
         let read = Unix.read ifd buffer 0 amount in
         if read = 0 then raise End_of_file;
         List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 read)) ofds;
         loop (Int64.sub n (Int64.of_int read)) in
     loop n
-
-  let multicast_n_string buffer ofds n =
-    List.iter (fun ofd -> ignore(Unix.write ofd buffer 0 n)) ofds
 
 end

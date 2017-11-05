@@ -72,10 +72,6 @@ module Archive : sig
   val multicast_n : ?buffer_size:int -> Unix.file_descr -> Unix.file_descr list -> int64 -> unit
     [@@ocaml.deprecated "Deprecated: use your own helper function"]
 
-  (** [multicast_n_string buffer ofds n] copies [n] bytes from [buffer] to all [ofds] *)
-  val multicast_n_string : string -> Unix.file_descr list -> int -> unit
-    [@@ocaml.deprecated "Deprecated: use your own helper function"]
-
   (** [skip fd n] reads and throws away [n] bytes from [fd] *)
   val skip : Unix.file_descr -> int -> unit
     [@@ocaml.deprecated "Deprecated: use your own helper function"]

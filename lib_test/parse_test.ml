@@ -207,10 +207,10 @@ module Test(B: BLOCK) = struct
                   finally
                     (fun () ->
                        let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                       let buf = String.make len '\000' in
+                       let buf = Bytes.make len '\000' in
                        let len' = Unix.read fd buf 0 len in
                        assert_equal ~printer:string_of_int len len';
-                       buf
+                       Bytes.to_string buf
                     ) (fun () -> Unix.close fd) in
                 let read_tar key ofs len =
                   KV_RO.read k key ofs len
