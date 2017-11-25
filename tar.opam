@@ -13,7 +13,7 @@ build: [
 ]
 
 depends: [
-  "jbuilder"          {build}
+  "jbuilder"          {build & >="1.0+beta7"}
   "ocamlfind"         {build}
   "ppx_tools"         {build}
   "ppx_cstruct"       {build}
