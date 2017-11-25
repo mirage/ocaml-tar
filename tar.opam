@@ -12,10 +12,6 @@ build: [
   ["jbuilder" "build" "-p" name "-j" jobs]
 ]
 
-build-test: [
-  [ "jbuilder" "runtest" ]
-]
-
 depends: [
   "jbuilder"          {build}
   "ocamlfind"         {build}

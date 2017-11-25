@@ -27,6 +27,9 @@ depends: [
   "mirage-types-lwt"  {>= "3.0.0"}
   "lwt"
   "io-page"
+  "mirage-block-unix" {test}
+  "io-page-unix"      {test}
+  "ounit"             {test}
 ]
 conflicts: [
   "mirage-types-lwt" {< "3.0.0"}
