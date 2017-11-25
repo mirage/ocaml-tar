@@ -26,8 +26,9 @@ depends: [
   "mirage-block-unix" {test & >= "2.5.0"}
   "mirage-types-lwt"  {>= "3.0.0"}
   "lwt"
+  "io-page"
 ]
 conflicts: [
   "mirage-types-lwt" {< "3.0.0"}
 ]
-available: [ ocaml-version >= "4.01.0" ]
+available: [ ocaml-version >= "4.04.2" ]
