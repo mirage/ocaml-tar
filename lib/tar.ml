@@ -23,12 +23,12 @@ module Header = struct
 
   (** For debugging: pretty-print a string as hex *)
   let to_hex (x: string) : string =
-    let result = String.make (String.length x * 3) ' ' in
+    let result = Bytes.make (String.length x * 3) ' ' in
     for i = 0 to String.length x - 1 do
       let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
-      String.blit byte 0 result (i * 3) 2
+      Bytes.blit_string byte 0 result (i * 3) 2
     done;
-    result
+    Bytes.to_string result
 
   let trim regexp x = match Re_str.split regexp x with
     | [] -> ""
@@ -336,16 +336,16 @@ module Header = struct
   (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the LHS *)
   let pad_left (x: string) (n: int) (c: char) =
     if String.length x >= n then x
-    else let buffer = String.make n c in
-      String.blit x 0 buffer (n - (String.length x)) (String.length x);
-      buffer
+    else let buffer = Bytes.make n c in
+      Bytes.blit_string x 0 buffer (n - (String.length x)) (String.length x);
+      Bytes.to_string buffer
 
   (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the RHS *)
   let pad_right (x: string) (n: int) (c: char) =
     if String.length x >= n then x
-    else let buffer = String.make n c in
-      String.blit x 0 buffer 0 (String.length x);
-      buffer
+    else let buffer = Bytes.make n c in
+      Bytes.blit_string x 0 buffer 0 (String.length x);
+      Bytes.to_string buffer
 
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) =
@@ -704,9 +704,9 @@ module type IO = sig
   type in_channel
   type out_channel
 
-  val really_input : in_channel -> string -> int -> int -> unit
-  val input : in_channel -> string -> int -> int -> int
-  val output : out_channel -> string -> int -> int -> unit
+  val really_input : in_channel -> bytes -> int -> int -> unit
+  val input : in_channel -> bytes -> int -> int -> int
+  val output : out_channel -> bytes -> int -> int -> unit
   val close_out : out_channel -> unit
 end
 
@@ -718,7 +718,7 @@ module Make (IO : IO) = struct
     let really_read (ifd: IO.in_channel) buffer : unit t =
       let s = Bytes.create (Cstruct.len buffer) in
       IO.really_input ifd s 0 (Cstruct.len buffer);
-      Cstruct.blit_from_string s 0 buffer 0 (Cstruct.len buffer)
+      Cstruct.blit_from_bytes s 0 buffer 0 (Cstruct.len buffer)
 
     let skip (ifd: in_channel) (n: int) =
       let buffer = Cstruct.create 4096 in
@@ -735,9 +735,9 @@ module Make (IO : IO) = struct
     type 'a t = 'a Direct.t
     (* XXX: there's no function to write directly from a bigarray *)
     let really_write fd buffer =
-      let s = Cstruct.to_string buffer in
-      if String.length s > 0
-      then IO.output fd s 0 (String.length s)
+      let s = Cstruct.to_string buffer |> Bytes.of_string in
+      if Bytes.length s > 0
+      then IO.output fd s 0 (Bytes.length s)
   end
   let really_read = Reader.really_read
   let really_write = Writer.really_write
@@ -802,7 +802,7 @@ module Make (IO : IO) = struct
       let buffer = Bytes.create 16384 in
       let rec loop remaining =
         if remaining = 0L then () else begin
-          let this = Int64.(to_int (min (of_int (String.length buffer)) remaining)) in
+          let this = Int64.(to_int (min (of_int (Bytes.length buffer)) remaining)) in
           let n = IO.input ifd buffer 0 this in
           if n = 0 then raise End_of_file;
           begin

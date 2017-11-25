@@ -161,9 +161,9 @@ module type IO = sig
   type in_channel
   type out_channel
 
-  val really_input : in_channel -> string -> int -> int -> unit
-  val input : in_channel -> string -> int -> int -> int
-  val output : out_channel -> string -> int -> int -> unit
+  val really_input : in_channel -> bytes -> int -> int -> unit
+  val input : in_channel -> bytes -> int -> int -> int
+  val output : out_channel -> bytes -> int -> int -> unit
   val close_out : out_channel -> unit
 end
 

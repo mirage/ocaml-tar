@@ -33,7 +33,7 @@ module Cstruct_io = struct
 
   let output oc buf pos len =
     let elt = Cstruct.create len in
-    Cstruct.blit_from_string buf pos elt 0 len;
+    Cstruct.blit_from_bytes buf pos elt 0 len;
     oc.data <- elt :: oc.data
 
   let close_out (_ : out_channel) = ()
