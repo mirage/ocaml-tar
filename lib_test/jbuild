@@ -1,5 +1,6 @@
 (executables
  ((names (parse_test))
+  (flags (:standard -safe-string))
   (libraries (mirage-block-unix mirage-types-lwt oUnit lwt io-page-unix
               tar-unix tar-mirage))
 ))
