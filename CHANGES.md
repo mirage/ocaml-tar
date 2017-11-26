@@ -1,3 +1,8 @@
+## v0.9.0 (2017-11-25)
+
+- preliminary support for Cstruct.t-backed tar processing (#54 by @hcarty)
+- fix build with OCaml 4.06.0 (and `-safe-string`)
+
 ## v0.8.0 (2017-05-09)
 
 - split into 3 packages: `tar`, `tar-unix`, `tar-mirage`
