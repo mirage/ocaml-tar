@@ -1,6 +1,6 @@
-## tar-format -- decode and encode tar files
+## tar -- decode and encode tar files
 
-tar-format is a simple library to read and write tar files with an emphasis on
+tar is a simple library to read and write tar files with an emphasis on
 streaming.
 
 This is pure OCaml code, no C bindings.
@@ -43,9 +43,9 @@ This library is used by
 
 ## Installation
 
-`tar-format` can be installed with `opam`:
+`tar` can be installed with `opam`:
 
-    opam install tar-format
+    opam install tar
 
 If you don't use `opam` consult the [`opam`](opam) file for build
 instructions.
