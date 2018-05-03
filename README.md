@@ -47,7 +47,7 @@ This library is used by
 
     opam install tar
 
-If you don't use `opam` consult the [`opam`](opam) file for build
+If you don't use `opam` consult the [`tar.opam`](tar.opam) file for build
 instructions.
 
 ### Documentation
