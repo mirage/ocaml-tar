@@ -1,3 +1,10 @@
+## v1.0.0 (2019-02-03)
+- port build to dune from builder (@avsm)
+- upgrade opam metadata to 2.0 (@avsm)
+- remove topkg in favour of dune-release (@avsm)
+- use modern `ppx_cstruct` instead of `cstruct.ppx` (#65 @avsm @djs55)
+- test with OCaml 4.07 as well (@avsm)
+
 ## v0.9.0 (2017-11-25)
 
 - preliminary support for Cstruct.t-backed tar processing (#54 by @hcarty)

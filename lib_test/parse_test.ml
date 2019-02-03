@@ -11,6 +11,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
  *)
+
+[@@@warning "-3-27"] (* FIXME: deprecation from the tar library *)
+
 open OUnit
 open Tar_lwt_unix
 open Lwt
@@ -167,7 +170,7 @@ module Block4096 = struct
       | [] -> []
       | b :: bs ->
         let b' = Cstruct.len b in
-        for i = 0 to b' do Cstruct.set_uint8 b 0 0 done;
+        for _ = 0 to b' do Cstruct.set_uint8 b 0 0 done;
         let to_drop = max 0 (len + b' - need_to_keep) in
         let to_keep = max 0 (b' - to_drop) in
         Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
