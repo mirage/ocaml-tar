@@ -19,6 +19,7 @@ depends: [
   "mirage-block-unix" {with-test}
   "io-page-unix" {with-test}
   "ounit" {with-test}
+  "tar-unix" {with-test}
 ]
 conflicts: [
   "mirage-types-lwt" {< "3.0.0"}
