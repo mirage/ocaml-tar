@@ -6,7 +6,6 @@
 
 (alias
  (name runtest)
- (deps
-  (:< parse_test.exe))
- (action
-  (run %{<})))
+ (package tar-mirage)
+ (deps (:< parse_test.exe))
+ (action (run %{<})))
