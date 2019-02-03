@@ -15,6 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+[@@@warning "-32"]
 
 (** Process and create tar file headers *)
 module Header = struct
@@ -30,11 +31,11 @@ module Header = struct
     done;
     Bytes.to_string result
 
-  let trim regexp x = match Re_str.split regexp x with
+  let trim regexp x = match Re.Str.split regexp x with
     | [] -> ""
     | x :: _ -> x
-  let trim_numerical = trim (Re_str.regexp "[\000 ]+")
-  let trim_string = trim (Re_str.regexp "[\000]+")
+  let trim_numerical = trim (Re.Str.regexp "[\000 ]+")
+  let trim_string = trim (Re.Str.regexp "[\000]+")
 
   (** Unmarshal an integer field (stored as 0-padded octal) *)
   let unmarshal_int (x: string) : int =

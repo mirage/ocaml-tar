@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+[@@@warning "-3"] (* FIXME Tar.HeaderWriter needs to be used here *)
+
 module Driver = struct
   type in_channel = Unix.file_descr
   type out_channel = Unix.file_descr

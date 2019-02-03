@@ -77,7 +77,7 @@ module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
     let skip in_channel n =
       in_channel.offset <- Int64.(add in_channel.offset (of_int n));
       Lwt.return_unit
-    let get_current_tar_sector in_channel = Int64.div in_channel.offset 512L
+    let _get_current_tar_sector in_channel = Int64.div in_channel.offset 512L
 
   end
   module HR = Tar.HeaderReader(Lwt)(Reader)
@@ -140,7 +140,7 @@ module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
     if not(StringMap.mem key t.map)
     then Lwt.return (Error (`Unknown_key key))
     else begin
-      let hdr, start_sector = StringMap.find key t.map in
+      let hdr, _start_sector = StringMap.find key t.map in
       Lwt.return (Ok hdr.Tar.Header.file_size)
     end
 end
