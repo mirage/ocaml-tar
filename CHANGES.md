@@ -1,3 +1,6 @@
+## v1.0.1 (2019-02-04)
+- fix tar-unix build with modern cstruct.lwt (@avsm)
+
 ## v1.0.0 (2019-02-03)
 - port build to dune from builder (@avsm)
 - upgrade opam metadata to 2.0 (@avsm)
