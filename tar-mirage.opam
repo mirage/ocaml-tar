@@ -11,13 +11,14 @@ depends: [
   "tar"
   "cstruct" {>= "1.9.0"}
   "re" {>="1.7.2"}
-  "mirage-block-unix" {with-test & >= "2.5.0"}
+  "mirage-block"
+  "mirage-block-lwt"
   "mirage-kv" {>= "2.0.0"}
   "mirage-kv-lwt" {>= "2.0.0"}
   "lwt"
   "io-page"
   "ptime"
-  "mirage-block-unix" {with-test}
+  "mirage-block-unix" {with-test & >= "2.5.0"}
   "io-page-unix" {with-test}
   "ounit" {with-test}
   "tar-unix" {with-test}
