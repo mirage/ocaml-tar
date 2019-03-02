@@ -150,7 +150,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block. End_of_file is thrown if the stream
       unexpectedly fails *)
-  val read : ?level:Header.compatibility -> Reader.in_channel -> (Header.t, [`Eof]) Result.result Async.t
+  val read : ?level:Header.compatibility -> Reader.in_channel -> (Header.t, [`Eof]) result Async.t
 end
 
 module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) : sig

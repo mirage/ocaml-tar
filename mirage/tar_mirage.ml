@@ -199,8 +199,8 @@ module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
     let in_channel = { Reader.b; offset = 0L; info } in
     let rec loop map =
       HR.read in_channel >>= function
-      | Result.Error `Eof -> Lwt.return map
-      | Result.Ok tar ->
+      | Error `Eof -> Lwt.return map
+      | Ok tar ->
         let filename = trim_slash tar.Tar.Header.file_name in
         let data_tar_offset = Int64.div in_channel.Reader.offset 512L in
         let v_or_d = if is_dict filename then Dict (tar, StringMap.empty) else Value (tar, data_tar_offset) in

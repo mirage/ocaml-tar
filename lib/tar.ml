@@ -556,7 +556,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
   open Reader
 
 
-  let read ?level (ifd: Reader.in_channel) : (Header.t, [ `Eof ]) Result.result t =
+  let read ?level (ifd: Reader.in_channel) : (Header.t, [ `Eof ]) result t =
     let level = Header.get_level level in
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
@@ -589,8 +589,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         begin match Header.unmarshal ~level ~extended real_header_buf with
         | None ->
           (* Corrupt pax headers *)
-          return (Result.Error `Eof)
-        | Some x -> return (Result.Ok x)
+          return (Error `Eof)
+        | Some x -> return (Ok x)
         end
       | Some x when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
@@ -601,19 +601,19 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (len extra_header_buf - 1)) in
         begin next ()
         >>= function
-        | None -> return (Result.Error `Eof)
-        | Some x -> return (Result.Ok { x with file_name })
+        | None -> return (Error `Eof)
+        | Some x -> return (Ok { x with file_name })
         end
-      | Some x -> return (Result.Ok x)
+      | Some x -> return (Ok x)
       | None ->
         begin
           next ()
           >>= function
-          | Some x -> return (Result.Ok x)
-          | None -> return (Result.Error `Eof)
+          | Some x -> return (Ok x)
+          | None -> return (Error `Eof)
         end in
 
-    let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) Result.result Async.t =
+    let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) result Async.t =
       let raw_link_indicator = Header.get_hdr_link_indicator buffer in
       if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
         let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
@@ -625,20 +625,20 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         let data = Header.unmarshal_string (Cstruct.to_string data) in
         get_hdr ()
         >>= function
-        | Result.Error `Eof -> return (Result.Error `Eof)
-        | Result.Ok hdr ->
+        | Error `Eof -> return (Error `Eof)
+        | Ok hdr ->
           if raw_link_indicator = 75
           then read_header (file_name, data, hdr)
           else read_header (data, link_name, hdr)
       else begin
         let link_name = if link_name = "" then hdr.Header.link_name else link_name in
         let file_name = if file_name = "" then hdr.Header.file_name else file_name in
-        return (Result.Ok {hdr with Header.link_name; file_name })
+        return (Ok {hdr with Header.link_name; file_name })
       end in
     get_hdr ()
     >>= function
-    | Result.Error `Eof -> return (Result.Error `Eof)
-    | Result.Ok hdr ->
+    | Error `Eof -> return (Error `Eof)
+    | Ok hdr ->
       read_header ("", "", hdr)
 
 end
@@ -775,11 +775,11 @@ module Make (IO : IO) = struct
         skips past the zero padding to the next header *)
     let with_next_file (fd: IO.in_channel) (f: IO.in_channel -> Header.t -> 'a) =
       match HR.read fd with
-      | Result.Ok hdr ->
+      | Ok hdr ->
         (* NB if the function 'f' fails we're boned *)
         finally (fun () -> f fd hdr)
           (fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
-      | Result.Error `Eof -> raise Header.End_of_stream
+      | Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
     let list ?level fd =
@@ -788,11 +788,11 @@ module Make (IO : IO) = struct
       try
         while true do
           match HR.read ~level fd with
-          | Result.Ok hdr ->
+          | Ok hdr ->
             list := hdr :: !list;
             Reader.skip fd (Int64.to_int hdr.Header.file_size);
             Reader.skip fd (Header.compute_zero_padding_length hdr)
-          | Result.Error `Eof -> raise Header.End_of_stream
+          | Error `Eof -> raise Header.End_of_stream
         done;
         List.rev !list;
       with
@@ -821,14 +821,14 @@ module Make (IO : IO) = struct
       try
         while true do
           match HR.read ifd with
-          | Result.Ok hdr ->
+          | Ok hdr ->
             let size = hdr.Header.file_size in
             let padding = Header.compute_zero_padding_length hdr in
             let ofd = dest hdr in
             copy_n ifd ofd size;
             IO.close_out ofd;
             Reader.skip ifd padding
-          | Result.Error `Eof -> raise Header.End_of_stream
+          | Error `Eof -> raise Header.End_of_stream
         done
       with
       | End_of_file -> failwith "Unexpected end of file while reading stream"
@@ -850,8 +850,8 @@ module Make (IO : IO) = struct
     include Header
 
     let get_next_header ?level ic = match HR.read ?level ic with
-      | Result.Ok hdr -> hdr
-      | Result.Error `Eof -> raise Header.End_of_stream
+      | Ok hdr -> hdr
+      | Error `Eof -> raise Header.End_of_stream
 
   end
 end

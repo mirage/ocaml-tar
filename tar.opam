@@ -12,7 +12,6 @@ depends: [
   "ppx_cstruct" {>= "3.1.0"}
   "cstruct" {>= "1.9.0"}
   "re"
-  "result"
 ]
 build: [
   ["dune" "subst"] {pinned}
