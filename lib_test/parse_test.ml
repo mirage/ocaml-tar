@@ -145,10 +145,6 @@ let can_list_longlink_tar () =
         ) (fun () -> Unix.close fd);
     )
 
-let expect_ok = function
-  | Ok x -> x
-  | Error _ -> failwith "expect_ok: got Error"
-
 module Block4096 = struct
   include Block
 
@@ -180,7 +176,7 @@ module Block4096 = struct
 end
 
 module type BLOCK = sig
-  include Mirage_types_lwt.BLOCK
+  include Mirage_block_lwt.S
   val connect: string -> t Lwt.t
 end
 
@@ -200,9 +196,10 @@ module Test(B: BLOCK) = struct
            KV_RO.connect b >>= fun k ->
            Lwt_list.iter_s
              (fun file ->
-                KV_RO.size k file
-                >>= fun r ->
-                let size = expect_ok r in
+                KV_RO.size k file >>= function
+                | Error e ->
+                  failwith ("KV_RO: expected ok, got Error " ^ (Fmt.to_to_string KV_RO.pp_error e))
+                | Ok size ->
                 let stats = Unix.LargeFile.stat file in
                 assert_equal ~printer:Int64.to_string stats.Unix.LargeFile.st_size size;
                 let read_file key ofs len =

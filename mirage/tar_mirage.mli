@@ -20,7 +20,7 @@ module Make_KV_RO (BLOCK : Mirage_block_lwt.S) : sig
   (** Construct a read-only key-value store from an existing block device
       containing tar-format data. *)
 
-  include Mirage_types_lwt.KV_RO
+  include Mirage_kv_lwt.RO
 
   val connect: BLOCK.t -> t Lwt.t
 end

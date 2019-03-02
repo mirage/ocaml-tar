@@ -13,16 +13,13 @@ depends: [
   "re" {>="1.7.2"}
   "result"
   "mirage-block-unix" {with-test & >= "2.5.0"}
-  "mirage-types-lwt" {>= "3.0.0"}
+  "mirage-kv-lwt" {>= "2.0.0"}
   "lwt"
   "io-page"
   "mirage-block-unix" {with-test}
   "io-page-unix" {with-test}
   "ounit" {with-test}
   "tar-unix" {with-test}
-]
-conflicts: [
-  "mirage-types-lwt" {< "3.0.0"}
 ]
 build: [
   ["dune" "subst"] {pinned}
