@@ -61,7 +61,7 @@ module Header = struct
         file_size:      uint8_t [@len 12];
         mod_time:       uint8_t [@len 12];
         chksum:         uint8_t [@len 8];
-        link_indicator: uint8_t ;
+        link_indicator: char ;
         link_name:      uint8_t [@len 100];
         magic:          uint8_t [@len 6];
         version:        uint8_t [@len 2];
@@ -118,32 +118,32 @@ module Header = struct
       | LongLink
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
-    let to_int ?level =
+    let to_char ?level =
       let level = get_level level in function
-        | Normal                -> if level = V7 then 0 else 48 (* '0' *)
-        | Hard                  -> 49 (* '1' *)
-        | Symbolic              -> 50 (* '2' *)
-        | Character             -> 51 (* '3' *)
-        | Block                 -> 52 (* '4' *)
-        | Directory             -> 53 (* '5' *)
-        | FIFO                  -> 54 (* '6' *)
-        | GlobalExtendedHeader  -> 103 (* 'g' *)
-        | PerFileExtendedHeader -> 120 (* 'x' *)
-        | LongLink              -> 76  (* 'L' *)
+        | Normal                -> if level = V7 then '\000' else '0'
+        | Hard                  -> '1'
+        | Symbolic              -> '2'
+        | Character             -> '3'
+        | Block                 -> '4'
+        | Directory             -> '5'
+        | FIFO                  -> '6'
+        | GlobalExtendedHeader  -> 'g'
+        | PerFileExtendedHeader -> 'x'
+        | LongLink              -> 'L'
 
-    let of_int ?level =
+    let of_char ?level =
       let level = get_level level in function
-        | 49 (* '1' *) -> Hard
-        | 50 (* '2' *) -> Symbolic
-        | 103 (* 'g' *) -> GlobalExtendedHeader
-        | 120 (* 'x' *) -> PerFileExtendedHeader
-        | 76 (* 'L' *) -> LongLink
+        | '1' -> Hard
+        | '2' -> Symbolic
+        | 'g' -> GlobalExtendedHeader
+        | 'x' -> PerFileExtendedHeader
+        | 'L' -> LongLink
         (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
         | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
-        | 51 (* '3' *) -> Character
-        | 52 (* '4' *) -> Block
-        | 53 (* '5' *) -> Directory
-        | 54 (* '6' *) -> FIFO
+        | '3' -> Character
+        | '4' -> Block
+        | '5' -> Directory
+        | '6' -> FIFO
         | _ -> Normal (* if value is malformed, treat as a normal file *)
 
     let to_string = function
@@ -406,7 +406,7 @@ module Header = struct
         let mod_time = match extended.Extended.mod_time with
           | None -> unmarshal_int64  (copy_hdr_mod_time c)
           | Some x -> x in
-        let link_indicator = Link.of_int ~level (get_hdr_link_indicator c) in
+        let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
         let uname = match extended.Extended.uname with
           | None -> if ustar then unmarshal_string (copy_hdr_uname c) else ""
           | Some x -> x in
@@ -473,7 +473,7 @@ module Header = struct
 
   let marshal ?level c (x: t) =
     let level = get_level level in
-    imarshal ~level c (Link.to_int ~level x.link_indicator) x
+    imarshal ~level c (Link.to_char ~level x.link_indicator) x
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
@@ -590,7 +590,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
 
     let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) result Async.t =
       let raw_link_indicator = Header.get_hdr_link_indicator buffer in
-      if (raw_link_indicator = 75 || raw_link_indicator = 76) && level = Header.GNU then
+      if (raw_link_indicator = 'K' || raw_link_indicator = 'L') && level = Header.GNU then
         let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
         let pad = Cstruct.create (Header.compute_zero_padding_length hdr) in
         really_read ifd data
@@ -602,7 +602,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= function
         | Error `Eof -> return (Error `Eof)
         | Ok hdr ->
-          if raw_link_indicator = 75
+          if raw_link_indicator = 'K'
           then read_header (file_name, data, hdr)
           else read_header (data, link_name, hdr)
       else begin
@@ -630,7 +630,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
         ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.imarshal ~level buffer 75 blank;
+            Header.imarshal ~level buffer 'K' blank;
             really_write fd buffer
             >>= fun () ->
             let text = header.Header.link_name ^ "\000" in
@@ -644,7 +644,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
         ( if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
             let file_size = String.length header.Header.file_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.imarshal ~level buffer 76 blank;
+            Header.imarshal ~level buffer 'L' blank;
             really_write fd buffer
             >>= fun () ->
             let text = header.Header.file_name ^ "\000" in
