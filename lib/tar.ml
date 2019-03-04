@@ -15,8 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-[@@@warning "-32"]
-
 (** Process and create tar file headers *)
 module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
@@ -74,6 +72,8 @@ module Header = struct
         prefix:         uint8_t [@len 155]
       } [@@little_endian]
   ] (* doesn't matter, all are strings *)
+
+  let () = assert (sizeof_hdr = 500)
 
   let sizeof_hdr_file_name = 100
   let sizeof_hdr_file_mode = 8
@@ -175,23 +175,6 @@ module Header = struct
       uname: string option;
     }
     (** Represents a "Pax" extended header *)
-
-    let to_detailed_string (x: t) =
-      let opt f = function None -> "None" | Some x -> f x in
-      let int64 = Int64.to_string and string x = x and int = string_of_int in
-      let table = [ "access_time",    opt int64 x.access_time;
-                    "charset",        opt string x.charset;
-                    "comment",        opt string x.comment;
-                    "group_id",       opt int x.group_id;
-                    "gname",          opt string x.gname;
-                    "header_charset", opt string x.header_charset;
-                    "link_path",      opt string x.link_path;
-                    "mod_time",       opt int64 x.mod_time;
-                    "path",           opt string x.path;
-                    "file_size",      opt int64 x.file_size;
-                    "user_id",        opt int x.user_id;
-                    "uname",          opt string x.uname ] in
-      "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
     let make ?access_time ?charset ?comment ?group_id ?gname ?header_charset
       ?link_path ?mod_time ?path ?file_size ?user_id ?uname () =
@@ -513,14 +496,6 @@ module Header = struct
     let bytes = Int64.(add x.file_size (of_int (compute_zero_padding_length x))) in
     Int64.div bytes 512L
 end
-
-let is_zero x =
-  try
-    for i = 0 to Cstruct.len x - 1 do
-      if Cstruct.get_uint8 x i <> 0 then raise Not_found
-    done;
-    true
-  with Not_found -> false
 
 module type ASYNC = sig
   type 'a t
