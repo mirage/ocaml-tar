@@ -63,8 +63,8 @@ module Header = struct
   let get_next_header ?level ic =
     HR.read ?level ic
     >>= function
-    | Result.Error `Eof -> return None
-    | Result.Ok hdr -> return (Some hdr)
+    | Error `Eof -> return None
+    | Ok hdr -> return (Some hdr)
 
   (** Return the header needed for a particular file on disk *)
   let of_file ?level (file: string) : t Lwt.t =
