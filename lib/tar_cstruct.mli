@@ -17,7 +17,7 @@ val to_cstruct : out_channel -> Cstruct.t
 
 val really_read : in_channel -> Cstruct.t -> unit
 (** [really_read ic buf] fills [buf] with data from [ic] or raises
-    {!Pervasives.End_of_file *)
+    {!Pervasives.End_of_file} *)
 
 val really_write : out_channel -> Cstruct.t -> unit
 (** [really_write oc buf] writes the full contents of [buf] to [oc]
