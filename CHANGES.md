@@ -1,3 +1,11 @@
+## v1.1.0 (2019-04-08)
+
+- Do not depend on mirage-types, use mirage-kv instead (@hannesm)
+- Support mirage-kv 2.0.0 (@hannesm)
+- Do not suppress "unused value" warning (@emillon)
+- Represent link indicator as a char. This transforms comments into actual code
+  (@emillon)
+
 ## v1.0.1 (2019-02-04)
 - fix tar-unix build with modern cstruct.lwt (@avsm)
 
