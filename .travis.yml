@@ -11,8 +11,8 @@ env:
   matrix:
   - DISTRO="alpine" OCAML_VERSION="4.03" PACKAGE="tar-unix"
   - DISTRO="alpine" OCAML_VERSION="4.04" PACKAGE="tar-unix"
-  - DISTRO="alpine" OCAML_VERSION="4.05" PACKAGE="tar-mirage"
   - DISTRO="alpine" OCAML_VERSION="4.06" PACKAGE="tar-unix"
+  - DISTRO="alpine" OCAML_VERSION="4.06" PACKAGE="tar-mirage"
   - DISTRO="alpine" OCAML_VERSION="4.07" PACKAGE="tar-mirage"
   - DISTRO="alpine" OCAML_VERSION="4.08" PACKAGE="tar-mirage"
   - DISTRO="alpine" OCAML_VERSION="4.09" PACKAGE="tar-mirage"
