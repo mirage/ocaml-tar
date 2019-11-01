@@ -16,11 +16,11 @@
 
 (** Tar for Mirage *)
 
-module Make_KV_RO (BLOCK : Mirage_block_lwt.S) : sig
+module Make_KV_RO (BLOCK : Mirage_block.S) : sig
   (** Construct a read-only key-value store from an existing block device
       containing tar-format data. *)
 
-  include Mirage_kv_lwt.RO
+  include Mirage_kv.RO
 
   val connect: BLOCK.t -> t Lwt.t
 end
