@@ -1,3 +1,7 @@
+## unreleased
+
+- Bump lower-bound on Cstruct to 6.0.0 (@MisterDA)
+
 ## v1.1.0 (2019-04-08)
 
 - Do not depend on mirage-types, use mirage-kv instead (@hannesm)
