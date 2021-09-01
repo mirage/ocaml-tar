@@ -2,6 +2,7 @@
 
 - Bump lower-bound on Cstruct to 6.0.0 (@MisterDA)
 - Update to Dune 2.9 and generate opam files (@MisterDA)
+- Don't print the name of the file in extract functions (@MisterDA)
 
 ## v1.1.0 (2019-04-08)
 
