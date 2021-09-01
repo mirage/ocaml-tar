@@ -177,15 +177,11 @@ module Make (IO : IO) : sig
   (** [really_write fd buf] writes the full contents of [buf] to [fd]
       or raises {!Stdlib.End_of_file}. *)
 
-  module Header : sig
-    include module type of Header
-
-    (** Returns the next header block or fails with [`Eof] if two consecutive
-        zero-filled blocks are discovered. Assumes stream is positioned at the
-        possible start of a header block.
-        @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-    val get_next_header : ?level:compatibility -> IO.in_channel -> t
-  end
+  (** Returns the next header block or fails with [`Eof] if two consecutive
+      zero-filled blocks are discovered. Assumes stream is positioned at the
+      possible start of a header block.
+      @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
+  val get_next_header : ?level:Header.compatibility -> IO.in_channel -> Header.t
 
   val write_block: ?level:Header.compatibility -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
     [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]

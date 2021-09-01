@@ -67,26 +67,24 @@ let really_write = T.really_write
 
 let really_read = T.really_read
 
-module Header = struct
-  include T.Header
+let get_next_header = T.get_next_header
 
   (** Return the header needed for a particular file on disk *)
-  let of_file ?level (file: string) : t =
-    let level = match level with None -> V7 | Some level -> level in
-    let stat = Unix.LargeFile.lstat file in
-    let file_mode = stat.Unix.LargeFile.st_perm in
-    let user_id = stat.Unix.LargeFile.st_uid in
-    let group_id = stat.Unix.LargeFile.st_gid in
-    let mod_time = Int64.of_float stat.Unix.LargeFile.st_mtime in
-    let link_indicator = Link.Normal in
-    let link_name = "" in
-    let uname = if level = V7 then "" else (Unix.getpwuid stat.Unix.LargeFile.st_uid).Unix.pw_name in
-    let devmajor = if level = Ustar then stat.Unix.LargeFile.st_dev else 0 in
-    let gname = if level = V7 then "" else (Unix.getgrgid stat.Unix.LargeFile.st_gid).Unix.gr_name in
-    let devminor = if level = Ustar then stat.Unix.LargeFile.st_rdev else 0 in
-    make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
-      ~uname ~gname ~devmajor ~devminor file stat.Unix.LargeFile.st_size
-end
+let header_of_file ?level (file: string) : Tar.Header.t =
+  let level = match level with None -> Tar.Header.V7 | Some level -> level in
+  let stat = Unix.LargeFile.lstat file in
+  let file_mode = stat.Unix.LargeFile.st_perm in
+  let user_id = stat.Unix.LargeFile.st_uid in
+  let group_id = stat.Unix.LargeFile.st_gid in
+  let mod_time = Int64.of_float stat.Unix.LargeFile.st_mtime in
+  let link_indicator = Tar.Header.Link.Normal in
+  let link_name = "" in
+  let uname = if level = V7 then "" else (Unix.getpwuid stat.Unix.LargeFile.st_uid).Unix.pw_name in
+  let devmajor = if level = Ustar then stat.Unix.LargeFile.st_dev else 0 in
+  let gname = if level = V7 then "" else (Unix.getgrgid stat.Unix.LargeFile.st_gid).Unix.gr_name in
+  let devminor = if level = Ustar then stat.Unix.LargeFile.st_rdev else 0 in
+  Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+    ~uname ~gname ~devmajor ~devminor file stat.Unix.LargeFile.st_size
 
 let write_block = T.write_block
 let write_end = T.write_end
@@ -98,7 +96,7 @@ module Archive = struct
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
     let dest hdr =
-      let filename = dest hdr.Header.file_name in
+      let filename = dest hdr.Tar.Header.file_name in
       Unix.openfile filename [Unix.O_WRONLY] 0644
     in
     extract_gen dest ifd
@@ -115,10 +113,10 @@ module Archive = struct
           None
         end
         else
-          let hdr = Header.of_file filename in
+          let hdr = header_of_file filename in
           Some (hdr, (fun ofd ->
               let ifd = Unix.openfile filename [Unix.O_RDONLY] 0644 in
-              copy_n ifd ofd hdr.Header.file_size))
+              copy_n ifd ofd hdr.Tar.Header.file_size))
       in
       List.filter_map f files
     in

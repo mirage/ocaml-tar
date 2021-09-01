@@ -15,7 +15,6 @@
 [@@@warning "-3-27"] (* FIXME: deprecation from the tar library *)
 
 open OUnit
-open Tar_lwt_unix
 open Lwt
 
 exception Cstruct_differ
@@ -34,19 +33,19 @@ let cstruct_equal a b =
 
 let header () =
   (* check header marshalling and unmarshalling *)
-  let h = Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
+  let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
   let txt = "hello\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\0000000005\0000001751\0000001752\00000000002322\00000000000067\0000005534\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000" in
   let c = Cstruct.create (String.length txt) in
   Cstruct.blit_from_string txt 0 c 0 (String.length txt);
-  let c' = Cstruct.create Header.length in
-  for i = 0 to Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
-  Header.marshal c' h;
+  let c' = Cstruct.create Tar.Header.length in
+  for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
+  Tar.Header.marshal c' h;
   assert_equal ~printer:(fun x -> String.escaped (Cstruct.to_string x)) ~cmp:cstruct_equal c c';
   let printer = function
     | None -> "None"
-    | Some x -> "Some " ^ (Header.to_detailed_string x) in
-  assert_equal ~printer (Some h) (Header.unmarshal c');
-  assert_equal ~printer:string_of_int 302 (Header.compute_zero_padding_length h)
+    | Some x -> "Some " ^ (Tar.Header.to_detailed_string x) in
+  assert_equal ~printer (Some h) (Tar.Header.unmarshal c');
+  assert_equal ~printer:string_of_int 302 (Tar.Header.compute_zero_padding_length h)
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
@@ -91,7 +90,7 @@ let can_read_tar () =
   with_tar
     (fun tar_filename files ->
        let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
-       let files' = List.map (fun t -> t.Tar_unix.Header.file_name) (Tar_unix.Archive.list fd) in
+       let files' = List.map (fun t -> t.Tar.Header.file_name) (Tar_unix.Archive.list fd) in
        Unix.close fd;
        let missing = set_difference files files' in
        let missing' = set_difference files' files in
@@ -110,7 +109,7 @@ let can_write_pax () =
       let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
       finally
         (fun () ->
-          let hdr = Header.make ~user_id "test" 0L in
+          let hdr = Tar.Header.make ~user_id "test" 0L in
           write_block hdr (fun _ -> ()) fd;
           write_end fd;
         ) (fun () -> Unix.close fd);
@@ -119,9 +118,9 @@ let can_write_pax () =
       finally
         (fun () ->
           match Archive.list fd with
-          | [ one ] -> assert (one.Header.user_id = user_id)
+          | [ one ] -> assert (one.Tar.Header.user_id = user_id)
           | xs ->
-            Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Header.to_detailed_string xs));
+            Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Tar.Header.to_detailed_string xs));
             assert false
         ) (fun () -> Unix.close fd);
     )
@@ -134,7 +133,7 @@ let can_list_longlink_tar () =
       finally
         (fun () ->
           let all = Archive.list fd in
-          let filenames = List.map (fun h -> h.Tar_unix.Header.file_name) all in
+          let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
           (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
           let expected = [
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
