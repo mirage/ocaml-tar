@@ -64,7 +64,6 @@
   io-page
   lwt
   mirage-block
-  mirage-block-lwt
   (mirage-kv (>= "3.0.0"))
   (mirage-kv-lwt (>= "3.0.0"))
   ptime
