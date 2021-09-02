@@ -117,7 +117,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       let block = Io_page.(to_cstruct @@ get n_pages) in
       (* Don't try to read beyond the end of the archive *)
       let total_size_bytes = Int64.(mul t.info.Mirage_block.size_sectors sector_size) in
-      let tmp = Cstruct.sub block 0 (min (Cstruct.length block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
+      let tmp = Cstruct.sub block 0 (Stdlib.min (Cstruct.length block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
       BLOCK.read t.b start_sector [ tmp ] >|= function
       | Error b -> Error (`Block b)
       | Ok () ->
