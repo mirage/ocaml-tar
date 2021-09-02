@@ -65,8 +65,8 @@
   lwt
   mirage-block
   mirage-block-lwt
-  (mirage-kv (>= "2.0.0"))
-  (mirage-kv-lwt (>= "2.0.0"))
+  (mirage-kv (>= "3.0.0"))
+  (mirage-kv-lwt (>= "3.0.0"))
   ptime
   (re (>= 1.7.2))
   (tar (= :version))
