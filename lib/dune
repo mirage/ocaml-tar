@@ -4,4 +4,5 @@
  (wrapped false)
  (libraries cstruct re.str)
  (flags :standard -safe-string)
- (preprocess (pps ppx_cstruct)))
+ (preprocess
+  (pps ppx_cstruct)))
