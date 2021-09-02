@@ -176,7 +176,7 @@ module Block4096 = struct
 end
 
 module type BLOCK = sig
-  include Mirage_block_lwt.S
+  include Mirage_block.S
   val connect: string -> t Lwt.t
 end
 

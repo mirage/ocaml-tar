@@ -20,7 +20,7 @@ open Lwt.Infix
 
 module StringMap = Map.Make(String)
 
-module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
+module Make_KV_RO (BLOCK : Mirage_block.S) = struct
 
   type entry =
     | Value of Tar.Header.t * int64
@@ -32,11 +32,7 @@ module Make_KV_RO (BLOCK : Mirage_block_lwt.S) = struct
     info: Mirage_block.info;
   }
 
-  type 'a io = 'a Lwt.t
-
   type key = Mirage_kv.Key.t
-
-  type value = string
 
   type error = [ Mirage_kv.error | `Block of BLOCK.error ]
 
