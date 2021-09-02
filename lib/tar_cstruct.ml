@@ -10,7 +10,7 @@ module Cstruct_io = struct
     { pos = 0; data }
 
   let check_available ch len =
-    min (Cstruct.len ch.data - ch.pos) len
+    min (Cstruct.length ch.data - ch.pos) len
 
   let really_input ic buf pos len =
     if check_available ic len <> len then raise End_of_file;

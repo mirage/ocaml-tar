@@ -11,7 +11,7 @@ This is pure OCaml code, no C bindings.
 
     opam install tar
     opam install tar-unix    # for use in Unix/Lwt
-    opam install tar-mirage  # for use in MirageoS
+    opam install tar-mirage  # for use in MirageOS
 
 If you don't use `opam` consult the [`tar.opam`](tar.opam) file for build
 instructions.
@@ -21,12 +21,12 @@ instructions.
 In utop:
 ```
 utop # #require "tar";;
-utop # #require "tar.lwt";;
+utop # #require "tar-unix";;
 
-utop # lwt f = Lwt_unix.openfile "/tmp/foo.tar" [ Unix.O_RDONLY ] 0 ;;
-val f : Lwt_unix.file_descr = <abstr> 
+utop # let f = Lwt_unix.openfile "/tmp/foo.tar" [ Unix.O_RDONLY ] 0;;
+val f : Lwt_unix.file_descr = <abstr>
 
-utop # Tar_lwt_unix.Archive.list f;;
+utop # Lwt.bind f Tar_lwt_unix.Archive.list;;
 [{Tar_lwt_unix.Header.file_name = "_build/lib/tar.mli.depends";
   Tar_lwt_unix.Header.file_mode = 420; Tar_lwt_unix.Header.user_id = 1000;
   Tar_lwt_unix.Header.group_id = 1000; Tar_lwt_unix.Header.file_size = 21L;

@@ -1,11 +1,19 @@
 (executables
  (names parse_test)
  (flags :standard -safe-string)
- (libraries mirage-block-unix mirage-block oUnit lwt io-page-unix
-   tar-unix tar-mirage))
+ (libraries
+  mirage-block-unix
+  mirage-block
+  ounit2
+  lwt
+  io-page-unix
+  tar-unix
+  tar-mirage))
 
-(alias
- (name runtest)
+(rule
+ (alias runtest)
  (package tar-mirage)
- (deps (:< parse_test.exe))
- (action (run %{<})))
+ (deps
+  (:< parse_test.exe))
+ (action
+  (run %{<})))

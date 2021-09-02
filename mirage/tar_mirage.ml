@@ -68,7 +68,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     }
     type 'a t = 'a Lwt.t
     let really_read in_channel buffer =
-      assert(Cstruct.len buffer <= 512);
+      assert(Cstruct.length buffer <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
       let sector_size = Int64.of_int in_channel.info.Mirage_block.sector_size in
       let sector' = Int64.(div in_channel.offset sector_size) in
@@ -83,8 +83,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       | Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
         let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.Mirage_block.sector_size)))) in
-        in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.len buffer)));
-        Cstruct.blit page offset buffer 0 (Cstruct.len buffer);
+        in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.length buffer)));
+        Cstruct.blit page offset buffer 0 (Cstruct.length buffer);
         Lwt.return_unit
     let skip in_channel n =
       in_channel.offset <- Int64.(add in_channel.offset (of_int n));
@@ -117,7 +117,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       let block = Io_page.(to_cstruct @@ get n_pages) in
       (* Don't try to read beyond the end of the archive *)
       let total_size_bytes = Int64.(mul t.info.Mirage_block.size_sectors sector_size) in
-      let tmp = Cstruct.sub block 0 (min (Cstruct.len block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
+      let tmp = Cstruct.sub block 0 (Stdlib.min (Cstruct.length block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
       BLOCK.read t.b start_sector [ tmp ] >|= function
       | Error b -> Error (`Block b)
       | Ok () ->

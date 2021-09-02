@@ -99,7 +99,6 @@ module Archive = struct
   let extract dest ifd =
     let dest hdr =
       let filename = dest hdr.Header.file_name in
-      print_endline filename;
       Unix.openfile filename [Unix.O_WRONLY] 0644
     in
     extract_gen dest ifd

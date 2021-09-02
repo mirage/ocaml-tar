@@ -210,14 +210,14 @@ module Header = struct
         *)
       let find buffer char =
         let rec loop i =
-          if i = Cstruct.len buffer
+          if i = Cstruct.length buffer
           then None
           else if Cstruct.get_char buffer i = char
           then Some i
           else loop (i + 1) in
         loop 0 in
       let rec loop remaining =
-        if Cstruct.len remaining = 0
+        if Cstruct.length remaining = 0
         then []
         else begin
           (* Find the space, then decode the length *)
@@ -231,7 +231,7 @@ module Header = struct
             | None -> failwith "Failed to decode pax extended header record"
             | Some j ->
               let keyword = Cstruct.to_string @@ Cstruct.sub record (i + 1) (j - i - 1) in
-              let v = Cstruct.to_string @@ Cstruct.sub record (j + 1) (Cstruct.len record - j - 2) in
+              let v = Cstruct.to_string @@ Cstruct.sub record (j + 1) (Cstruct.length record - j - 2) in
               (keyword, v) :: (loop remaining)
             end
         end in
@@ -306,7 +306,7 @@ module Header = struct
   (** A blank header block (two of these in series mark the end of the tar) *)
   let zero_block =
     let buf = Cstruct.create length in
-    for i = 0 to Cstruct.len buf - 1 do
+    for i = 0 to Cstruct.length buf - 1 do
       Cstruct.set_uint8 buf i 0
     done;
     buf
@@ -314,7 +314,7 @@ module Header = struct
   (** [allzeroes buf] is true if [buf] contains only zero bytes *)
   let allzeroes buf =
     let rec loop i =
-      (i >= Cstruct.len buf) || (Cstruct.get_uint8 buf i = 0 && (loop (i + 1))) in
+      (i >= Cstruct.length buf) || (Cstruct.get_uint8 buf i = 0 && (loop (i + 1))) in
     loop 0
 
   (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the LHS *)
@@ -366,12 +366,12 @@ module Header = struct
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
     let result = ref 0 in
-    for i = 0 to Cstruct.len x - 1 do
+    for i = 0 to Cstruct.length x - 1 do
       result := !result + (Cstruct.get_uint8 x i)
     done;
     (* since we included the checksum, subtract it and add the spaces *)
     let chksum = get_hdr_chksum x in
-    for i = 0 to Cstruct.len chksum - 1 do
+    for i = 0 to Cstruct.length chksum - 1 do
       result := !result - (Cstruct.get_uint8 chksum i) + (int_of_char ' ')
     done;
     Int64.of_int !result
@@ -573,7 +573,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
-        let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (len extra_header_buf - 1)) in
+        let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (length extra_header_buf - 1)) in
         begin next ()
         >>= function
         | None -> return (Error `Eof)
@@ -666,7 +666,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
       | Some e ->
         let pax_payload = Header.Extended.marshal e in
         let pax = Header.make ~link_indicator:Header.Link.PerFileExtendedHeader
-          "paxheader" (Int64.of_int @@ Cstruct.len pax_payload) in
+          "paxheader" (Int64.of_int @@ Cstruct.length pax_payload) in
         write_unextended ?level pax fd
         >>= fun () ->
         really_write fd pax_payload
@@ -692,16 +692,16 @@ module Make (IO : IO) = struct
     type 'a t = 'a Direct.t
     (* XXX: there's no function to read directly into a bigarray *)
     let really_read (ifd: IO.in_channel) buffer : unit t =
-      let s = Bytes.create (Cstruct.len buffer) in
-      IO.really_input ifd s 0 (Cstruct.len buffer);
-      Cstruct.blit_from_bytes s 0 buffer 0 (Cstruct.len buffer)
+      let s = Bytes.create (Cstruct.length buffer) in
+      IO.really_input ifd s 0 (Cstruct.length buffer);
+      Cstruct.blit_from_bytes s 0 buffer 0 (Cstruct.length buffer)
 
     let skip (ifd: in_channel) (n: int) =
       let buffer = Cstruct.create 4096 in
       let rec loop (n: int) =
         if n <= 0 then ()
         else
-          let amount = min n (Cstruct.len buffer) in
+          let amount = min n (Cstruct.length buffer) in
           really_read ifd (Cstruct.sub buffer 0 amount);
           loop (n - amount) in
       loop n

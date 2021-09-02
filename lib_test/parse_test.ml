@@ -23,14 +23,14 @@ exception Cstruct_differ
 let cstruct_equal a b =
   let check_contents a b =
     try
-      for i = 0 to Cstruct.len a - 1 do
+      for i = 0 to Cstruct.length a - 1 do
         let a' = Cstruct.get_char a i in
         let b' = Cstruct.get_char b i in
         if a' <> b' then raise Cstruct_differ
       done;
       true
     with _ -> false in
-  (Cstruct.len a = (Cstruct.len b)) && (check_contents a b)
+  (Cstruct.length a = (Cstruct.length b)) && (check_contents a b)
 
 let header () =
   (* check header marshalling and unmarshalling *)
@@ -157,7 +157,7 @@ module Block4096 = struct
   let read b ofs bufs =
     Block.get_info b
     >>= fun info ->
-    let len = List.fold_left (+) 0 (List.map Cstruct.len bufs) in
+    let len = List.fold_left (+) 0 (List.map Cstruct.length bufs) in
     let requested_end = Int64.(add (mul ofs 4096L) (of_int len)) in
     let end_of_file = Int64.(mul info.size_sectors (of_int info.sector_size)) in
     let need_to_trim = max 0L (Int64.sub requested_end end_of_file) |> Int64.to_int in
@@ -165,7 +165,7 @@ module Block4096 = struct
     let rec trimmed len = function
       | [] -> []
       | b :: bs ->
-        let b' = Cstruct.len b in
+        let b' = Cstruct.length b in
         for _ = 0 to b' do Cstruct.set_uint8 b 0 0 done;
         let to_drop = max 0 (len + b' - need_to_keep) in
         let to_keep = max 0 (b' - to_drop) in
