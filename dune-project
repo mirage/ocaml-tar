@@ -1,6 +1,7 @@
 (lang dune 2.9)
 (name tar)
 
+(formatting disabled)
 (generate_opam_files true)
 
 (source (github mirage/ocaml-tar))
