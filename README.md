@@ -27,23 +27,23 @@ utop # let f = Lwt_unix.openfile "/tmp/foo.tar" [ Unix.O_RDONLY ] 0;;
 val f : Lwt_unix.file_descr = <abstr>
 
 utop # Lwt.bind f Tar_lwt_unix.Archive.list;;
-[{Tar_lwt_unix.Header.file_name = "_build/lib/tar.mli.depends";
-  Tar_lwt_unix.Header.file_mode = 420; Tar_lwt_unix.Header.user_id = 1000;
-  Tar_lwt_unix.Header.group_id = 1000; Tar_lwt_unix.Header.file_size = 21L;
-  Tar_lwt_unix.Header.mod_time = 1381080315L;
-  Tar_lwt_unix.Header.link_indicator = Tar_lwt_unix.Header.Link.Normal;
-  Tar_lwt_unix.Header.link_name = ""};
- {Tar_lwt_unix.Header.file_name = "_build/lib/tar_unix.mli.depends";
-  Tar_lwt_unix.Header.file_mode = 420; Tar_lwt_unix.Header.user_id = 1000;
-  Tar_lwt_unix.Header.group_id = 1000; Tar_lwt_unix.Header.file_size = 27L;
-  Tar_lwt_unix.Header.mod_time = 1381080318L;
-  Tar_lwt_unix.Header.link_indicator = Tar_lwt_unix.Header.Link.Normal;
-  Tar_lwt_unix.Header.link_name = ""};
- {Tar_lwt_unix.Header.file_name = "_build/lib/tar.mllib";
-  Tar_lwt_unix.Header.file_mode = ...; Tar_lwt_unix.Header.user_id = ...;
-  Tar_lwt_unix.Header.group_id = ...; Tar_lwt_unix.Header.file_size = ...;
-  Tar_lwt_unix.Header.mod_time = ...; Tar_lwt_unix.Header.link_indicator = ...;
-  Tar_lwt_unix.Header.link_name = ...};
+[{Tar.Header.file_name = "_build/lib/tar.mli.depends";
+  Tar.Header.file_mode = 420; Tar.Header.user_id = 1000;
+  Tar.Header.group_id = 1000; Tar.Header.file_size = 21L;
+  Tar.Header.mod_time = 1381080315L;
+  Tar.Header.link_indicator = Tar.Header.Link.Normal;
+  Tar.Header.link_name = ""};
+ {Tar.Header.file_name = "_build/lib/tar_unix.mli.depends";
+  Tar.Header.file_mode = 420; Tar.Header.user_id = 1000;
+  Tar.Header.group_id = 1000; Tar.Header.file_size = 27L;
+  Tar.Header.mod_time = 1381080318L;
+  Tar.Header.link_indicator = Tar.Header.Link.Normal;
+  Tar.Header.link_name = ""};
+ {Tar.Header.file_name = "_build/lib/tar.mllib";
+  Tar.Header.file_mode = ...; Tar.Header.user_id = ...;
+  Tar.Header.group_id = ...; Tar.Header.file_size = ...;
+  Tar.Header.mod_time = ...; Tar.Header.link_indicator = ...;
+  Tar.Header.link_name = ...};
  ...]
 ```
 

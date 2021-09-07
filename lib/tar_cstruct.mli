@@ -23,24 +23,20 @@ val really_write : out_channel -> Cstruct.t -> unit
 (** [really_write oc buf] writes the full contents of [buf] to [oc]
     or raises {!Stdlib.End_of_file}. *)
 
-module Header : sig
-  include module type of Tar.Header
-
-  val get_next_header : ?level:compatibility -> in_channel -> t
-  (** [get_next_header ?level ic] returns the next header block or fails with
-      [`Eof] if two consecutive zero-filled blocks are discovered. Assumes [ic]
-      is positioned at the possible start of a header block.
-      @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-end
+val get_next_header : ?level:Tar.Header.compatibility -> in_channel -> Tar.Header.t
+(** [get_next_header ?level ic] returns the next header block or fails with
+    [`Eof] if two consecutive zero-filled blocks are discovered. Assumes [ic]
+    is positioned at the possible start of a header block.
+    @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
 
 module Archive : sig
-  val with_next_file : in_channel -> (in_channel -> Header.t -> 'a) -> 'a
+  val with_next_file : in_channel -> (in_channel -> Tar.Header.t -> 'a) -> 'a
   (** [with_next_file ic f] Read the next header, apply the function [f] to
       [ic] and the header.  The function should leave [ic] positioned
       immediately after the datablock. {!really_read} can be used for this
       purpose. Finally the function skips past the zero padding to the next
       header. *)
 
-  val list : ?level:Header.compatibility -> in_channel -> Header.t list
+  val list : ?level:Tar.Header.compatibility -> in_channel -> Tar.Header.t list
   (** List the contents of a tar. *)
 end

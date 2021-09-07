@@ -3,6 +3,16 @@
 - Bump lower-bound on Cstruct to 6.0.0 (@MisterDA)
 - Update to Dune 2.9 and generate opam files (@MisterDA)
 - Don't print the name of the file in extract functions (@MisterDA)
+- Remove Tar.Make.Header, Tar_cstruct.Header, Tar_unix.Header, and
+  Tar_lwt_unix.Header to keep only Tar.Header and use it everywhere.
+  - Tar.Make.Header.get_next_header becomes Tar.Make.get_next_header;
+  - Tar_cstruct.Header.get_next_header becomes Tar_cstruct.get_next_header;
+  - Tar_lwt_unix.Header.get_next_header becomes Tar_lwt_unix.get_next_header;
+  - Tar_lwt_unix.Header.of_file becomes Tar_lwt_unix.header_of_file;
+  - Tar_unix.Header.get_next_header becomes Tar_unix.get_next_header;
+  - Tar_unix.Header.of_file becomes Tar_unix.header_of_file;
+  - All the Tar_*.Header.t values have to be changed to Tar.Header.t.
+  (@MisterDA)
 
 ## v1.1.0 (2019-04-08)
 

@@ -740,6 +740,10 @@ module Make (IO : IO) = struct
 
   module HR = HeaderReader(Direct)(Reader)
 
+  let get_next_header ?level ic = match HR.read ?level ic with
+    | Ok hdr -> hdr
+    | Error `Eof -> raise Header.End_of_stream
+
   (** Utility functions for operating over whole tar archives *)
   module Archive = struct
 
@@ -818,15 +822,6 @@ module Make (IO : IO) = struct
       Stream.iter file files;
       (* Add two empty blocks *)
       write_end ofd
-
-  end
-
-  module Header = struct
-    include Header
-
-    let get_next_header ?level ic = match HR.read ?level ic with
-      | Ok hdr -> hdr
-      | Error `Eof -> raise Header.End_of_stream
 
   end
 end

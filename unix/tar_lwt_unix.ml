@@ -57,35 +57,31 @@ let copy_n ifd ofd n =
 module HR = Tar.HeaderReader(Lwt)(Reader)
 module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-module Header = struct
-  include Tar.Header
+let get_next_header ?level ic =
+  HR.read ?level ic
+  >>= function
+  | Error `Eof -> return None
+  | Ok hdr -> return (Some hdr)
 
-  let get_next_header ?level ic =
-    HR.read ?level ic
-    >>= function
-    | Error `Eof -> return None
-    | Ok hdr -> return (Some hdr)
-
-  (** Return the header needed for a particular file on disk *)
-  let of_file ?level (file: string) : t Lwt.t =
-    let level = match level with None -> V7 | Some level -> level in
-    Lwt_unix.LargeFile.stat file >>= fun stat ->
-    Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
-    Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
-    let file_mode   = stat.Lwt_unix.LargeFile.st_perm in
-    let user_id     = stat.Lwt_unix.LargeFile.st_uid in
-    let group_id    = stat.Lwt_unix.LargeFile.st_gid in
-    let file_size   = stat.Lwt_unix.LargeFile.st_size in
-    let mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime in
-    let link_indicator = Link.Normal in
-    let link_name   = "" in
-    let uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name in
-    let gname       = if level = V7 then "" else grent.Lwt_unix.gr_name in
-    let devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0 in
-    let devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
-    Lwt.return (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
-      ~uname ~gname ~devmajor ~devminor file file_size)
-end
+(** Return the header needed for a particular file on disk *)
+let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
+  let level = match level with None -> Tar.Header.V7 | Some level -> level in
+  Lwt_unix.LargeFile.stat file >>= fun stat ->
+  Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
+  Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
+  let file_mode   = stat.Lwt_unix.LargeFile.st_perm in
+  let user_id     = stat.Lwt_unix.LargeFile.st_uid in
+  let group_id    = stat.Lwt_unix.LargeFile.st_gid in
+  let file_size   = stat.Lwt_unix.LargeFile.st_size in
+  let mod_time    = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime in
+  let link_indicator = Tar.Header.Link.Normal in
+  let link_name   = "" in
+  let uname       = if level = V7 then "" else pwent.Lwt_unix.pw_name in
+  let gname       = if level = V7 then "" else grent.Lwt_unix.gr_name in
+  let devmajor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_dev else 0 in
+  let devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
+  Lwt.return (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+    ~uname ~gname ~devmajor ~devminor file file_size)
 
 let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
   HW.write header fd
@@ -105,7 +101,7 @@ module Archive = struct
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header *)
   let with_next_file (fd: Lwt_unix.file_descr) (f: Lwt_unix.file_descr -> Tar.Header.t -> 'a Lwt.t) =
-    Header.get_next_header fd >>= function
+    get_next_header fd >>= function
     | Some hdr ->
       f fd hdr >>= fun result ->
       Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
@@ -115,7 +111,7 @@ module Archive = struct
 
   (** List the contents of a tar *)
   let list ?level fd =
-    let rec loop acc = Header.get_next_header ?level fd >>= function
+    let rec loop acc = get_next_header ?level fd >>= function
       | None -> return (List.rev acc)
       | Some hdr ->
         Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
@@ -125,7 +121,7 @@ module Archive = struct
 
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
-    let rec loop () = Header.get_next_header ifd >>= function
+    let rec loop () = get_next_header ifd >>= function
       | None -> return ()
       | Some hdr ->
         let filename = dest hdr.Tar.Header.file_name in
@@ -144,7 +140,7 @@ module Archive = struct
         Printf.eprintf "Skipping %s: not a regular file\n" filename;
         return ()
       end else begin
-        Header.of_file filename >>= fun hdr ->
+        header_of_file filename >>= fun hdr ->
 
         write_block hdr (fun ofd ->
             Lwt_unix.openfile filename [Unix.O_RDONLY] 0644 >>= fun ifd ->
