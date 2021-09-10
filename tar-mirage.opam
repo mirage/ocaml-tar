@@ -7,7 +7,7 @@ streaming.  This library is functorised over external OS dependencies
 to facilitate embedding within MirageOS.
 """
 maintainer: ["dave@recoil.org"]
-authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp"]
+authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp" "Antonin Décimo"]
 license: "ISC"
 tags: ["org:xapi-project" "org:mirage"]
 homepage: "https://github.com/mirage/ocaml-tar"

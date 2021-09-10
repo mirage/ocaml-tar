@@ -10,6 +10,7 @@
  "Dave Scott"
  "Thomas Gazagnaire"
  "David Allsopp"
+ "Antonin Décimo"
 )
 (maintainers "dave@recoil.org")
 (documentation "https://mirage.github.io/ocaml-tar/")

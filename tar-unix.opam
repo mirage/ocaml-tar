@@ -6,7 +6,7 @@ tar is a simple library to read and write tar files with an emphasis on
 streaming.  This library provides a Unix or Windows compatible interface.
 """
 maintainer: ["dave@recoil.org"]
-authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp"]
+authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp" "Antonin Décimo"]
 license: "ISC"
 tags: ["org:xapi-project" "org:mirage"]
 homepage: "https://github.com/mirage/ocaml-tar"
