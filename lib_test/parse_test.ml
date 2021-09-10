@@ -83,14 +83,19 @@ let with_temp_dir f =
   Unix.mkdir dir 0o0755;
   Fun.protect (fun () -> f dir) ~finally:(fun () -> rm_rf dir)
 
-let with_tar ?files f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files f =
+  let format = match level with
+    | None -> ""
+    | Some format -> "--format=" ^ match format with
+      | Tar.Header.OldGNU -> "oldgnu" | GNU -> "gnu" | V7 -> "v7" | Ustar -> "ustar" | Posix -> "posix"
+  in
   let files = match files with
     | None -> List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib"))
     | Some files -> files in
   with_temp_file
     (fun tar_filename ->
       let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-      let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
+      let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
       begin match Unix.system cmdline with
         | Unix.WEXITED 0 -> ()
         | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
@@ -155,6 +160,31 @@ let can_list_longlink_tar _test_ctxt =
           assert_equal ~printer:(String.concat ", ") expected filenames
         ) ~finally:(fun () -> Unix.close fd);
     )
+
+let starts_with ~prefix s =
+  let len_s = String.length s
+  and len_pre = String.length prefix in
+  let rec aux i =
+    if i = len_pre then true
+    else if String.unsafe_get s i <> String.unsafe_get prefix i then false
+    else aux (i + 1)
+  in len_s >= len_pre && aux 0
+
+let can_transform_tar _test_ctxt =
+  let level = Tar.Header.Ustar in
+  with_tar ~level (fun tar_in _file_list ->
+      let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
+      let tar_out = Filename.temp_file "tar-transformed" ".tar" in
+      let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
+      with_temp_dir (fun temp_dir ->
+          Tar_unix.Archive.transform ~level (fun hdr ->
+              {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
+            fd_in fd_out;
+          Unix.close fd_in;
+          Unix.close fd_out;
+          let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
+          Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
+              assert_bool "Filename was transformed" (starts_with ~prefix:temp_dir hdr.file_name))))
 
 module Block4096 = struct
   include Block
@@ -259,6 +289,7 @@ let () =
                 "can_read_through_BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
                 "can read @Longlink" >:: can_list_longlink_tar;
+                "can transform tars" >:: can_transform_tar;
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";

@@ -16,6 +16,9 @@
   (@MisterDA)
 - Fix parsing of pax Extended Header File Times with sub-second
   granularity. (@MisterDA)
+- Add Tar_unix.transform and Tar_lwt_unix.transform to help
+  transforming headers of a streamed tar archive between two file
+  descriptors. (@MisterDA)
 
 ## v1.1.0 (2019-04-08)
 

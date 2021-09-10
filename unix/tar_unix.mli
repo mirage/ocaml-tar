@@ -59,6 +59,12 @@ module Archive : sig
      top-level of the archive. *)
   val extract : (string -> string) -> Unix.file_descr -> unit
 
+  (** [transform f in_fd out_fd] applies [f] to the header of each
+      file in the tar inputted in [in_fd], and writes the resulting
+      headers to [out_fd] preserving the content and structure of the
+      archive. *)
+  val transform : ?level:Tar.Header.compatibility -> (Tar.Header.t -> Tar.Header.t) -> Unix.file_descr -> Unix.file_descr -> unit
+
   (** Create a tar on file descriptor fd from the filename list
      'files'. It only supports regular files. *)
   val create : string list -> Unix.file_descr -> unit

@@ -83,8 +83,8 @@ let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
   Lwt.return (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
     ~uname ~gname ~devmajor ~devminor file file_size)
 
-let write_block (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
-  HW.write header fd
+let write_block ?level (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
+  HW.write ?level header fd
   >>= fun () ->
   body fd >>= fun () ->
   really_write fd (Tar.Header.zero_padding header)
@@ -130,6 +130,18 @@ module Archive = struct
         Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop () in
     loop ()
+
+  let transform ?level f ifd ofd =
+    let rec loop () = get_next_header ifd >>= function
+      | None -> Lwt.return_unit
+      | Some header' ->
+        let header = f header' in
+        let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
+        write_block ?level header body ofd >>= fun () ->
+        Reader.skip ifd (Tar.Header.compute_zero_padding_length header') >>= fun () ->
+        loop () in
+    loop () >>= fun () ->
+    write_end ofd
 
   (** Create a tar on file descriptor fd from the filename list
       'files' *)

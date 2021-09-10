@@ -87,6 +87,19 @@ module Archive = struct
     in
     extract_gen dest ifd
 
+  let transform ?level f ifd ofd =
+    let rec loop () =
+      match get_next_header ifd with
+      | exception Tar.Header.End_of_stream -> ()
+      | header' ->
+        let header = f header' in
+        let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
+        write_block ?level header body ofd;
+        skip ifd (Tar.Header.compute_zero_padding_length header');
+        loop () in
+    loop ();
+    write_end ofd
+
   (** Create a tar on file descriptor fd from the filename list
       'files' *)
   let create files ofd =
