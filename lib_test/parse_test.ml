@@ -15,7 +15,7 @@
 [@@@warning "-3-27"] (* FIXME: deprecation from the tar library *)
 
 open OUnit
-open Lwt
+open Lwt.Infix
 
 exception Cstruct_differ
 
@@ -151,7 +151,7 @@ module Block4096 = struct
     Block.get_info b
     >>= fun info ->
     let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
-    return { info with Mirage_block.sector_size = 4096; size_sectors }
+    Lwt.return { info with Mirage_block.sector_size = 4096; size_sectors }
 
   let read b ofs bufs =
     Block.get_info b
@@ -209,7 +209,7 @@ module Test(B: BLOCK) = struct
                 let read_tar key =
                   KV_RO.get k key >>= function
                   | Error _ -> failwith "KV_RO.read"
-                  | Ok buf -> return buf in
+                  | Ok buf -> Lwt.return buf in
                 (* Read whole file *)
                 let size = stats.Unix.LargeFile.st_size in
                 let value = read_file file 0 (Int64.to_int size) in
@@ -220,8 +220,8 @@ module Test(B: BLOCK) = struct
                   read_tar (Mirage_kv.Key.v file) >>= fun value' ->
                   let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
                   assert_equal ~printer:(fun x -> x) value value'';
-                  return ()
-                end else return ()
+                  Lwt.return ()
+                end else Lwt.return ()
              ) files in
          Lwt_main.run t
       )
