@@ -47,20 +47,6 @@ module Driver = struct
   let close_out = Unix.close
 end
 
-module List = struct
-  include List
-
-  let filter_map f l =
-    let rec g a = function
-        [] -> List.rev a
-      | x::l ->
-        match f x with
-          None -> g a l
-        | Some x -> g (x::a) l
-    in
-    g [] l
-end
-
 module T = Tar.Make(Driver)
 
 let really_write = T.really_write

@@ -49,11 +49,9 @@ let header _test_ctxt =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let finally f g = try let results = f () in g (); results with e -> g (); raise e
-
 let with_temp_file f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
-  finally (fun () -> f tar_filename) (fun () -> Unix.unlink tar_filename)
+  Fun.protect (fun () -> f tar_filename) ~finally:(fun () -> Unix.unlink tar_filename)
 
 let rm_rf dir =
   let rec loop file_or_dir =
@@ -68,7 +66,7 @@ let rm_rf dir =
 let with_temp_dir f =
   let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Unix.getpid()))) in
   Unix.mkdir dir 0o0755;
-  finally (fun () -> f dir) (fun () -> rm_rf dir)
+  Fun.protect (fun () -> f dir) ~finally:(fun () -> rm_rf dir)
 
 let with_tar ?files f =
   let files = match files with
@@ -107,22 +105,22 @@ let can_write_pax _test_ctxt =
       (* Write a file which would need a pax header *)
       let filename = "/tmp/foo.tar" in
       let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
-      finally
+      Fun.protect
         (fun () ->
           let hdr = Tar.Header.make ~user_id "test" 0L in
           write_block hdr (fun _ -> ()) fd;
           write_end fd;
-        ) (fun () -> Unix.close fd);
+        ) ~finally:(fun () -> Unix.close fd);
       (* Read it back and verify the header was read *)
       let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
-      finally
+      Fun.protect
         (fun () ->
           match Archive.list fd with
           | [ one ] -> assert (one.Tar.Header.user_id = user_id)
           | xs ->
             Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Tar.Header.to_detailed_string xs));
             assert false
-        ) (fun () -> Unix.close fd);
+        ) ~finally:(fun () -> Unix.close fd);
     )
 
 let can_list_longlink_tar _test_ctxt =
@@ -130,7 +128,7 @@ let can_list_longlink_tar _test_ctxt =
   with_temp_dir
     (fun dir ->
       let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
-      finally
+      Fun.protect
         (fun () ->
           let all = Archive.list fd in
           let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
@@ -141,7 +139,7 @@ let can_list_longlink_tar _test_ctxt =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
           ] in
           assert_equal ~printer:(String.concat ", ") expected filenames
-        ) (fun () -> Unix.close fd);
+        ) ~finally:(fun () -> Unix.close fd);
     )
 
 module Block4096 = struct
@@ -197,14 +195,14 @@ module Test(B: BLOCK) = struct
               let stats = Unix.LargeFile.stat file in
               let read_file key ofs len =
                 let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-                finally
+                Fun.protect
                   (fun () ->
                      let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
                      let buf = Bytes.make len '\000' in
                      let len' = Unix.read fd buf 0 len in
                      assert_equal ~printer:string_of_int len len';
                      Bytes.to_string buf
-                  ) (fun () -> Unix.close fd) in
+                  ) ~finally:(fun () -> Unix.close fd) in
               let read_tar key =
                 KV_RO.get k key >>= function
                 | Error _ -> failwith "KV_RO.read"

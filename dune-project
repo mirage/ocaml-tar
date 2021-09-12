@@ -26,7 +26,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.03.0))
+  (ocaml (>= 4.08.0))
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
   re
@@ -61,7 +61,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.05.0))
+  (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
   io-page
   lwt

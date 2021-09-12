@@ -718,15 +718,6 @@ module Make (IO : IO) = struct
   let really_read = Reader.really_read
   let really_write = Writer.really_write
 
-  let finally fct clean_f =
-    let result =
-      try fct ();
-      with exn ->
-        clean_f ();
-        raise exn in
-    clean_f ();
-    result
-
   module HW = HeaderWriter(Direct)(Writer)
 
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
@@ -756,8 +747,8 @@ module Make (IO : IO) = struct
       match HR.read fd with
       | Ok hdr ->
         (* NB if the function 'f' fails we're boned *)
-        finally (fun () -> f fd hdr)
-          (fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
+        Fun.protect (fun () -> f fd hdr)
+          ~finally:(fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
       | Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
