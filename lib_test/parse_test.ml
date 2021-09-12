@@ -220,8 +220,8 @@ module Test(B: BLOCK) = struct
                   read_tar (Mirage_kv.Key.v file) >>= fun value' ->
                   let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
                   assert_equal ~printer:(fun x -> x) value value'';
-                  Lwt.return ()
-                end else Lwt.return ()
+                  Lwt.return_unit
+                end else Lwt.return_unit
              ) files in
          Lwt_main.run t
       )

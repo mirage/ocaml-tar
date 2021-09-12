@@ -25,7 +25,7 @@ module Reader = struct
     let buffer_size = 32768 in
     let buffer = Cstruct.create buffer_size in
     let rec loop (n: int) =
-      if n <= 0 then Lwt.return ()
+      if n <= 0 then Lwt.return_unit
       else
         let amount = min n buffer_size in
         let block = Cstruct.sub buffer 0 amount in
@@ -45,7 +45,7 @@ let copy_n ifd ofd n =
   let block_size = 32768 in
   let buffer = Cstruct.create block_size in
   let rec loop remaining =
-    if remaining = 0L then Lwt.return () else begin
+    if remaining = 0L then Lwt.return_unit else begin
       let this = Int64.(to_int (min (of_int block_size) remaining)) in
       let block = Cstruct.sub buffer 0 this in
       really_read ifd block >>= fun () ->
@@ -122,7 +122,7 @@ module Archive = struct
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
     let rec loop () = get_next_header ifd >>= function
-      | None -> Lwt.return ()
+      | None -> Lwt.return_unit
       | Some hdr ->
         let filename = dest hdr.Tar.Header.file_name in
         Lwt_unix.openfile filename [Unix.O_WRONLY] 0644 >>= fun ofd ->
@@ -138,7 +138,7 @@ module Archive = struct
       Lwt_unix.stat filename >>= fun stat ->
       if stat.Unix.st_kind <> Unix.S_REG then begin
         Printf.eprintf "Skipping %s: not a regular file\n" filename;
-        Lwt.return ()
+        Lwt.return_unit
       end else begin
         header_of_file filename >>= fun hdr ->
 
