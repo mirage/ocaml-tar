@@ -73,6 +73,7 @@
   (io-page-unix :with-test)
   (mirage-block-unix (and :with-test (>= 2.5.0)))
   (ounit2 :with-test)
+  (ounit2-lwt :with-test)
   (tar-unix (and :with-test (= :version)))
  )
 )

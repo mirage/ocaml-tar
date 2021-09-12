@@ -27,6 +27,7 @@ depends: [
   "io-page-unix" {with-test}
   "mirage-block-unix" {with-test & >= "2.5.0"}
   "ounit2" {with-test}
+  "ounit2-lwt" {with-test}
   "tar-unix" {with-test & = version}
   "odoc" {with-doc}
 ]
