@@ -54,10 +54,13 @@ module Archive : sig
   val list : ?level:Tar.Header.compatibility -> Unix.file_descr -> Tar.Header.t list
 
   (** [extract dest] extract the contents of a tar.
-      Apply [dest] on each source filename to change the destination filename. *)
+     Apply [dest] on each source filename to change the destination
+     filename. It only supports extracting regular files from the
+     top-level of the archive. *)
   val extract : (string -> string) -> Unix.file_descr -> unit
 
-  (** Create a tar on file descriptor fd from the filename list 'files'. *)
+  (** Create a tar on file descriptor fd from the filename list
+     'files'. It only supports regular files. *)
   val create : string list -> Unix.file_descr -> unit
 
   (** [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd]. *)

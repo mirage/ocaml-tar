@@ -94,10 +94,9 @@ module Archive = struct
       let f filename =
         let stat = Unix.stat filename in
         if stat.Unix.st_kind <> Unix.S_REG
-        then begin
-          Printf.eprintf "Skipping %s: not a regular file\n" filename;
+        then
+          (* Skipping, not a regular file. *)
           None
-        end
         else
           let hdr = header_of_file filename in
           Some (hdr, (fun ofd ->

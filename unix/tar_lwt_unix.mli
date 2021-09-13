@@ -45,9 +45,12 @@ module Archive : sig
   val list : ?level:Tar.Header.compatibility -> Lwt_unix.file_descr -> Tar.Header.t list Lwt.t
 
   (** [extract dest] extract the contents of a tar.
-      Apply [dest] on each source filename to change the destination filename. *)
+     Apply [dest] on each source filename to change the destination
+     filename. It only supports extracting regular files from the
+     top-level of the archive. *)
   val extract : (string -> string) -> Lwt_unix.file_descr -> unit Lwt.t
 
-  (** Create a tar on file descriptor fd from a list of filenames. *)
+  (** Create a tar on file descriptor fd from a list of filenames. It
+     only supports regular files. *)
   val create : string list -> Lwt_unix.file_descr -> unit Lwt.t
 end

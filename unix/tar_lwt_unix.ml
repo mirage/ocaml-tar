@@ -136,10 +136,10 @@ module Archive = struct
   let create files ofd =
     let file filename =
       Lwt_unix.stat filename >>= fun stat ->
-      if stat.Unix.st_kind <> Unix.S_REG then begin
-        Printf.eprintf "Skipping %s: not a regular file\n" filename;
+      if stat.Unix.st_kind <> Unix.S_REG then
+        (* Skipping, not a regular file. *)
         Lwt.return_unit
-      end else begin
+      else begin
         header_of_file filename >>= fun hdr ->
 
         write_block hdr (fun ofd ->
