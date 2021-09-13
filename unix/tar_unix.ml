@@ -83,7 +83,7 @@ module Archive = struct
   let extract dest ifd =
     let dest hdr =
       let filename = dest hdr.Tar.Header.file_name in
-      Unix.openfile filename [Unix.O_WRONLY] 0644
+      Unix.openfile filename [Unix.O_WRONLY] 0
     in
     extract_gen dest ifd
 
@@ -100,7 +100,7 @@ module Archive = struct
         else
           let hdr = header_of_file filename in
           Some (hdr, (fun ofd ->
-              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0644 in
+              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0 in
               copy_n ifd ofd hdr.Tar.Header.file_size))
       in
       List.filter_map f files

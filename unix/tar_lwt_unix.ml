@@ -125,7 +125,7 @@ module Archive = struct
       | None -> Lwt.return_unit
       | Some hdr ->
         let filename = dest hdr.Tar.Header.file_name in
-        Lwt_unix.openfile filename [Unix.O_WRONLY] 0644 >>= fun ofd ->
+        Lwt_unix.openfile filename [Unix.O_WRONLY] 0 >>= fun ofd ->
         copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
         Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop () in
@@ -143,7 +143,7 @@ module Archive = struct
         header_of_file filename >>= fun hdr ->
 
         write_block hdr (fun ofd ->
-            Lwt_unix.openfile filename [Unix.O_RDONLY] 0644 >>= fun ifd ->
+            Lwt_unix.openfile filename [Unix.O_RDONLY] 0 >>= fun ifd ->
             copy_n ifd ofd hdr.Tar.Header.file_size
           ) ofd
       end in
