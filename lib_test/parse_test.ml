@@ -56,15 +56,14 @@ let with_temp_file f =
 let rm_rf dir =
   let rec loop file_or_dir =
     Printf.fprintf stderr "rm %s\n%!" file_or_dir;
-    match Unix.unlink file_or_dir with
-    | () -> ()
-    | exception Unix.Unix_error((Unix.EISDIR | Unix.EPERM), _, _) ->
+    try Unix.unlink file_or_dir
+    with Unix.Unix_error((Unix.EISDIR | Unix.EPERM), _, _) ->
       Array.iter (fun name -> loop (Filename.concat file_or_dir name)) (Sys.readdir file_or_dir);
       Unix.rmdir file_or_dir in
   loop dir
 
 let with_temp_dir f =
-  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Unix.getpid()))) in
+  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Random.bits ()))) in
   Unix.mkdir dir 0o0755;
   Fun.protect (fun () -> f dir) ~finally:(fun () -> rm_rf dir)
 
@@ -74,7 +73,6 @@ let with_tar ?files f =
     | Some files -> files in
   with_temp_file
     (fun tar_filename ->
-      let tar_filename = Filename.temp_file "tar-test" ".tar" in
       let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
       begin match Unix.system cmdline with
         | Unix.WEXITED 0 -> ()
@@ -103,7 +101,6 @@ let can_write_pax _test_ctxt =
       (* This userid is too large for a regular ustar header *)
       let user_id = 2116562692 in
       (* Write a file which would need a pax header *)
-      let filename = "/tmp/foo.tar" in
       let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
       Fun.protect
         (fun () ->
@@ -222,9 +219,9 @@ module Test(B: BLOCK) = struct
            ) files
       )
 
-    let check_not_padded _test_ctxt =
-      ignore (Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644);
-      can_read_through_BLOCK ~files:["empty"] ()
+    let check_not_padded test_ctxt =
+      Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
+      can_read_through_BLOCK ~files:["empty"] test_ctxt
 end
 
 module Sector512 = Test(B)
