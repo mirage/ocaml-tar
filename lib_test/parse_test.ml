@@ -17,6 +17,21 @@
 open OUnit2
 open Lwt.Infix
 
+let convert_path os path =
+  let ch = Unix.open_process_in (Printf.sprintf "cygpath -%c %s" (match os with `Mixed -> 'm' | `Unix -> 'u' | `Windows -> 'w') path) in
+  let line = input_line ch in
+  close_in ch;
+  line
+
+let win32_openfile path flags perms =
+  Unix.openfile (convert_path `Windows path) flags perms
+
+module Unix = struct
+  include Unix
+
+  let openfile = if Sys.win32 then win32_openfile else openfile
+end
+
 exception Cstruct_differ
 
 let cstruct_equal a b =
@@ -51,13 +66,14 @@ let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
 let with_temp_file f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
-  Fun.protect (fun () -> f tar_filename) ~finally:(fun () -> Unix.unlink tar_filename)
+  Fun.protect (fun () -> f tar_filename) ~finally:(fun () ->
+      try Unix.unlink tar_filename with Unix.Unix_error(Unix.EACCES, _, _) when Sys.win32 -> ( ))
 
 let rm_rf dir =
   let rec loop file_or_dir =
     Printf.fprintf stderr "rm %s\n%!" file_or_dir;
     try Unix.unlink file_or_dir
-    with Unix.Unix_error((Unix.EISDIR | Unix.EPERM), _, _) ->
+    with Unix.Unix_error((Unix.EISDIR | Unix.EPERM | Unix.EACCES), _, _) ->
       Array.iter (fun name -> loop (Filename.concat file_or_dir name)) (Sys.readdir file_or_dir);
       Unix.rmdir file_or_dir in
   loop dir
@@ -73,6 +89,7 @@ let with_tar ?files f =
     | Some files -> files in
   with_temp_file
     (fun tar_filename ->
+      let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
       let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
       begin match Unix.system cmdline with
         | Unix.WEXITED 0 -> ()
@@ -166,7 +183,10 @@ module Block4096 = struct
         Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
     let trimmed =  (trimmed 0 bufs) in
     Block.read b (Int64.mul ofs 8L) trimmed
-  let connect name = connect name
+
+  let connect name =
+    let name = if Sys.win32 then convert_path `Windows name else name in
+    connect name
 end
 
 module type BLOCK = sig
@@ -177,7 +197,9 @@ end
 module B = struct
   include Block
 
-  let connect name = connect name
+  let connect name =
+    let name = if Sys.win32 then convert_path `Windows name else name in
+    connect name
 end
 
 module Test(B: BLOCK) = struct
