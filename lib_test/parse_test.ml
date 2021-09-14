@@ -99,7 +99,7 @@ let can_write_pax _test_ctxt =
   with_temp_file
     (fun filename ->
       (* This userid is too large for a regular ustar header *)
-      let user_id = 2116562692 in
+      let user_id = 0x07777777 + 1 in
       (* Write a file which would need a pax header *)
       let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
       Fun.protect
