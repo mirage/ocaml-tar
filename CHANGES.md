@@ -14,6 +14,8 @@
   - Tar_unix.Header.of_file becomes Tar_unix.header_of_file;
   - All the Tar_*.Header.t values have to be changed to Tar.Header.t.
   (@MisterDA)
+- Fix parsing of pax Extended Header File Times with sub-second
+  granularity. (@MisterDA)
 
 ## v1.1.0 (2019-04-08)
 

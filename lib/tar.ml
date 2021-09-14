@@ -51,6 +51,15 @@ module Header = struct
   (** Unmarshal a string *)
   let unmarshal_string (x: string) : string = trim_string x
 
+  (** Unmarshal a pax Extended Header File time
+      It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
+      https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13_05 *)
+  let unmarshal_pax_time (x:string ) : int64 =
+    match String.split_on_char '.' x with
+    | [seconds] -> Int64.of_string seconds
+    | [seconds; _subseconds] -> Int64.of_string seconds
+    | _ -> raise (Failure "Wrong pax Extended Header File Times format")
+
   [%%cstruct
       type hdr = {
         file_name:      uint8_t [@len 100];
@@ -240,14 +249,14 @@ module Header = struct
         then Some (f (List.assoc name pairs))
         else None in
       (* integers are stored as decimal, not octal here *)
-      let access_time    = option "atime" Int64.of_string in
+      let access_time    = option "atime" unmarshal_pax_time in
       let charset        = option "charset" unmarshal_string in
       let comment        = option "comment" unmarshal_string in
       let group_id       = option "gid" int_of_string in
       let gname          = option "group_name" unmarshal_string in
       let header_charset = option "hdrcharset" unmarshal_string in
       let link_path      = option "linkpath" unmarshal_string in
-      let mod_time       = option "mtime" Int64.of_string in
+      let mod_time       = option "mtime" unmarshal_pax_time in
       let path           = option "path" unmarshal_string in
       let file_size      = option "size" Int64.of_string in
       let user_id        = option "uid" int_of_string in

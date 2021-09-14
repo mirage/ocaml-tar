@@ -51,14 +51,14 @@ module Header : sig
 
   module Extended: sig
     type t = {
-      access_time: int64 option;
+      access_time: int64 option; (** second granularity since the Epoch *)
       charset: string option;
       comment: string option;
       group_id: int option;
       gname: string option;
       header_charset: string option;
       link_path: string option;
-      mod_time: int64 option;
+      mod_time: int64 option; (** second granularity since the Epoch *)
       path: string option;
       file_size: int64 option;
       user_id: int option;
