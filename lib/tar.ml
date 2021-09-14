@@ -40,9 +40,8 @@ module Header = struct
     let tmp = "0o0" ^ (trim_numerical x) in
     try
       int_of_string tmp
-    with Failure _ as e ->
-      Printf.eprintf "Failed to parse integer [%s] == %s\n" tmp (to_hex tmp);
-      raise e
+    with Failure msg ->
+      failwith (Printf.sprintf "%s: failed to parse integer [%s] == %s" msg tmp (to_hex tmp))
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
   let unmarshal_int64 (x: string) : int64 =

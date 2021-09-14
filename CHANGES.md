@@ -3,7 +3,7 @@
 - Bump lower-bound on Cstruct to 6.0.0 (@MisterDA)
 - Update to Dune 2.9 and generate opam files (@MisterDA)
 - Support only OCaml versions 4.08 and higher. (@MisterDA)
-- Don't print the name of the file in extract functions (@MisterDA)
+- Don't print any logging to stdout or stderr (@MisterDA)
 - Remove Tar.Make.Header, Tar_cstruct.Header, Tar_unix.Header, and
   Tar_lwt_unix.Header to keep only Tar.Header and use it everywhere.
   - Tar.Make.Header.get_next_header becomes Tar.Make.get_next_header;
