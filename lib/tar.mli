@@ -87,6 +87,12 @@ module Header : sig
   }
 
   (** Helper function to make a simple header. *)
+
+  (** [make file_name file_size] creates a simple header.
+      [file_mode] defaults to [0o400], [user_id], [group_id] default to [0],
+      [mod_time] defaults to [0L] (epoch), [link_indicator] defaults to [Normal],
+      [link_name], [uname] and [gname] default to [""], and [devmajor] and
+      [devminor] default to [0].*)
   val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> ?uname:string -> ?gname:string -> ?devmajor:int -> ?devminor:int -> string -> int64 -> t
 
   (** Length of a header block. *)
