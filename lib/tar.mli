@@ -22,7 +22,7 @@ module Header : sig
   (** Process and create tar file headers. *)
 
   (** tar format assumptions. Default is {!V7} (for compatibility with versions of ocaml-tar before this type was introduced).
-      @see <http://www.gnu.org/software/tar/manual/html_section/tar_68.html> *)
+      @see <https://www.gnu.org/software/tar/manual/html_section/Formats.html> *)
   type compatibility =
     | OldGNU (** GNU tar < 1.12 *)
     | GNU (** GNU tar 1.12 - 1.13.25 *)
