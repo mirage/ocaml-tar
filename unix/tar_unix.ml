@@ -47,20 +47,6 @@ module Driver = struct
   let close_out = Unix.close
 end
 
-module List = struct
-  include List
-
-  let filter_map f l =
-    let rec g a = function
-        [] -> List.rev a
-      | x::l ->
-        match f x with
-          None -> g a l
-        | Some x -> g (x::a) l
-    in
-    g [] l
-end
-
 module T = Tar.Make(Driver)
 
 let really_write = T.really_write
@@ -97,9 +83,22 @@ module Archive = struct
   let extract dest ifd =
     let dest hdr =
       let filename = dest hdr.Tar.Header.file_name in
-      Unix.openfile filename [Unix.O_WRONLY] 0644
+      Unix.openfile filename [Unix.O_WRONLY] 0
     in
     extract_gen dest ifd
+
+  let transform ?level f ifd ofd =
+    let rec loop () =
+      match get_next_header ifd with
+      | exception Tar.Header.End_of_stream -> ()
+      | header' ->
+        let header = f header' in
+        let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
+        write_block ?level header body ofd;
+        skip ifd (Tar.Header.compute_zero_padding_length header');
+        loop () in
+    loop ();
+    write_end ofd
 
   (** Create a tar on file descriptor fd from the filename list
       'files' *)
@@ -108,14 +107,13 @@ module Archive = struct
       let f filename =
         let stat = Unix.stat filename in
         if stat.Unix.st_kind <> Unix.S_REG
-        then begin
-          Printf.eprintf "Skipping %s: not a regular file\n" filename;
+        then
+          (* Skipping, not a regular file. *)
           None
-        end
         else
           let hdr = header_of_file filename in
           Some (hdr, (fun ofd ->
-              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0644 in
+              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0 in
               copy_n ifd ofd hdr.Tar.Header.file_size))
       in
       List.filter_map f files

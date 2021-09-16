@@ -209,6 +209,6 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     let map = Dict (Tar.Header.make "/" 0L, map) in
     Lwt.return ({ b; map; info })
 
-  let disconnect _ = Lwt.return ()
+  let disconnect _ = Lwt.return_unit
 
 end

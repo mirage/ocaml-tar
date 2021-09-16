@@ -10,6 +10,7 @@
  "Dave Scott"
  "Thomas Gazagnaire"
  "David Allsopp"
+ "Antonin Décimo"
 )
 (maintainers "dave@recoil.org")
 (documentation "https://mirage.github.io/ocaml-tar/")
@@ -25,7 +26,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.03.0))
+  (ocaml (>= 4.08.0))
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
   re
@@ -60,7 +61,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.05.0))
+  (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
   io-page
   lwt
@@ -72,6 +73,7 @@
   (io-page-unix :with-test)
   (mirage-block-unix (and :with-test (>= 2.5.0)))
   (ounit2 :with-test)
+  (ounit2-lwt :with-test)
   (tar-unix (and :with-test (= :version)))
  )
 )

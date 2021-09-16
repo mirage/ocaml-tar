@@ -14,8 +14,23 @@
 
 [@@@warning "-3-27"] (* FIXME: deprecation from the tar library *)
 
-open OUnit
-open Lwt
+open OUnit2
+open Lwt.Infix
+
+let convert_path os path =
+  let ch = Unix.open_process_in (Printf.sprintf "cygpath -%c %s" (match os with `Mixed -> 'm' | `Unix -> 'u' | `Windows -> 'w') path) in
+  let line = input_line ch in
+  close_in ch;
+  line
+
+let win32_openfile path flags perms =
+  Unix.openfile (convert_path `Windows path) flags perms
+
+module Unix = struct
+  include Unix
+
+  let openfile = if Sys.win32 then win32_openfile else openfile
+end
 
 exception Cstruct_differ
 
@@ -31,7 +46,7 @@ let cstruct_equal a b =
     with _ -> false in
   (Cstruct.length a = (Cstruct.length b)) && (check_contents a b)
 
-let header () =
+let header _test_ctxt =
   (* check header marshalling and unmarshalling *)
   let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
   let txt = "hello\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\0000000005\0000001751\0000001752\00000000002322\00000000000067\0000005534\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000" in
@@ -49,35 +64,38 @@ let header () =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let finally f g = try let results = f () in g (); results with e -> g (); raise e
-
 let with_temp_file f =
   let tar_filename = Filename.temp_file "tar-test" ".tar" in
-  finally (fun () -> f tar_filename) (fun () -> Unix.unlink tar_filename)
+  Fun.protect (fun () -> f tar_filename) ~finally:(fun () ->
+      try Unix.unlink tar_filename with Unix.Unix_error(Unix.EACCES, _, _) when Sys.win32 -> ( ))
 
 let rm_rf dir =
   let rec loop file_or_dir =
     Printf.fprintf stderr "rm %s\n%!" file_or_dir;
-    match Unix.unlink file_or_dir with
-    | () -> ()
-    | exception Unix.Unix_error((Unix.EISDIR | Unix.EPERM), _, _) ->
+    try Unix.unlink file_or_dir
+    with Unix.Unix_error((Unix.EISDIR | Unix.EPERM | Unix.EACCES), _, _) ->
       Array.iter (fun name -> loop (Filename.concat file_or_dir name)) (Sys.readdir file_or_dir);
       Unix.rmdir file_or_dir in
   loop dir
 
 let with_temp_dir f =
-  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Unix.getpid()))) in
+  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Random.bits ()))) in
   Unix.mkdir dir 0o0755;
-  finally (fun () -> f dir) (fun () -> rm_rf dir)
+  Fun.protect (fun () -> f dir) ~finally:(fun () -> rm_rf dir)
 
-let with_tar ?files f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files f =
+  let format = match level with
+    | None -> ""
+    | Some format -> "--format=" ^ match format with
+      | Tar.Header.OldGNU -> "oldgnu" | GNU -> "gnu" | V7 -> "v7" | Ustar -> "ustar" | Posix -> "posix"
+  in
   let files = match files with
     | None -> List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib"))
     | Some files -> files in
   with_temp_file
     (fun tar_filename ->
-      let tar_filename = Filename.temp_file "tar-test" ".tar" in
-      let cmdline = Printf.sprintf "tar -cf %s %s" tar_filename (String.concat " " files) in
+      let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
+      let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
       begin match Unix.system cmdline with
         | Unix.WEXITED 0 -> ()
         | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
@@ -86,7 +104,7 @@ let with_tar ?files f =
       f tar_filename files
     )
 
-let can_read_tar () =
+let can_read_tar _test_ctxt =
   with_tar
     (fun tar_filename files ->
        let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
@@ -98,39 +116,38 @@ let can_read_tar () =
        assert_equal ~printer:(String.concat "; ") [] missing'
     )
 
-let can_write_pax () =
+let can_write_pax _test_ctxt =
   let open Tar_unix in
   with_temp_file
     (fun filename ->
       (* This userid is too large for a regular ustar header *)
-      let user_id = 2116562692 in
+      let user_id = 0x07777777 + 1 in
       (* Write a file which would need a pax header *)
-      let filename = "/tmp/foo.tar" in
       let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
-      finally
+      Fun.protect
         (fun () ->
           let hdr = Tar.Header.make ~user_id "test" 0L in
           write_block hdr (fun _ -> ()) fd;
           write_end fd;
-        ) (fun () -> Unix.close fd);
+        ) ~finally:(fun () -> Unix.close fd);
       (* Read it back and verify the header was read *)
       let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
-      finally
+      Fun.protect
         (fun () ->
           match Archive.list fd with
           | [ one ] -> assert (one.Tar.Header.user_id = user_id)
           | xs ->
             Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Tar.Header.to_detailed_string xs));
             assert false
-        ) (fun () -> Unix.close fd);
+        ) ~finally:(fun () -> Unix.close fd);
     )
 
-let can_list_longlink_tar () =
+let can_list_longlink_tar _test_ctxt =
   let open Tar_unix in
   with_temp_dir
     (fun dir ->
       let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
-      finally
+      Fun.protect
         (fun () ->
           let all = Archive.list fd in
           let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
@@ -140,9 +157,34 @@ let can_list_longlink_tar () =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
           ] in
-          OUnit.assert_equal ~printer:(String.concat ", ") expected filenames
-        ) (fun () -> Unix.close fd);
+          assert_equal ~printer:(String.concat ", ") expected filenames
+        ) ~finally:(fun () -> Unix.close fd);
     )
+
+let starts_with ~prefix s =
+  let len_s = String.length s
+  and len_pre = String.length prefix in
+  let rec aux i =
+    if i = len_pre then true
+    else if String.unsafe_get s i <> String.unsafe_get prefix i then false
+    else aux (i + 1)
+  in len_s >= len_pre && aux 0
+
+let can_transform_tar _test_ctxt =
+  let level = Tar.Header.Ustar in
+  with_tar ~level (fun tar_in _file_list ->
+      let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
+      let tar_out = Filename.temp_file "tar-transformed" ".tar" in
+      let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
+      with_temp_dir (fun temp_dir ->
+          Tar_unix.Archive.transform ~level (fun hdr ->
+              {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
+            fd_in fd_out;
+          Unix.close fd_in;
+          Unix.close fd_out;
+          let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
+          Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
+              assert_bool "Filename was transformed" (starts_with ~prefix:temp_dir hdr.file_name))))
 
 module Block4096 = struct
   include Block
@@ -151,7 +193,7 @@ module Block4096 = struct
     Block.get_info b
     >>= fun info ->
     let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
-    return { info with Mirage_block.sector_size = 4096; size_sectors }
+    Lwt.return { info with Mirage_block.sector_size = 4096; size_sectors }
 
   let read b ofs bufs =
     Block.get_info b
@@ -171,7 +213,10 @@ module Block4096 = struct
         Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
     let trimmed =  (trimmed 0 bufs) in
     Block.read b (Int64.mul ofs 8L) trimmed
-  let connect name = connect name
+
+  let connect name =
+    let name = if Sys.win32 then convert_path `Windows name else name in
+    connect name
 end
 
 module type BLOCK = sig
@@ -182,73 +227,70 @@ end
 module B = struct
   include Block
 
-  let connect name = connect name
+  let connect name =
+    let name = if Sys.win32 then convert_path `Windows name else name in
+    connect name
 end
 
 module Test(B: BLOCK) = struct
-  let can_read_through_BLOCK ?files () =
+  let can_read_through_BLOCK ?files _test_ctxt =
     with_tar ?files
       (fun tar_filename files ->
-         let t =
-           B.connect tar_filename >>= fun b ->
-           let module KV_RO = Tar_mirage.Make_KV_RO(B) in
-           KV_RO.connect b >>= fun k ->
-           Lwt_list.iter_s
-             (fun file ->
-                let stats = Unix.LargeFile.stat file in
-                let read_file key ofs len =
-                  let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-                  finally
-                    (fun () ->
-                       let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                       let buf = Bytes.make len '\000' in
-                       let len' = Unix.read fd buf 0 len in
-                       assert_equal ~printer:string_of_int len len';
-                       Bytes.to_string buf
-                    ) (fun () -> Unix.close fd) in
-                let read_tar key =
-                  KV_RO.get k key >>= function
-                  | Error _ -> failwith "KV_RO.read"
-                  | Ok buf -> return buf in
-                (* Read whole file *)
-                let size = stats.Unix.LargeFile.st_size in
-                let value = read_file file 0 (Int64.to_int size) in
+         B.connect tar_filename >>= fun b ->
+         let module KV_RO = Tar_mirage.Make_KV_RO(B) in
+         KV_RO.connect b >>= fun k ->
+         Lwt_list.iter_s
+           (fun file ->
+              let stats = Unix.LargeFile.stat file in
+              let read_file key ofs len =
+                let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+                Fun.protect
+                  (fun () ->
+                     let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+                     let buf = Bytes.make len '\000' in
+                     let len' = Unix.read fd buf 0 len in
+                     assert_equal ~printer:string_of_int len len';
+                     Bytes.to_string buf
+                  ) ~finally:(fun () -> Unix.close fd) in
+              let read_tar key =
+                KV_RO.get k key >>= function
+                | Error _ -> failwith "KV_RO.read"
+                | Ok buf -> Lwt.return buf in
+              (* Read whole file *)
+              let size = stats.Unix.LargeFile.st_size in
+              let value = read_file file 0 (Int64.to_int size) in
+              read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+              assert_equal ~printer:(fun x -> x) value value';
+              if Int64.compare size 2L = 1 then begin
+                let value = read_file file 1 ((Int64.to_int size) - 2) in
                 read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-                assert_equal ~printer:(fun x -> x) value value';
-                if Int64.compare size 2L = 1 then begin
-                  let value = read_file file 1 ((Int64.to_int size) - 2) in
-                  read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-                  let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
-                  assert_equal ~printer:(fun x -> x) value value'';
-                  return ()
-                end else return ()
-             ) files in
-         Lwt_main.run t
+                let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
+                assert_equal ~printer:(fun x -> x) value value'';
+                Lwt.return_unit
+              end else Lwt.return_unit
+           ) files
       )
-    let check_not_padded () =
-      ignore (Unix.openfile "empty" [ Unix.O_CREAT; Unix.O_TRUNC ] 0o0644);
-      can_read_through_BLOCK ~files:["empty"] ()
+
+    let check_not_padded test_ctxt =
+      Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
+      can_read_through_BLOCK ~files:["empty"] test_ctxt
 end
 
 module Sector512 = Test(B)
 module Sector4096 = Test(Block4096)
 
-let _ =
-  let verbose = ref false in
-  Arg.parse [
-    "-verbose", Arg.Unit (fun _ -> verbose := true), "Run in verbose mode";
-  ] (fun x -> Printf.fprintf stderr "Ignoring argument: %s" x)
-    "Test tar parser";
+let () =
   let suite = "tar" >:::
               [
                 "header" >:: header;
                 "can_read_tar" >:: can_read_tar;
-                "can_read_through_BLOCK/512" >:: Sector512.can_read_through_BLOCK;
-                "not 4KiB padded" >:: Sector512.check_not_padded;
-                "can_read_through_BLOCK/4096" >:: Sector4096.can_read_through_BLOCK;
+                "can_read_through_BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.can_read_through_BLOCK;
+                "not 4KiB padded" >:: OUnitLwt.lwt_wrapper Sector512.check_not_padded;
+                "can_read_through_BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.can_read_through_BLOCK;
                 "can write pax headers" >:: can_write_pax;
                 "can read @Longlink" >:: can_list_longlink_tar;
+                "can transform tars" >:: can_transform_tar;
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";
-  run_test_tt ~verbose:!verbose suite
+  run_test_tt_main suite

@@ -7,7 +7,7 @@ streaming.  This library is functorised over external OS dependencies
 to facilitate embedding within MirageOS.
 """
 maintainer: ["dave@recoil.org"]
-authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp"]
+authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp" "Antonin Décimo"]
 license: "ISC"
 tags: ["org:xapi-project" "org:mirage"]
 homepage: "https://github.com/mirage/ocaml-tar"
@@ -15,7 +15,7 @@ doc: "https://mirage.github.io/ocaml-tar/"
 bug-reports: "https://github.com/mirage/ocaml-tar/issues"
 depends: [
   "dune" {>= "2.9"}
-  "ocaml" {>= "4.05.0"}
+  "ocaml" {>= "4.08.0"}
   "cstruct" {>= "1.9.0"}
   "io-page"
   "lwt"
@@ -27,6 +27,7 @@ depends: [
   "io-page-unix" {with-test}
   "mirage-block-unix" {with-test & >= "2.5.0"}
   "ounit2" {with-test}
+  "ounit2-lwt" {with-test}
   "tar-unix" {with-test & = version}
   "odoc" {with-doc}
 ]
@@ -39,8 +40,7 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files"
-    "false"
+    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}

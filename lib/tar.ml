@@ -40,9 +40,8 @@ module Header = struct
     let tmp = "0o0" ^ (trim_numerical x) in
     try
       int_of_string tmp
-    with Failure _ as e ->
-      Printf.eprintf "Failed to parse integer [%s] == %s\n" tmp (to_hex tmp);
-      raise e
+    with Failure msg ->
+      failwith (Printf.sprintf "%s: failed to parse integer [%s] == %s" msg tmp (to_hex tmp))
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
   let unmarshal_int64 (x: string) : int64 =
@@ -51,6 +50,15 @@ module Header = struct
 
   (** Unmarshal a string *)
   let unmarshal_string (x: string) : string = trim_string x
+
+  (** Unmarshal a pax Extended Header File time
+      It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
+      https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13_05 *)
+  let unmarshal_pax_time (x:string ) : int64 =
+    match String.split_on_char '.' x with
+    | [seconds] -> Int64.of_string seconds
+    | [seconds; _subseconds] -> Int64.of_string seconds
+    | _ -> raise (Failure "Wrong pax Extended Header File Times format")
 
   [%%cstruct
       type hdr = {
@@ -241,14 +249,14 @@ module Header = struct
         then Some (f (List.assoc name pairs))
         else None in
       (* integers are stored as decimal, not octal here *)
-      let access_time    = option "atime" Int64.of_string in
+      let access_time    = option "atime" unmarshal_pax_time in
       let charset        = option "charset" unmarshal_string in
       let comment        = option "comment" unmarshal_string in
       let group_id       = option "gid" int_of_string in
       let gname          = option "group_name" unmarshal_string in
       let header_charset = option "hdrcharset" unmarshal_string in
       let link_path      = option "linkpath" unmarshal_string in
-      let mod_time       = option "mtime" Int64.of_string in
+      let mod_time       = option "mtime" unmarshal_pax_time in
       let path           = option "path" unmarshal_string in
       let file_size      = option "size" Int64.of_string in
       let user_id        = option "uid" int_of_string in
@@ -718,15 +726,6 @@ module Make (IO : IO) = struct
   let really_read = Reader.really_read
   let really_write = Writer.really_write
 
-  let finally fct clean_f =
-    let result =
-      try fct ();
-      with exn ->
-        clean_f ();
-        raise exn in
-    clean_f ();
-    result
-
   module HW = HeaderWriter(Direct)(Writer)
 
   let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
@@ -756,8 +755,8 @@ module Make (IO : IO) = struct
       match HR.read fd with
       | Ok hdr ->
         (* NB if the function 'f' fails we're boned *)
-        finally (fun () -> f fd hdr)
-          (fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
+        Fun.protect (fun () -> f fd hdr)
+          ~finally:(fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
       | Error `Eof -> raise Header.End_of_stream
 
     (** List the contents of a tar *)
