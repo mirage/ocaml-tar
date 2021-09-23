@@ -284,7 +284,7 @@ module Header = struct
            }
 
   (** Helper function to make a simple header *)
-  let make ?(file_mode=0) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") ?(uname="") ?(gname="") ?(devmajor=0) ?(devminor=0) file_name file_size =
+  let make ?(file_mode=0o400) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") ?(uname="") ?(gname="") ?(devmajor=0) ?(devminor=0) file_name file_size =
     (* If some fields are too big, we must use a pax header *)
     let need_pax_header =
        file_size   > 0o077777777777L
