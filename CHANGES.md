@@ -1,24 +1,28 @@
-## unreleased
+## v2.0.0 (2021-09-23)
 
-- Bump lower-bound on Cstruct to 6.0.0 (@MisterDA)
-- Update to Dune 2.9 and generate opam files (@MisterDA)
-- Support only OCaml versions 4.08 and higher. (@MisterDA)
-- Don't print any logging to stdout or stderr (@MisterDA)
-- Remove Tar.Make.Header, Tar_cstruct.Header, Tar_unix.Header, and
-  Tar_lwt_unix.Header to keep only Tar.Header and use it everywhere.
-  - Tar.Make.Header.get_next_header becomes Tar.Make.get_next_header;
-  - Tar_cstruct.Header.get_next_header becomes Tar_cstruct.get_next_header;
-  - Tar_lwt_unix.Header.get_next_header becomes Tar_lwt_unix.get_next_header;
-  - Tar_lwt_unix.Header.of_file becomes Tar_lwt_unix.header_of_file;
-  - Tar_unix.Header.get_next_header becomes Tar_unix.get_next_header;
-  - Tar_unix.Header.of_file becomes Tar_unix.header_of_file;
-  - All the Tar_*.Header.t values have to be changed to Tar.Header.t.
-  (@MisterDA)
+- Bump lower-bound on Cstruct to 6.0.0 (@MisterDA, @djs55, @dinosaure, #74)
+- Update to Dune 2.9 and generate opam files (@MisterDA, @djs55, @dinosaure, #74)
+- Support only OCaml versions 4.08 and higher. (@MisterDA, @dinosaure, #77)
+- Don't print any logging to stdout or stderr (@MisterDA, @djs55, @dinosaure, #74)
+- Remove `Tar.Make.Header`, `Tar_cstruct.Header`, `Tar_unix.Header`, and
+  `Tar_lwt_unix.Header` to keep only Tar.Header and use it everywhere.
+  - `Tar.Make.Header.get_next_header` becomes `Tar.Make.get_next_header`;
+  - `Tar_cstruct.Header.get_next_header` becomes `Tar_cstruct.get_next_header`;
+  - `Tar_lwt_unix.Header.get_next_header` becomes `Tar_lwt_unix.get_next_header`;
+  - `Tar_lwt_unix.Header.of_file` becomes `Tar_lwt_unix.header_of_file`;
+  - `Tar_unix.Header.get_next_header` becomes `Tar_unix.get_next_header`;
+  - `Tar_unix.Header.of_file` becomes `Tar_unix.header_of_file`;
+  - All the `Tar_*.Header.t` values have to be changed to `Tar.Header.t`.
+  (@MisterDA, @dinosaure, #77)
 - Fix parsing of pax Extended Header File Times with sub-second
-  granularity. (@MisterDA)
-- Add Tar_unix.transform and Tar_lwt_unix.transform to help
+  granularity. (@MisterDA, @dinosaure, #77)
+- Add `Tar_unix.transform` and `Tar_lwt_unix.transform` to help
   transforming headers of a streamed tar archive between two file
-  descriptors. (@MisterDA)
+  descriptors. (@MisterDA, @dinosaure, #77)
+- Remove `{build}` tag on the `dune` dependency (@CraigFe, @hannesm, #72)
+- Adapt `ocaml-tar` to newer MirageOS interfaces (@hannesm, @dinosaure, #73)
+- Update gnu.org link (@reynir, @dinosaure, #79)
+- `file_mode` defaults to `0o400` (@reynir, @MisterDA, @dinosaure, #78)
 
 ## v1.1.0 (2019-04-08)
 
