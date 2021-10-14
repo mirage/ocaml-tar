@@ -18,7 +18,7 @@ open OUnit2
 open Lwt.Infix
 
 let convert_path os path =
-  let ch = Unix.open_process_in (Printf.sprintf "cygpath -%c %s" (match os with `Mixed -> 'm' | `Unix -> 'u' | `Windows -> 'w') path) in
+  let ch = Unix.open_process_in (Printf.sprintf "cygpath -%c -- %s" (match os with `Mixed -> 'm' | `Unix -> 'u' | `Windows -> 'w') path) in
   let line = input_line ch in
   close_in ch;
   line
@@ -64,26 +64,7 @@ let header _test_ctxt =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let with_temp_file f =
-  let tar_filename = Filename.temp_file "tar-test" ".tar" in
-  Fun.protect (fun () -> f tar_filename) ~finally:(fun () ->
-      try Unix.unlink tar_filename with Unix.Unix_error(Unix.EACCES, _, _) when Sys.win32 -> ( ))
-
-let rm_rf dir =
-  let rec loop file_or_dir =
-    Printf.fprintf stderr "rm %s\n%!" file_or_dir;
-    try Unix.unlink file_or_dir
-    with Unix.Unix_error((Unix.EISDIR | Unix.EPERM | Unix.EACCES), _, _) ->
-      Array.iter (fun name -> loop (Filename.concat file_or_dir name)) (Sys.readdir file_or_dir);
-      Unix.rmdir file_or_dir in
-  loop dir
-
-let with_temp_dir f =
-  let dir = Filename.(concat (get_temp_dir_name ()) (Printf.sprintf "test.%d" (Random.bits ()))) in
-  Unix.mkdir dir 0o0755;
-  Fun.protect (fun () -> f dir) ~finally:(fun () -> rm_rf dir)
-
-let with_tar ?(level:Tar.Header.compatibility option) ?files f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
   let format = match level with
     | None -> ""
     | Some format -> "--format=" ^ match format with
@@ -92,20 +73,19 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files f =
   let files = match files with
     | None -> List.map (fun x -> "lib/" ^ x) (Array.to_list (Sys.readdir "lib"))
     | Some files -> files in
-  with_temp_file
-    (fun tar_filename ->
-      let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-      let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
-      begin match Unix.system cmdline with
-        | Unix.WEXITED 0 -> ()
-        | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
-        | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
-      end;
-      f tar_filename files
-    )
+  let tar_filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
+  close_out ch;
+  let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
+  let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
+  begin match Unix.system cmdline with
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
+    | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
+  end;
+  f tar_filename files
 
-let can_read_tar _test_ctxt =
-  with_tar
+let can_read_tar test_ctxt =
+  with_tar test_ctxt
     (fun tar_filename files ->
        let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
        let files' = List.map (fun t -> t.Tar.Header.file_name) (Tar_unix.Archive.list fd) in
@@ -116,50 +96,47 @@ let can_read_tar _test_ctxt =
        assert_equal ~printer:(String.concat "; ") [] missing'
     )
 
-let can_write_pax _test_ctxt =
+let can_write_pax test_ctxt =
   let open Tar_unix in
-  with_temp_file
-    (fun filename ->
-      (* This userid is too large for a regular ustar header *)
-      let user_id = 0x07777777 + 1 in
-      (* Write a file which would need a pax header *)
-      let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
-      Fun.protect
-        (fun () ->
-          let hdr = Tar.Header.make ~user_id "test" 0L in
-          write_block hdr (fun _ -> ()) fd;
-          write_end fd;
-        ) ~finally:(fun () -> Unix.close fd);
-      (* Read it back and verify the header was read *)
-      let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
-      Fun.protect
-        (fun () ->
-          match Archive.list fd with
-          | [ one ] -> assert (one.Tar.Header.user_id = user_id)
-          | xs ->
-            Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Tar.Header.to_detailed_string xs));
-            assert false
-        ) ~finally:(fun () -> Unix.close fd);
-    )
+  let filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
+  close_out ch;
+  (* This userid is too large for a regular ustar header *)
+  let user_id = 0x07777777 + 1 in
+  (* Write a file which would need a pax header *)
+  let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
+  Fun.protect
+    (fun () ->
+      let hdr = Tar.Header.make ~user_id "test" 0L in
+      write_block hdr (fun _ -> ()) fd;
+      write_end fd;
+    ) ~finally:(fun () -> Unix.close fd);
+  (* Read it back and verify the header was read *)
+  let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
+  Fun.protect
+    (fun () ->
+      match Archive.list fd with
+      | [ one ] -> assert (one.Tar.Header.user_id = user_id)
+      | xs ->
+        Printf.fprintf stderr "Headers = [ %s ]\n%!" (String.concat "; " (List.map Tar.Header.to_detailed_string xs));
+        assert false
+    ) ~finally:(fun () -> Unix.close fd)
+
 
 let can_list_longlink_tar _test_ctxt =
   let open Tar_unix in
-  with_temp_dir
-    (fun dir ->
-      let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
-      Fun.protect
-        (fun () ->
-          let all = Archive.list fd in
-          let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
-          (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
-          let expected = [
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
-          ] in
-          assert_equal ~printer:(String.concat ", ") expected filenames
-        ) ~finally:(fun () -> Unix.close fd);
-    )
+  let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
+  Fun.protect
+    (fun () ->
+      let all = Archive.list fd in
+      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+      let expected = [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
+      ] in
+      assert_equal ~printer:(String.concat ", ") expected filenames
+    ) ~finally:(fun () -> Unix.close fd)
 
 let starts_with ~prefix s =
   let len_s = String.length s
@@ -170,21 +147,21 @@ let starts_with ~prefix s =
     else aux (i + 1)
   in len_s >= len_pre && aux 0
 
-let can_transform_tar _test_ctxt =
+let can_transform_tar test_ctxt =
   let level = Tar.Header.Ustar in
-  with_tar ~level (fun tar_in _file_list ->
+  with_tar ~level test_ctxt (fun tar_in _file_list ->
       let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
       let tar_out = Filename.temp_file "tar-transformed" ".tar" in
       let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
-      with_temp_dir (fun temp_dir ->
-          Tar_unix.Archive.transform ~level (fun hdr ->
-              {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
-            fd_in fd_out;
-          Unix.close fd_in;
-          Unix.close fd_out;
-          let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
-          Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
-              assert_bool "Filename was transformed" (starts_with ~prefix:temp_dir hdr.file_name))))
+      let temp_dir = bracket_tmpdir test_ctxt in
+      Tar_unix.Archive.transform ~level (fun hdr ->
+          {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
+        fd_in fd_out;
+      Unix.close fd_in;
+      Unix.close fd_out;
+      let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
+      Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
+          assert_bool "Filename was transformed" (starts_with ~prefix:temp_dir hdr.file_name)))
 
 module Block4096 = struct
   include Block
@@ -233,8 +210,8 @@ module B = struct
 end
 
 module Test(B: BLOCK) = struct
-  let can_read_through_BLOCK ?files _test_ctxt =
-    with_tar ?files
+  let can_read_through_BLOCK ?files test_ctxt =
+    with_tar ?files test_ctxt
       (fun tar_filename files ->
          B.connect tar_filename >>= fun b ->
          let module KV_RO = Tar_mirage.Make_KV_RO(B) in
