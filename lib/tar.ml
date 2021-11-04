@@ -659,6 +659,8 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
             let payload = Cstruct.create (String.length text) in
             Cstruct.blit_from_string text 0 payload 0 (String.length text);
             really_write fd payload
+            >>= fun () ->
+            really_write fd (Header.zero_padding blank)
           end else return () )
         >>= fun () ->
         Cstruct.memset buffer 0;
