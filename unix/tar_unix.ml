@@ -79,6 +79,10 @@ let write_end = T.write_end
 module Archive = struct
   include T.Archive
 
+  let with_file name flags perms f =
+    let fd = Unix.openfile name flags perms in
+    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> f fd)
+
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
     let dest hdr =
@@ -113,7 +117,7 @@ module Archive = struct
         else
           let hdr = header_of_file filename in
           Some (hdr, (fun ofd ->
-              let ifd = Unix.openfile filename [Unix.O_RDONLY] 0 in
+              with_file filename [Unix.O_RDONLY] 0 @@ fun ifd ->
               copy_n ifd ofd hdr.Tar.Header.file_size))
       in
       List.filter_map f files

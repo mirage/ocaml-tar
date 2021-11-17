@@ -96,6 +96,9 @@ let write_end (fd: Lwt_unix.file_descr) =
 (** Utility functions for operating over whole tar archives *)
 module Archive = struct
 
+  let with_file name flags perms f =
+    Lwt_unix.openfile name flags perms >>= fun fd ->
+    Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
 
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
@@ -125,7 +128,7 @@ module Archive = struct
       | None -> Lwt.return_unit
       | Some hdr ->
         let filename = dest hdr.Tar.Header.file_name in
-        Lwt_unix.openfile filename [Unix.O_WRONLY] 0 >>= fun ofd ->
+        with_file filename [Unix.O_WRONLY] 0 @@ fun ofd ->
         copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
         Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
         loop () in
@@ -155,7 +158,7 @@ module Archive = struct
         header_of_file filename >>= fun hdr ->
 
         write_block hdr (fun ofd ->
-            Lwt_unix.openfile filename [Unix.O_RDONLY] 0 >>= fun ifd ->
+            with_file filename [Unix.O_RDONLY] 0 @@ fun ifd ->
             copy_n ifd ofd hdr.Tar.Header.file_size
           ) ofd
       end in
