@@ -26,6 +26,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
+  camlp-streams
   (ocaml (>= 4.08.0))
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
