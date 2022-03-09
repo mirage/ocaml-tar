@@ -2,7 +2,7 @@
  (name tar)
  (public_name tar)
  (wrapped false)
- (libraries cstruct re.str)
+ (libraries cstruct re.str camlp-streams)
  (flags :standard -safe-string)
  (preprocess
   (pps ppx_cstruct)))
