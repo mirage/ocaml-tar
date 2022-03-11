@@ -1,3 +1,10 @@
+## v2.0.1 (2022-03-09)
+
+- Set `O_CLOEXEC` on opened files and be sure to close opened files
+  (@MisterDA, @talex5, #83)
+- OCaml 5.00 support (add a new dependecy `camlp-stream`) (@Sudha247, #84)
+- Missing padding in LongLing 'L' case (@dra27, #82)
+
 ## v2.0.0 (2021-09-23)
 
 - Bump lower-bound on Cstruct to 6.0.0 (@MisterDA, @djs55, @dinosaure, #74)
