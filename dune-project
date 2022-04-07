@@ -64,14 +64,13 @@
  (depends
   (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
-  io-page
+  (io-page (>= 2.4.0))
   lwt
-  mirage-block
-  (mirage-kv (>= "3.0.0"))
+  (mirage-block (>= 2.0.0))
+  (mirage-kv (>= 3.0.0))
   ptime
   (re (>= 1.7.2))
   (tar (= :version))
-  (io-page-unix :with-test)
   (mirage-block-unix (and :with-test (>= 2.5.0)))
   (ounit2 :with-test)
   (ounit2-lwt :with-test)
