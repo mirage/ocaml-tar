@@ -7,6 +7,5 @@
   ounit2
   ounit2-lwt
   lwt
-  io-page-unix
   tar-unix
   tar-mirage))
