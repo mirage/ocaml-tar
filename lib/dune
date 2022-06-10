@@ -1,8 +1,17 @@
 (library
  (name tar)
+ (modules tar tar_cstruct)
  (public_name tar)
  (wrapped false)
  (libraries cstruct re.str camlp-streams)
  (flags :standard -safe-string)
  (preprocess
   (pps ppx_cstruct)))
+
+(library
+ (name tar_gz)
+ (modules tar_gz)
+ (public_name tar.gz)
+ (wrapped false)
+ (libraries tar decompress.gz decompress.de)
+ (flags :standard -safe-string))
