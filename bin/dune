@@ -1,5 +1,5 @@
 (executable
- (name tar)
- (public_name tar)
+ (name otar)
+ (public_name otar)
  (package tar-unix)
  (libraries unix tar.gz))
