@@ -14,9 +14,34 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module type READER = sig
+  include Tar.READER
+
+  val read : in_channel -> Cstruct.t -> int t
+end
+
 module Make
   (Async : Tar.ASYNC)
-  (Writer : Tar.WRITER with type 'a t = 'a Async.t) : sig
+  (Writer : Tar.WRITER with type 'a t = 'a Async.t)
+  (Reader : READER with type 'a t = 'a Async.t)
+: sig
+  type in_channel
+
+  val of_in_channel : internal:Cstruct.t -> Reader.in_channel -> in_channel
+
+  (** Returns the next header block or fails with {!Tar.Header.End_of_stream}
+      if two consecutive zero-filled blocks are discovered. Assumes stream is
+      positioned at the possible start of a header block.
+
+      @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
+  val get_next_header : ?level:Tar.Header.compatibility -> in_channel -> Tar.Header.t Async.t
+
+  val really_read : in_channel -> Cstruct.t -> unit Async.t
+  (** [really_read fd buf] fills [buf] with data from [fd] or raises
+      {!Stdlib.End_of_file}. *)
+
+  val skip : in_channel -> int -> unit Async.t
+
   type out_channel
 
   val of_out_channel : ?bits:int -> ?q:int -> level:int ->

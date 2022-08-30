@@ -21,7 +21,7 @@ depends: [
   "ppx_cstruct" {build & >= "3.6.0"}
   "cstruct" {>= "6.0.0"}
   "re" {>= "1.7.2"}
-  "decompress" {>= "1.4.0"}
+  "decompress" {>= "1.5.1"}
   "odoc" {with-doc}
 ]
 build: [
@@ -41,3 +41,6 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/mirage/ocaml-tar.git"
+pin-depends: [
+  [ "decompress.dev" "git+https://github.com/mirage/decompress.git#3c8cc7b40a2fe1872e861e00643e70262d073d22" ]
+]

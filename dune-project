@@ -1,5 +1,6 @@
 (lang dune 2.9)
 (name tar)
+(cram enable)
 
 (formatting disabled)
 (generate_opam_files true)
@@ -31,6 +32,7 @@
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
   (re (>= 1.7.2))
+  (decompress (>= 1.5.1))
  )
 )
 

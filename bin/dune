@@ -1,3 +1,5 @@
 (executable
- (name tarball)
+ (name tar)
+ (public_name tar)
+ (package tar-unix)
  (libraries unix tar.gz))

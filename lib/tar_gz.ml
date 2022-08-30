@@ -14,7 +14,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-module Make (Async : Tar.ASYNC) (Writer : Tar.WRITER with type 'a t = 'a Async.t) = struct
+module type READER = sig
+  include Tar.READER
+
+  val read : in_channel -> Cstruct.t -> int t
+end
+
+module Make
+  (Async : Tar.ASYNC)
+  (Writer : Tar.WRITER with type 'a t = 'a Async.t)
+  (Reader : READER with type 'a t = 'a Async.t)
+= struct
   open Async
 
   module Gz_writer = struct
@@ -43,7 +53,83 @@ module Make (Async : Tar.ASYNC) (Writer : Tar.WRITER with type 'a t = 'a Async.t
              until_await gz )
   end
 
+  module Gz_reader = struct
+    type in_channel =
+      { mutable gz : Gz.Inf.decoder
+      ; ic_buffer : Cstruct.t
+      ; oc_buffer : Cstruct.t
+      ; in_channel : Reader.in_channel
+      ; mutable pos : int }
+
+    type 'a t = 'a Async.t
+
+    let really_read
+      : in_channel -> Cstruct.t -> unit t
+      = fun ({ ic_buffer; oc_buffer; in_channel; _ } as state) res ->
+        let rec until_full_or_end gz res =
+          match Gz.Inf.decode gz with
+          | `Flush gz ->
+            let max = Cstruct.length oc_buffer - Gz.Inf.dst_rem gz in
+            let len = min (Cstruct.length res) max in
+            Cstruct.blit oc_buffer 0 res 0 len ;
+            if len < max
+            then ( state.pos <- len
+                 ; state.gz <- gz
+                 ; Async.return () )
+            else until_full_or_end (Gz.Inf.flush gz) (Cstruct.shift res len)
+          | `End gz ->
+            let max = Cstruct.length oc_buffer - Gz.Inf.dst_rem gz in
+            let len = min (Cstruct.length res) max in
+            Cstruct.blit oc_buffer 0 res 0 len ;
+            if Cstruct.length res > len
+            then raise End_of_file
+            else ( state.pos <- len
+                 ; state.gz <- gz
+                 ; Async.return () )
+          | `Await gz ->
+            Reader.read in_channel ic_buffer >>= fun len ->
+            let { Cstruct.buffer; off; len= _; } = ic_buffer in
+            let gz = Gz.Inf.src gz buffer off len in
+            until_full_or_end gz res
+          | `Malformed err -> failwith ("gzip: " ^ err) in
+        let max = (Cstruct.length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
+        let len = min (Cstruct.length res) max in
+        Cstruct.blit oc_buffer state.pos res 0 len ;
+
+        if len < max
+        then ( state.pos <- state.pos + len
+             ; Async.return () )
+        else ( let res = Cstruct.shift res len in 
+               until_full_or_end (Gz.Inf.flush state.gz) res )
+
+    let skip
+      : in_channel -> int -> unit t
+      = fun state len ->
+        let oc_buffer = Cstruct.create len in
+        really_read state oc_buffer
+  end
+
   module TarGzHeaderWriter = Tar.HeaderWriter (Async) (Gz_writer)
+  module TarGzHeaderReader = Tar.HeaderReader (Async) (Gz_reader)
+
+  type in_channel = Gz_reader.in_channel
+
+  let of_in_channel ~internal:oc_buffer in_channel =
+    let { Cstruct.buffer; off; len; } = oc_buffer in
+    let o = Bigarray.Array1.sub buffer off len in
+    { Gz_reader.gz= Gz.Inf.decoder `Manual ~o
+    ; oc_buffer
+    ; ic_buffer= Cstruct.create 0x1000
+    ; in_channel
+    ; pos= 0 }
+
+  let get_next_header ?level ic =
+    TarGzHeaderReader.read ?level ic >>= function
+    | Ok hdr -> Async.return hdr
+    | Error `Eof -> raise Tar.Header.End_of_stream
+
+  let really_read = Gz_reader.really_read
+  let skip = Gz_reader.skip
 
   type out_channel = Gz_writer.out_channel
 
@@ -60,6 +146,9 @@ module Make (Async : Tar.ASYNC) (Writer : Tar.WRITER with type 'a t = 'a Async.t
 
   let write_block ?level hdr ({ Gz_writer.ic_buffer= buf; oc_buffer; out_channel; _ } as state) block =
     TarGzHeaderWriter.write ?level hdr state >>= fun () ->
+    (* XXX(dinosaure): we can refactor this code with [Gz_writer.really_write]
+       but this loop saves and uses [ic_buffer]/[buf] to avoid extra
+       allocations on the case between [string] and [Cstruct.t]. *)
     let rec deflate (str, off, len) gz = match Gz.Def.encode gz with
       | `Await gz ->
         if len = 0
