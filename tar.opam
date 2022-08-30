@@ -21,6 +21,7 @@ depends: [
   "ppx_cstruct" {build & >= "3.6.0"}
   "cstruct" {>= "6.0.0"}
   "re" {>= "1.7.2"}
+  "decompress" {>= "1.5.1"}
   "odoc" {with-doc}
 ]
 build: [

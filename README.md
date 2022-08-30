@@ -47,6 +47,16 @@ utop # Lwt.bind f Tar_lwt_unix.Archive.list;;
  ...]
 ```
 
+## Compressed _tarball_
+
+The distribution gives a small implementation to create a _tarball_, a
+compressed archive. The software allows to list the contents of a given
+tarball. The compression is done with [decompress][decompress]. You can look at
+the project documentation for more information on how to compress.
+
+Alternatively, it is possible to use the `Tar_gz` module which offers the same
+interface as `Tar` with compression.
+
 ## Example users
 
 This library is used by

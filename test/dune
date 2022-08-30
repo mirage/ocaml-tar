@@ -1,0 +1,3 @@
+(cram
+ (package tar-unix)
+ (deps %{bin:otar}))
