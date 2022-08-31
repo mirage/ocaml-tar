@@ -1,3 +1,9 @@
+## v2.1.0 (2022-08-31)
+
+- `tar-mirage` requires `mirage-block.2.0.0` (@kit-ty-kate, #86)
+- Remove `io-page-unix` dependency (@hannesm, #87)
+- Add GZip support (@dinosaure, #88)
+
 ## v2.0.1 (2022-03-09)
 
 - Set `O_CLOEXEC` on opened files and be sure to close opened files
