@@ -70,12 +70,11 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     let really_read in_channel buffer =
       assert(Cstruct.length buffer <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector_size = Int64.of_int in_channel.info.Mirage_block.sector_size in
-      let sector' = Int64.(div in_channel.offset sector_size) in
-      let page = Io_page.(to_cstruct @@ get 1) in
+      let sector_size = in_channel.info.Mirage_block.sector_size in
+      let sector' = Int64.(div in_channel.offset (of_int sector_size)) in
       (* However don't try to read beyond the end of the disk *)
-      let total_size_bytes = Int64.(mul in_channel.info.Mirage_block.size_sectors sector_size) in
-      let tmp = Cstruct.sub page 0 (min 4096 Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
+      let total_size_bytes = Int64.(mul in_channel.info.Mirage_block.size_sectors (of_int sector_size)) in
+      let tmp = Cstruct.create (min sector_size Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
       BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
       | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
@@ -84,7 +83,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
         let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.Mirage_block.sector_size)))) in
         in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.length buffer)));
-        Cstruct.blit page offset buffer 0 (Cstruct.length buffer);
+        Cstruct.blit tmp offset buffer 0 (Cstruct.length buffer);
         Lwt.return_unit
     let skip in_channel n =
       in_channel.offset <- Int64.(add in_channel.offset (of_int n));
@@ -111,17 +110,15 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       let start_sector, start_padding = div start_bytes sector_size, rem start_bytes sector_size in
       let end_sector = div (pred (add end_bytes sector_size)) sector_size in
       let n_sectors = succ (sub end_sector start_sector) in
-
-      let n_bytes = to_int (mul sector_size n_sectors) in
-      let n_pages = (n_bytes + 4095) / 4096 in
-      let block = Io_page.(to_cstruct @@ get n_pages) in
-      (* Don't try to read beyond the end of the archive *)
-      let total_size_bytes = Int64.(mul t.info.Mirage_block.size_sectors sector_size) in
-      let tmp = Cstruct.sub block 0 (Stdlib.min (Cstruct.length block) Int64.(to_int @@ (sub total_size_bytes (mul start_sector 512L)))) in
-      BLOCK.read t.b start_sector [ tmp ] >|= function
+      let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
+      let tmps =
+        List.init (to_int n_sectors)
+          (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
+      in
+      BLOCK.read t.b start_sector tmps >|= function
       | Error b -> Error (`Block b)
       | Ok () ->
-        let buf = Cstruct.sub block (to_int start_padding) (to_int length_bytes) in
+        let buf = Cstruct.sub buf (to_int start_padding) (to_int length_bytes) in
         Ok (Cstruct.to_string buf)
 
   let list t key =
@@ -198,12 +195,18 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       | Error `Eof -> Lwt.return map
       | Ok tar ->
         let filename = trim_slash tar.Tar.Header.file_name in
-        let data_tar_offset = Int64.div in_channel.Reader.offset 512L in
-        let v_or_d = if is_dict filename then Dict (tar, StringMap.empty) else Value (tar, data_tar_offset) in
-        let map = insert map (Mirage_kv.Key.v filename) v_or_d in
+        let map =
+          if filename = "" then
+            map
+          else
+            let data_tar_offset = Int64.div in_channel.Reader.offset 512L in
+            let v_or_d = if is_dict filename then Dict (tar, StringMap.empty) else Value (tar, data_tar_offset) in
+            insert map (Mirage_kv.Key.v filename) v_or_d
+        in
         Reader.skip in_channel (Int64.to_int tar.Tar.Header.file_size) >>= fun () ->
         Reader.skip in_channel (Tar.Header.compute_zero_padding_length tar) >>= fun () ->
-        loop map in
+        loop map
+    in
     let root = StringMap.empty in
     loop root >>= fun map ->
     let map = Dict (Tar.Header.make "/" 0L, map) in

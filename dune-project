@@ -66,7 +66,6 @@
  (depends
   (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
-  (io-page (>= 2.4.0))
   lwt
   (mirage-block (>= 2.0.0))
   (mirage-kv (>= 3.0.0))
