@@ -27,7 +27,7 @@ module Header = struct
       let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
       Bytes.blit_string byte 0 result (i * 3) 2
     done;
-    Bytes.to_string result
+    Bytes.unsafe_to_string result
 
   let trim regexp x = match Re.Str.split regexp x with
     | [] -> ""
@@ -330,14 +330,14 @@ module Header = struct
     if String.length x >= n then x
     else let buffer = Bytes.make n c in
       Bytes.blit_string x 0 buffer (n - (String.length x)) (String.length x);
-      Bytes.to_string buffer
+      Bytes.unsafe_to_string buffer
 
   (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the RHS *)
   let pad_right (x: string) (n: int) (c: char) =
     if String.length x >= n then x
     else let buffer = Bytes.make n c in
       Bytes.blit_string x 0 buffer 0 (String.length x);
-      Bytes.to_string buffer
+      Bytes.unsafe_to_string buffer
 
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) =
