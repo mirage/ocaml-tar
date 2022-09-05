@@ -29,11 +29,8 @@ module Header = struct
     done;
     Bytes.unsafe_to_string result
 
-  let trim regexp x = match Re.Str.split regexp x with
-    | [] -> ""
-    | x :: _ -> x
-  let trim_numerical = trim (Re.Str.regexp "[\000 ]+")
-  let trim_string = trim (Re.Str.regexp "[\000]+")
+  let trim_numerical s =
+    String.(trim (map (function '\000' -> ' ' | x -> x) s))
 
   (** Unmarshal an integer field (stored as 0-padded octal) *)
   let unmarshal_int (x: string) : int =
@@ -49,7 +46,12 @@ module Header = struct
     Int64.of_string tmp
 
   (** Unmarshal a string *)
-  let unmarshal_string (x: string) : string = trim_string x
+  let unmarshal_string (x: string) : string =
+    try
+      let first_0 = String.index x '\000' in
+      String.sub x 0 first_0
+    with
+      Not_found -> ""
 
   (** Unmarshal a pax Extended Header File time
       It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
@@ -325,20 +327,6 @@ module Header = struct
       (i >= Cstruct.length buf) || (Cstruct.get_uint8 buf i = 0 && (loop (i + 1))) in
     loop 0
 
-  (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the LHS *)
-  let pad_left (x: string) (n: int) (c: char) =
-    if String.length x >= n then x
-    else let buffer = Bytes.make n c in
-      Bytes.blit_string x 0 buffer (n - (String.length x)) (String.length x);
-      Bytes.unsafe_to_string buffer
-
-  (** Return a string containing 'x' padded out to 'n' bytes by adding 'c' to the RHS *)
-  let pad_right (x: string) (n: int) (c: char) =
-    if String.length x >= n then x
-    else let buffer = Bytes.make n c in
-      Bytes.blit_string x 0 buffer 0 (String.length x);
-      Bytes.unsafe_to_string buffer
-
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) =
     let table = [ "file_name",      x.file_name;
@@ -353,18 +341,22 @@ module Header = struct
 
   (** Marshal an integer field of size 'n' *)
   let marshal_int (x: int) (n: int) =
-    let octal = Printf.sprintf "%o" x in
-    let result = pad_left octal (n-1) '0' in
-    result ^ "\000" (* space or NULL allowed *)
+    let octal = Printf.sprintf "%0*o" (n - 1) x in
+    octal ^ "\000" (* space or NULL allowed *)
 
   (** Marshal an int64 field of size 'n' *)
   let marshal_int64 (x: int64) (n: int) =
-    let octal = Printf.sprintf "%Lo" x in
-    let result = pad_left octal (n-1) '0' in
-    result ^ "\000" (* space or NULL allowed *)
+    let octal = Printf.sprintf "%0*Lo" (n - 1) x in
+    octal ^ "\000" (* space or NULL allowed *)
 
   (** Marshal an string field of size 'n' *)
-  let marshal_string (x: string) (n: int) = pad_right x n '\000'
+  let marshal_string (x: string) (n: int) =
+    if String.length x < n then
+      let bytes = Bytes.make n '\000' in
+      Bytes.blit_string x 0 bytes 0 (String.length x);
+      Bytes.unsafe_to_string bytes
+    else
+      x
 
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch

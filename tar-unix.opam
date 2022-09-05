@@ -18,7 +18,6 @@ depends: [
   "cstruct" {>= "6.0.0"}
   "cstruct-lwt"
   "lwt"
-  "re" {>= "1.7.2"}
   "tar" {= version}
   "odoc" {with-doc}
 ]

@@ -21,7 +21,6 @@ depends: [
   "mirage-block" {>= "2.0.0"}
   "mirage-kv" {>= "3.0.0"}
   "ptime"
-  "re" {>= "1.7.2"}
   "tar" {= version}
   "mirage-block-unix" {with-test & >= "2.5.0"}
   "ounit2" {with-test}
