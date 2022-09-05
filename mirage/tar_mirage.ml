@@ -98,9 +98,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     | Error e -> Lwt.return (Error e)
     | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
     | Ok (Value (hdr, start_sector)) ->
-      BLOCK.get_info t.b >>= fun info ->
       let open Int64 in
-      let sector_size = of_int info.Mirage_block.sector_size in
+      let sector_size = of_int t.info.Mirage_block.sector_size in
 
       (* Compute the unaligned data we need to read *)
       let start_bytes = mul start_sector 512L in
