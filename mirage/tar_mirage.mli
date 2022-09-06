@@ -24,3 +24,12 @@ module Make_KV_RO (BLOCK : Mirage_block.S) : sig
 
   val connect: BLOCK.t -> t Lwt.t
 end
+
+module Make_KV_RW (BLOCK : Mirage_block.S) : sig
+  (** Construct a read-only key-value store from an existing block device
+      containing tar-format data. *)
+
+  include Mirage_kv.RW
+
+  val connect: BLOCK.t -> t Lwt.t
+end

@@ -210,47 +210,78 @@ module B = struct
 end
 
 module Test(B: BLOCK) = struct
-  let can_read_through_BLOCK ?files test_ctxt =
-    with_tar ?files test_ctxt
-      (fun tar_filename files ->
-         B.connect tar_filename >>= fun b ->
-         let module KV_RO = Tar_mirage.Make_KV_RO(B) in
-         KV_RO.connect b >>= fun k ->
-         Lwt_list.iter_s
-           (fun file ->
-              let stats = Unix.LargeFile.stat file in
-              let read_file key ofs len =
-                let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-                Fun.protect
-                  (fun () ->
-                     let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                     let buf = Bytes.make len '\000' in
-                     let len' = Unix.read fd buf 0 len in
-                     assert_equal ~printer:string_of_int len len';
-                     Bytes.to_string buf
-                  ) ~finally:(fun () -> Unix.close fd) in
-              let read_tar key =
-                KV_RO.get k key >>= function
-                | Error _ -> failwith "KV_RO.read"
-                | Ok buf -> Lwt.return buf in
-              (* Read whole file *)
-              let size = stats.Unix.LargeFile.st_size in
-              let value = read_file file 0 (Int64.to_int size) in
-              read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-              assert_equal ~printer:(fun x -> x) value value';
-              if Int64.compare size 2L = 1 then begin
-                let value = read_file file 1 ((Int64.to_int size) - 2) in
-                read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-                let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
-                assert_equal ~printer:(fun x -> x) value value'';
-                Lwt.return_unit
-              end else Lwt.return_unit
-           ) files
-      )
+  let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
+    let f tar_filename files =
+      (match Unix.system ("truncate -s +1K " ^ tar_filename) with
+       | Unix.WEXITED 0 -> ()
+       | Unix.WEXITED n -> failwith (Printf.sprintf "truncate exited with %d" n)
+       | _ -> failwith "truncate: exited with error");
+      B.connect tar_filename >>= fun b ->
+      let module KV_RW = Tar_mirage.Make_KV_RW(B) in
+      KV_RW.connect b >>= fun t ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun _ ->
+      let files = "barf" :: files in
+      f tar_filename files
+    in
+    with_tar ?level ?files test_ctxt f
 
-    let check_not_padded test_ctxt =
-      Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
-      can_read_through_BLOCK ~files:["empty"] test_ctxt
+  let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
+    let f tar_filename files =
+      B.connect tar_filename >>= fun b ->
+      let module KV_RW = Tar_mirage.Make_KV_RW(B) in
+      KV_RW.connect b >>= fun t ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
+      | Error `No_space -> Lwt.return ()
+      | _ -> failwith "expected `No_space"
+    in
+    with_tar ?level ?files test_ctxt f
+
+  let check_tar tar_filename files =
+    B.connect tar_filename >>= fun b ->
+    let module KV_RO = Tar_mirage.Make_KV_RO(B) in
+    KV_RO.connect b >>= fun k ->
+    Lwt_list.iter_s
+      (fun file ->
+         let size = 
+           if file = "barf" then 6L else Unix.LargeFile.((stat file).st_size)
+	 in
+         let read_file key ofs len =
+	   if key = "barf" then String.sub "foobar" ofs len else
+           let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+           Fun.protect
+             (fun () ->
+                let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+                let buf = Bytes.make len '\000' in
+                let len' = Unix.read fd buf 0 len in
+                assert_equal ~printer:string_of_int len len';
+                Bytes.to_string buf
+             ) ~finally:(fun () -> Unix.close fd) in
+         let read_tar key =
+           KV_RO.get k key >>= function
+           | Error e -> Fmt.failwith "KV_RO.read: %a" KV_RO.pp_error e
+           | Ok buf -> Lwt.return buf in
+         (* Read whole file *)
+         let value = read_file file 0 (Int64.to_int size) in
+         read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+         assert_equal ~printer:(fun x -> x) value value';
+         if Int64.compare size 2L = 1 then begin
+           let value = read_file file 1 ((Int64.to_int size) - 2) in
+           read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+           let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
+           assert_equal ~printer:(fun x -> x) value value'';
+           Lwt.return_unit
+         end else Lwt.return_unit
+      ) files
+
+  let can_read_through_BLOCK ?files test_ctxt =
+    with_tar ?files test_ctxt check_tar
+
+  let write_test test_ctxt =
+     add_data_to_tar test_ctxt check_tar
+
+  let check_not_padded test_ctxt =
+    Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
+    can_read_through_BLOCK ~files:["empty"] test_ctxt
 end
 
 module Sector512 = Test(B)
@@ -267,6 +298,9 @@ let () =
                 "can write pax headers" >:: can_write_pax;
                 "can read @Longlink" >:: can_list_longlink_tar;
                 "can transform tars" >:: can_transform_tar;
+                "add_data_to_tar BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_test;
+		"write_with_full_archive BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_with_full_archive;
+                (*"add_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_test;*)
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";

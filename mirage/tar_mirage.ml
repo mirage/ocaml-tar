@@ -28,7 +28,9 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
 
   type t = {
     b: BLOCK.t;
-    map: entry;
+    mutable map: entry;
+    (** offset in bytes *)
+    mutable end_of_archive: int64;
     info: Mirage_block.info;
   }
 
@@ -71,6 +73,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
   module Reader = struct
     type in_channel = {
       b: BLOCK.t;
+      (** offset in bytes *)
       mutable offset: int64;
       info: Mirage_block.info;
     }
@@ -233,9 +236,130 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     in
     let root = StringMap.empty in
     loop root >>= fun map ->
+    (* This is after the two [zero_block]s *)
+    let end_of_archive = in_channel.Reader.offset in
     let map = Dict (Tar.Header.make "/" 0L, map) in
-    Lwt.return ({ b; map; info })
+    Lwt.return ({ b; map; info; end_of_archive })
 
   let disconnect _ = Lwt.return_unit
+
+end
+
+
+module Make_KV_RW (BLOCK : Mirage_block.S) = struct
+
+  include Make_KV_RO(BLOCK)
+
+  let free t =
+    Int64.(sub (mul (of_int t.info.sector_size) t.info.size_sectors)
+             t.end_of_archive)
+
+  let is_safe_to_set t key =
+    let rec find e path =
+      match e, path with
+      | (Value _ | Dict _), [] -> Error `Entry_already_exists
+      | Value _, _hd :: _tl -> Error `Path_segment_is_a_value
+      | Dict (_, m), hd :: tl ->
+        match StringMap.find_opt hd m with
+        | Some e -> find e tl
+        | None ->
+          (* if either (part of) the path or the file doesn't exist we're good *)
+          Ok ()
+    in
+    find t.map (Mirage_kv.Key.segments key)
+
+  let header_of_key key len =
+    Tar.Header.make (Mirage_kv.Key.to_string key) (Int64.of_int len)
+
+  let space_needed header =
+    let header_size = Tar.Header.length in
+    let data_size = header.Tar.Header.file_size in
+    let padding_size = Tar.Header.compute_zero_padding_length header in
+    Int64.(add (of_int header_size) (add (of_int padding_size) data_size))
+
+  let update_insert map key hdr offset =
+    match map with
+    | Value _ -> assert false
+    | Dict (root, map) ->
+      let map = insert map key (Value (hdr, offset)) in
+      Dict (root, map)
+
+  module Writer = struct
+    type out_channel = {
+      b: BLOCK.t;
+      (** offset in bytes *)
+      mutable offset: int64;
+      info: Mirage_block.info;
+    }
+    type 'a t = 'a Lwt.t
+    let really_write out_channel data =
+      assert (Cstruct.length data <= 512);
+      let data = Cstruct.(append data (create (length data - 512))) in
+      let sector = Int64.(div out_channel.offset (of_int out_channel.info.sector_size)) in
+      BLOCK.write out_channel.b sector [ data ] >>= function
+      | Ok () ->
+        out_channel.offset <- Int64.add out_channel.offset 512L;
+        Lwt.return_unit
+      | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to write sector %Ld to block device: %a"
+                             sector BLOCK.pp_write_error e))
+  end
+  module HW = Tar.HeaderWriter(Lwt)(Writer)
+
+  type write_error = [ `Block of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
+
+  let pp_write_error ppf = function
+   | `Block e -> BLOCK.pp_write_error ppf e
+   | #Mirage_kv.write_error as e -> Mirage_kv.pp_write_error ppf e
+   | `Entry_already_exists -> Fmt.string ppf "entry already exists"
+   | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
+   | `Append_only -> Fmt.string ppf "append only"
+
+  let set t key data =
+    let data = Cstruct.of_string data in
+    let ( >>>= ) = Lwt_result.bind in
+    let r =
+      let ( let* ) = Result.bind in
+      let* () = is_safe_to_set t key in
+      let hdr = header_of_key key (Cstruct.length data) in
+      let space_needed = space_needed hdr in
+      let* () = if free t >= space_needed then Ok () else Error `No_space in
+      Ok (hdr, space_needed)
+    in
+    Lwt.return r >>>= fun (hdr, space_needed) ->
+    let open Int64 in
+    let sector_size = of_int t.info.Mirage_block.sector_size in
+
+    let start_bytes = sub t.end_of_archive (mul 2L 512L) in
+    let end_bytes = add start_bytes space_needed in
+    (* Compute the starting sector and ending sector (rounding down then up) *)
+    let start_sector, _start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
+    let end_sector = div (pred (add end_bytes sector_size)) sector_size in
+
+    t.end_of_archive <- add t.end_of_archive space_needed;
+
+    Lwt_result.map_err (fun e -> `Block e)
+      (BLOCK.write t.b end_sector [ Tar.Header.zero_block ]) >>>= fun () ->
+    Lwt_result.map_err (fun e -> `Block e)
+      (BLOCK.write t.b (add end_sector 1L) [ Tar.Header.zero_block ]) >>>= fun () ->
+    let rec write_one sec data =
+      if sec = end_sector then
+        Lwt.return (Ok ())
+      else
+        let block, rest = Cstruct.split data 512 in
+        Lwt_result.map_err (fun e -> `Block e)
+          (BLOCK.write t.b sec [ block ]) >>>= fun () ->
+        write_one (succ sec) rest
+    in
+    let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
+    HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
+    let pad = Tar.Header.compute_zero_padding_length hdr in
+    write_one (succ start_sector) (Cstruct.append data (Cstruct.create pad)) >>>= fun () ->
+    t.map <- update_insert t.map key hdr (succ start_sector);
+    Lwt.return (Ok ())
+
+  let remove _ _ =
+    Lwt.return (Error `Append_only)
+
+  let batch t ?retries:_ f = f t
 
 end
