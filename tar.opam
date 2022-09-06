@@ -20,6 +20,7 @@ depends: [
   "ppx_cstruct" {build & >= "3.6.0"}
   "cstruct" {>= "6.0.0"}
   "re"
+  "camlp-streams"
   "odoc" {with-doc}
 ]
 build: [

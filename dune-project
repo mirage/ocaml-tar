@@ -29,6 +29,7 @@
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
   re
+  camlp-streams
  )
 )
 
