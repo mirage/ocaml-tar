@@ -338,22 +338,20 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
     t.end_of_archive <- add t.end_of_archive space_needed;
 
     Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b end_sector [ Tar.Header.zero_block ]) >>>= fun () ->
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b (add end_sector 1L) [ Tar.Header.zero_block ]) >>>= fun () ->
-    let rec write_one sec data =
-      if sec = end_sector then
-        Lwt.return (Ok ())
-      else
-        let block, rest = Cstruct.split data 512 in
-        Lwt_result.map_error (fun e -> `Block e)
-          (BLOCK.write t.b sec [ block ]) >>>= fun () ->
-        write_one (succ sec) rest
-    in
+      (BLOCK.write t.b end_sector [ Tar.Header.zero_block ; Tar.Header.zero_block ]) >>>= fun () ->
+
+    let data_sectors = sub (pred end_sector) start_sector in
     let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
     HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
     let pad = Tar.Header.compute_zero_padding_length hdr in
-    write_one (succ start_sector) (Cstruct.append data (Cstruct.create pad)) >>>= fun () ->
+    let data = Cstruct.append data (Cstruct.create pad) in
+    let blocks =
+      List.init (to_int data_sectors)
+        (fun sec -> Cstruct.sub data (sec * to_int sector_size)
+            (to_int sector_size))
+    in
+    Lwt_result.map_error (fun e -> `Block e)
+      (BLOCK.write t.b (succ start_sector) blocks) >>>= fun () ->
     t.map <- update_insert t.map key hdr (succ start_sector);
     Lwt.return (Ok ())
 
