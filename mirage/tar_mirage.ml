@@ -337,16 +337,16 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
 
     t.end_of_archive <- add t.end_of_archive space_needed;
 
-    Lwt_result.map_err (fun e -> `Block e)
+    Lwt_result.map_error (fun e -> `Block e)
       (BLOCK.write t.b end_sector [ Tar.Header.zero_block ]) >>>= fun () ->
-    Lwt_result.map_err (fun e -> `Block e)
+    Lwt_result.map_error (fun e -> `Block e)
       (BLOCK.write t.b (add end_sector 1L) [ Tar.Header.zero_block ]) >>>= fun () ->
     let rec write_one sec data =
       if sec = end_sector then
         Lwt.return (Ok ())
       else
         let block, rest = Cstruct.split data 512 in
-        Lwt_result.map_err (fun e -> `Block e)
+        Lwt_result.map_error (fun e -> `Block e)
           (BLOCK.write t.b sec [ block ]) >>>= fun () ->
         write_one (succ sec) rest
     in

@@ -64,7 +64,7 @@
  (depends
   (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
-  lwt
+  (lwt (>= 5.6.0))
   (mirage-block (>= 2.0.0))
   (mirage-kv (>= 5.0.0))
   ptime
