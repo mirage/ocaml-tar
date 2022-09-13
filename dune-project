@@ -66,7 +66,7 @@
   (cstruct (>= 1.9.0))
   lwt
   (mirage-block (>= 2.0.0))
-  (mirage-kv (>= 3.0.0))
+  (mirage-kv (and (>= 3.0.0) (< 5.0.0)))
   ptime
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.5.0)))
