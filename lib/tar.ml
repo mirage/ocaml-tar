@@ -51,7 +51,7 @@ module Header = struct
       let first_0 = String.index x '\000' in
       String.sub x 0 first_0
     with
-      Not_found -> ""
+      Not_found -> x (* TODO should error *)
 
   (** Unmarshal a pax Extended Header File time
       It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
