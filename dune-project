@@ -31,7 +31,6 @@
   (ocaml (>= 4.08.0))
   (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
-  (re (>= 1.7.2))
   (decompress (>= 1.5.1))
  )
 )
@@ -49,7 +48,6 @@
   (cstruct (>= 6.0.0))
   cstruct-lwt
   lwt
-  (re (>= 1.7.2))
   (tar (= :version))
  )
 )
@@ -66,12 +64,10 @@
  (depends
   (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
-  (io-page (>= 2.4.0))
   lwt
   (mirage-block (>= 2.0.0))
-  (mirage-kv (>= 3.0.0))
+  (mirage-kv (and (>= 3.0.0) (< 5.0.0)))
   ptime
-  (re (>= 1.7.2))
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.5.0)))
   (ounit2 :with-test)
