@@ -76,7 +76,7 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
   let tar_filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
   close_out ch;
   let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-  let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
+  let cmdline = Printf.sprintf "tar -cf %s -b 1 %s %s" tar_filename format (String.concat " " files) in
   begin match Unix.system cmdline with
     | Unix.WEXITED 0 -> ()
     | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
