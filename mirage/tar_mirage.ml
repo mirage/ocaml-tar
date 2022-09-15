@@ -68,22 +68,25 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     }
     type 'a t = 'a Lwt.t
     let really_read in_channel buffer =
-      assert(Cstruct.length buffer <= 512);
+      let len = Cstruct.length buffer in
+      assert(len <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
       let sector_size = in_channel.info.Mirage_block.sector_size in
       let sector' = Int64.(div in_channel.offset (of_int sector_size)) in
-      (* However don't try to read beyond the end of the disk *)
-      let total_size_bytes = Int64.(mul in_channel.info.Mirage_block.size_sectors (of_int sector_size)) in
-      let tmp = Cstruct.create (min sector_size Int64.(to_int @@ (sub total_size_bytes in_channel.offset))) in
+      let sector_aligned_len =
+        if len mod sector_size == 0 then len else
+          len + (sector_size - len mod sector_size)
+      in
+      let tmp = Cstruct.create sector_aligned_len in
       BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
       | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
                              BLOCK.pp_error e))
       | Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
-        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int in_channel.info.Mirage_block.sector_size)))) in
-        in_channel.offset <- Int64.(add in_channel.offset (of_int (Cstruct.length buffer)));
-        Cstruct.blit tmp offset buffer 0 (Cstruct.length buffer);
+        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int sector_size)))) in
+        in_channel.offset <- Int64.(add in_channel.offset (of_int len));
+        Cstruct.blit tmp offset buffer 0 len;
         Lwt.return_unit
     let skip in_channel n =
       in_channel.offset <- Int64.(add in_channel.offset (of_int n));
