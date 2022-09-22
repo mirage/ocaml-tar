@@ -26,10 +26,14 @@ module Make_KV_RO (BLOCK : Mirage_block.S) : sig
 end
 
 module Make_KV_RW (BLOCK : Mirage_block.S) : sig
-  (** Construct a read-only key-value store from an existing block device
-      containing tar-format data. *)
+  (** Construct a read-write key-value store from an existing block device
+      containing tar-format data. Note that it is append-only meaning removing
+      or renaming files is currently unsupported and will return an error. *)
 
   include Mirage_kv.RW
 
   val connect: BLOCK.t -> t Lwt.t
+
+  val free : t -> int64
+  (** [free t] is the number of unused bytes. *)
 end
