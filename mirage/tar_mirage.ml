@@ -334,24 +334,32 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
     (* Compute the starting sector and ending sector (rounding down then up) *)
     let start_sector, _start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
     let end_sector = div (pred (add end_bytes sector_size)) sector_size in
-
-    t.end_of_archive <- add t.end_of_archive space_needed;
-
+    (* first write at the end two zero blocks *)
     Lwt_result.map_error (fun e -> `Block e)
       (BLOCK.write t.b end_sector [ Tar.Header.zero_block ; Tar.Header.zero_block ]) >>>= fun () ->
 
     let data_sectors = sub (pred end_sector) start_sector in
     let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
-    HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
     let pad = Tar.Header.compute_zero_padding_length hdr in
     let data = Cstruct.append data (Cstruct.create pad) in
-    let blocks =
-      List.init (to_int data_sectors)
-        (fun sec -> Cstruct.sub data (sec * to_int sector_size)
-            (to_int sector_size))
+    let first_block, remaining_blocks =
+      let blocks =
+        List.init (to_int data_sectors)
+          (fun sec -> Cstruct.sub data (sec * to_int sector_size)
+              (to_int sector_size))
+      in
+      match blocks with
+      | [] -> [], []
+      | hd :: tl -> [ hd ], tl
     in
+    (* then write block 2 .. end *)
     Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b (succ start_sector) blocks) >>>= fun () ->
+      (BLOCK.write t.b (add 2L start_sector) remaining_blocks) >>>= fun () ->
+    (* finally write header and first block *)
+    HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
+    Lwt_result.map_error (fun e -> `Block e)
+      (BLOCK.write t.b (succ start_sector) first_block) >>>= fun () ->
+    t.end_of_archive <- add t.end_of_archive space_needed;
     t.map <- update_insert t.map key hdr (succ start_sector);
     Lwt.return (Ok ())
 
