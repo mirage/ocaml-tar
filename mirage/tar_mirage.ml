@@ -60,6 +60,14 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     in
     Lwt.return r
 
+  let size t key =
+    let r = match get_node t.map key with
+      | Ok (Value (e, _)) -> Ok (Int64.to_int e.file_size)
+      | Ok (Dict (e, _)) -> Ok (Int64.to_int e.file_size)
+      | Error e -> Error e
+    in
+    Lwt.return r
+
   module Reader = struct
     type in_channel = {
       b: BLOCK.t;
@@ -96,32 +104,46 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
   end
   module HR = Tar.HeaderReader(Lwt)(Reader)
 
-  let get t key =
+  let get_partial t key ~offset ~length =
     match get_node t.map key with
     | Error e -> Lwt.return (Error e)
     | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
     | Ok (Value (hdr, start_sector)) ->
       let open Int64 in
       let sector_size = of_int t.info.Mirage_block.sector_size in
-
       (* Compute the unaligned data we need to read *)
-      let start_bytes = mul start_sector 512L in
-      let length_bytes = hdr.Tar.Header.file_size in
-      let end_bytes = add start_bytes length_bytes in
-      (* Compute the starting sector and ending sector (rounding down then up) *)
-      let start_sector, start_padding = div start_bytes sector_size, rem start_bytes sector_size in
-      let end_sector = div (pred (add end_bytes sector_size)) sector_size in
-      let n_sectors = succ (sub end_sector start_sector) in
-      let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
-      let tmps =
-        List.init (to_int n_sectors)
-          (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
+      let start_bytes =
+        let sec = mul start_sector 512L in
+        add sec (of_int offset)
       in
-      BLOCK.read t.b start_sector tmps >|= function
-      | Error b -> Error (`Block b)
-      | Ok () ->
-        let buf = Cstruct.sub buf (to_int start_padding) (to_int length_bytes) in
-        Ok (Cstruct.to_string buf)
+      let length_bytes =
+        min (sub hdr.Tar.Header.file_size (of_int offset)) (of_int length)
+      in
+      if length_bytes < 0L then
+        Lwt.return (Ok "")
+      else
+        let end_bytes = add start_bytes length_bytes in
+        (* Compute the starting sector and ending sector (rounding down then up) *)
+        let start_sector, start_padding =
+          div start_bytes sector_size, rem start_bytes sector_size
+        in
+        let end_sector = div (pred (add end_bytes sector_size)) sector_size in
+        let n_sectors = succ (sub end_sector start_sector) in
+        let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
+        let tmps =
+          List.init (to_int n_sectors)
+            (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
+        in
+        BLOCK.read t.b start_sector tmps >|= function
+        | Error b -> Error (`Block b)
+        | Ok () ->
+          let buf =
+            Cstruct.sub buf (to_int start_padding) (to_int length_bytes)
+          in
+          Ok (Cstruct.to_string buf)
+
+  let get t key =
+    get_partial t key ~offset:0 ~length:max_int
 
   let list t key =
     let r = match get_node t.map key with
