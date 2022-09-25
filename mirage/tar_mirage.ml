@@ -314,54 +314,57 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
    | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
    | `Append_only -> Fmt.string ppf "append only"
 
+  let write_lock = Lwt_mutex.create ()
+
   let set t key data =
-    let data = Cstruct.of_string data in
-    let ( >>>= ) = Lwt_result.bind in
-    let r =
-      let ( let* ) = Result.bind in
-      let* () = is_safe_to_set t key in
-      let hdr = header_of_key key (Cstruct.length data) in
-      let space_needed = space_needed hdr in
-      let* () = if free t >= space_needed then Ok () else Error `No_space in
-      Ok (hdr, space_needed)
-    in
-    Lwt.return r >>>= fun (hdr, space_needed) ->
-    let open Int64 in
-    let sector_size = of_int t.info.Mirage_block.sector_size in
+    Lwt_mutex.with_lock write_lock (fun () ->
+        let data = Cstruct.of_string data in
+        let ( >>>= ) = Lwt_result.bind in
+        let r =
+          let ( let* ) = Result.bind in
+          let* () = is_safe_to_set t key in
+          let hdr = header_of_key key (Cstruct.length data) in
+          let space_needed = space_needed hdr in
+          let* () = if free t >= space_needed then Ok () else Error `No_space in
+          Ok (hdr, space_needed)
+        in
+        Lwt.return r >>>= fun (hdr, space_needed) ->
+        let open Int64 in
+        let sector_size = of_int t.info.Mirage_block.sector_size in
 
-    let start_bytes = sub t.end_of_archive (mul 2L 512L) in
-    let end_bytes = add start_bytes space_needed in
-    (* Compute the starting sector and ending sector (rounding down then up) *)
-    let start_sector, _start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
-    let end_sector = div (pred (add end_bytes sector_size)) sector_size in
-    (* first write at the end two zero blocks *)
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b end_sector [ Tar.Header.zero_block ; Tar.Header.zero_block ]) >>>= fun () ->
+        let start_bytes = sub t.end_of_archive (mul 2L 512L) in
+        let end_bytes = add start_bytes space_needed in
+        (* Compute the starting sector and ending sector (rounding down then up) *)
+        let start_sector, _start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
+        let end_sector = div (pred (add end_bytes sector_size)) sector_size in
+        (* first write at the end two zero blocks *)
+        Lwt_result.map_error (fun e -> `Block e)
+          (BLOCK.write t.b end_sector [ Tar.Header.zero_block ; Tar.Header.zero_block ]) >>>= fun () ->
 
-    let data_sectors = sub (pred end_sector) start_sector in
-    let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
-    let pad = Tar.Header.compute_zero_padding_length hdr in
-    let data = Cstruct.append data (Cstruct.create pad) in
-    let first_block, remaining_blocks =
-      let blocks =
-        List.init (to_int data_sectors)
-          (fun sec -> Cstruct.sub data (sec * to_int sector_size)
-              (to_int sector_size))
-      in
-      match blocks with
-      | [] -> [], []
-      | hd :: tl -> [ hd ], tl
-    in
-    (* then write block 2 .. end *)
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b (add 2L start_sector) remaining_blocks) >>>= fun () ->
-    (* finally write header and first block *)
-    HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.write t.b (succ start_sector) first_block) >>>= fun () ->
-    t.end_of_archive <- add t.end_of_archive space_needed;
-    t.map <- update_insert t.map key hdr (succ start_sector);
-    Lwt.return (Ok ())
+        let data_sectors = sub (pred end_sector) start_sector in
+        let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
+        let pad = Tar.Header.compute_zero_padding_length hdr in
+        let data = Cstruct.append data (Cstruct.create pad) in
+        let first_block, remaining_blocks =
+          let blocks =
+            List.init (to_int data_sectors)
+              (fun sec -> Cstruct.sub data (sec * to_int sector_size)
+                  (to_int sector_size))
+          in
+          match blocks with
+          | [] -> [], []
+          | hd :: tl -> [ hd ], tl
+        in
+        (* then write block 2 .. end *)
+        Lwt_result.map_error (fun e -> `Block e)
+          (BLOCK.write t.b (add 2L start_sector) remaining_blocks) >>>= fun () ->
+        (* finally write header and first block *)
+        HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
+        Lwt_result.map_error (fun e -> `Block e)
+          (BLOCK.write t.b (succ start_sector) first_block) >>>= fun () ->
+        t.end_of_archive <- add t.end_of_archive space_needed;
+        t.map <- update_insert t.map key hdr (succ start_sector);
+        Lwt.return (Ok ()))
 
   let remove _ _ =
     Lwt.return (Error `Append_only)
