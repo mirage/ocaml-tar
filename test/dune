@@ -1,3 +1,4 @@
 (cram
  (package tar-unix)
+ (enabled_if (= %{os_type} "Unix"))
  (deps %{bin:otar}))
