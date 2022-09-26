@@ -32,6 +32,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     (** offset in bytes *)
     mutable end_of_archive: int64;
     info: Mirage_block.info;
+    write_lock : Lwt_mutex.t;
   }
 
   type key = Mirage_kv.Key.t
@@ -239,7 +240,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     (* This is after the two [zero_block]s *)
     let end_of_archive = in_channel.Reader.offset in
     let map = Dict (Tar.Header.make "/" 0L, map) in
-    Lwt.return ({ b; map; info; end_of_archive })
+    let write_lock = Lwt_mutex.create () in
+    Lwt.return ({ b; map; info; end_of_archive; write_lock })
 
   let disconnect _ = Lwt.return_unit
 
@@ -314,10 +316,8 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
    | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
    | `Append_only -> Fmt.string ppf "append only"
 
-  let write_lock = Lwt_mutex.create ()
-
   let set t key data =
-    Lwt_mutex.with_lock write_lock (fun () ->
+    Lwt_mutex.with_lock t.write_lock (fun () ->
         let data = Cstruct.of_string data in
         let ( >>>= ) = Lwt_result.bind in
         let r =
