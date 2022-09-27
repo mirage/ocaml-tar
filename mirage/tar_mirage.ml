@@ -369,6 +369,12 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
   let remove _ _ =
     Lwt.return (Error `Append_only)
 
+  let rename _ ~source:_ ~dest:_ =
+    Lwt.return (Error `Append_only)
+
+  let set_partial _ _ ~offset:_ _ =
+    Lwt.return (Error `Append_only)
+
   let batch t ?retries:_ f = f t
 
 end
