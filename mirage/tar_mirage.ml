@@ -131,7 +131,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         let start_sector, start_padding =
           div start_bytes sector_size, rem start_bytes sector_size
         in
-        let end_sector = div (pred (add end_bytes sector_size)) sector_size in
+        let end_sector = div end_bytes sector_size in
         let n_sectors = succ (sub end_sector start_sector) in
         let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
         let tmps =
@@ -345,7 +345,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let end_bytes = add start_bytes (add space_needed (of_int sentinel)) in
         (* Compute the starting sector and ending sector (rounding down then up) *)
         let start_sector, start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
-        let end_sector = div (pred (add end_bytes sector_size)) sector_size in
+        let end_sector = div end_bytes sector_size in
         let end_sector_offset = rem end_bytes sector_size in
         let data_sectors = sub end_sector start_sector in
         let pad = Tar.Header.compute_zero_padding_length hdr in

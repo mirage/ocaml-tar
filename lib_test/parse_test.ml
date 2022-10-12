@@ -200,7 +200,10 @@ module Test(B: BLOCK) = struct
       B.connect tar_filename >>= fun b ->
       let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
-      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun _ ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
+      Result.iter_error (fun e ->
+          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        x;
       let files = "barf" :: files in
       f tar_filename files
     in
@@ -239,7 +242,7 @@ module Test(B: BLOCK) = struct
              ) ~finally:(fun () -> Unix.close fd) in
          let read_tar key =
            KV_RO.get k key >>= function
-           | Error e -> Fmt.failwith "KV_RO.read: %a" KV_RO.pp_error e
+           | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
            | Ok buf -> Lwt.return buf in
          (* Read whole file *)
          let value = read_file file 0 (Int64.to_int size) in
