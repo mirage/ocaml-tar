@@ -163,14 +163,11 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     Lwt.return r
 
   let to_day_ps hdr =
-    let ts =
-      match Ptime.Span.of_float_s (Int64.to_float hdr.Tar.Header.mod_time) with
-      | None -> Ptime.epoch
-      | Some span -> match Ptime.add_span Ptime.epoch span with
-        | None -> Ptime.epoch
-        | Some ts -> ts
+    let ptime =
+      Option.value ~default:Ptime.epoch
+        (Ptime.of_float_s (Int64.to_float hdr.Tar.Header.mod_time))
     in
-    Ptime.(Span.to_d_ps (to_span ts))
+    Ptime.(Span.to_d_ps (to_span ptime))
 
   let last_modified t key =
     let r = match get_node t.map key with
@@ -248,7 +245,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
 end
 
 
-module Make_KV_RW (BLOCK : Mirage_block.S) = struct
+module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struct
 
   include Make_KV_RO(BLOCK)
 
@@ -271,7 +268,11 @@ module Make_KV_RW (BLOCK : Mirage_block.S) = struct
     find t.map (Mirage_kv.Key.segments key)
 
   let header_of_key key len =
-    Tar.Header.make (Mirage_kv.Key.to_string key) (Int64.of_int len)
+    let mod_time =
+      let ptime = Ptime.v (CLOCK.now_d_ps ()) in
+      Int64.of_float (Ptime.to_float_s ptime)
+    in
+    Tar.Header.make ~mod_time (Mirage_kv.Key.to_string key) (Int64.of_int len)
 
   let space_needed header =
     let header_size = Tar.Header.length in

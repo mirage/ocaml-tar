@@ -1,5 +1,5 @@
 (library
  (name tar_mirage)
  (public_name tar-mirage)
- (libraries tar lwt mirage-kv mirage-block ptime)
+ (libraries tar lwt mirage-kv mirage-block ptime mirage-clock)
  (wrapped false))

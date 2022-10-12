@@ -217,7 +217,7 @@ module Test(B: BLOCK) = struct
        | Unix.WEXITED n -> failwith (Printf.sprintf "truncate exited with %d" n)
        | _ -> failwith "truncate: exited with error");
       B.connect tar_filename >>= fun b ->
-      let module KV_RW = Tar_mirage.Make_KV_RW(B) in
+      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
       KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun _ ->
       let files = "barf" :: files in
@@ -228,7 +228,7 @@ module Test(B: BLOCK) = struct
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
     let f tar_filename files =
       B.connect tar_filename >>= fun b ->
-      let module KV_RW = Tar_mirage.Make_KV_RW(B) in
+      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
       KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
       | Error `No_space -> Lwt.return ()
