@@ -34,20 +34,6 @@ module Unix = struct
     if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
 
-exception Cstruct_differ
-
-let cstruct_equal a b =
-  let check_contents a b =
-    try
-      for i = 0 to Cstruct.length a - 1 do
-        let a' = Cstruct.get_char a i in
-        let b' = Cstruct.get_char b i in
-        if a' <> b' then raise Cstruct_differ
-      done;
-      true
-    with _ -> false in
-  (Cstruct.length a = (Cstruct.length b)) && (check_contents a b)
-
 let header _test_ctxt =
   (* check header marshalling and unmarshalling *)
   let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
@@ -57,7 +43,7 @@ let header _test_ctxt =
   let c' = Cstruct.create Tar.Header.length in
   for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
   Tar.Header.marshal c' h;
-  assert_equal ~printer:(fun x -> String.escaped (Cstruct.to_string x)) ~cmp:cstruct_equal c c';
+  assert_equal ~printer:(fun x -> String.escaped (Cstruct.to_string x)) ~cmp:Cstruct.equal c c';
   let printer = function
     | None -> "None"
     | Some x -> "Some " ^ (Tar.Header.to_detailed_string x) in
