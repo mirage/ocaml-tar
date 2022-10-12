@@ -23,13 +23,15 @@ let convert_path os path =
   close_in ch;
   line
 
-let win32_openfile path flags perms =
-  Unix.openfile (convert_path `Windows path) flags perms
-
 module Unix = struct
   include Unix
 
-  let openfile = if Sys.win32 then win32_openfile else openfile
+  let openfile path =
+    if Sys.win32 then openfile (convert_path `Windows path) else openfile path
+  let stat path =
+    if Sys.win32 then stat (convert_path `Windows path) else stat path
+  let truncate path =
+    if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
 
 exception Cstruct_differ
