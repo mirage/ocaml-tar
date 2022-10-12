@@ -64,7 +64,7 @@ let header _test_ctxt =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files ?(block_size = 512) test_ctxt f =
   let format = match level with
     | None -> ""
     | Some format -> "--format=" ^ match format with
@@ -76,7 +76,8 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
   let tar_filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
   close_out ch;
   let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-  let cmdline = Printf.sprintf "tar -cf %s -b 1 %s %s" tar_filename format (String.concat " " files) in
+  let tar_block_size = block_size / 512 in
+  let cmdline = Printf.sprintf "tar -cf %s -b %d %s %s" tar_filename tar_block_size format (String.concat " " files) in
   begin match Unix.system cmdline with
     | Unix.WEXITED 0 -> ()
     | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
@@ -166,53 +167,33 @@ let can_transform_tar test_ctxt =
 module Block4096 = struct
   include Block
 
-  let get_info b =
-    Block.get_info b
-    >>= fun info ->
-    let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
-    Lwt.return { info with Mirage_block.sector_size = 4096; size_sectors }
-
-  let read b ofs bufs =
-    Block.get_info b
-    >>= fun info ->
-    let len = List.fold_left (+) 0 (List.map Cstruct.length bufs) in
-    let requested_end = Int64.(add (mul ofs 4096L) (of_int len)) in
-    let end_of_file = Int64.(mul info.size_sectors (of_int info.sector_size)) in
-    let need_to_trim = max 0L (Int64.sub requested_end end_of_file) |> Int64.to_int in
-    let need_to_keep = len - need_to_trim in
-    let rec trimmed len = function
-      | [] -> []
-      | b :: bs ->
-        let b' = Cstruct.length b in
-        for _ = 0 to b' do Cstruct.set_uint8 b 0 0 done;
-        let to_drop = max 0 (len + b' - need_to_keep) in
-        let to_keep = max 0 (b' - to_drop) in
-        Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
-    let trimmed =  (trimmed 0 bufs) in
-    Block.read b (Int64.mul ofs 8L) trimmed
+  let block_size = 4096
 
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
-    connect name
+    connect ~prefered_sector_size:(Some 4096) name
 end
 
 module type BLOCK = sig
   include Mirage_block.S
   val connect: string -> t Lwt.t
+  val block_size : int
 end
 
 module B = struct
   include Block
 
+  let block_size = 512
+
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
-    connect name
+    connect ~prefered_sector_size:(Some 512) name
 end
 
 module Test(B: BLOCK) = struct
   let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
     let f tar_filename files =
-      (match Unix.system ("truncate -s +1K " ^ tar_filename) with
+      (match Unix.system ("truncate -s +4K " ^ tar_filename) with
        | Unix.WEXITED 0 -> ()
        | Unix.WEXITED n -> failwith (Printf.sprintf "truncate exited with %d" n)
        | _ -> failwith "truncate: exited with error");
@@ -223,7 +204,7 @@ module Test(B: BLOCK) = struct
       let files = "barf" :: files in
       f tar_filename files
     in
-    with_tar ?level ?files test_ctxt f
+    with_tar ?level ?files ~block_size:B.block_size test_ctxt f
 
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
     let f tar_filename files =
@@ -242,7 +223,7 @@ module Test(B: BLOCK) = struct
     KV_RO.connect b >>= fun k ->
     Lwt_list.iter_s
       (fun file ->
-         let size = 
+         let size =
            if file = "barf" then 6L else Unix.LargeFile.((stat file).st_size)
 	 in
          let read_file key ofs len =
@@ -274,7 +255,7 @@ module Test(B: BLOCK) = struct
       ) files
 
   let can_read_through_BLOCK ?files test_ctxt =
-    with_tar ?files test_ctxt check_tar
+    with_tar ?files ~block_size:B.block_size test_ctxt check_tar
 
   let write_test test_ctxt =
      add_data_to_tar test_ctxt check_tar
@@ -299,8 +280,8 @@ let () =
                 "can read @Longlink" >:: can_list_longlink_tar;
                 "can transform tars" >:: can_transform_tar;
                 "add_data_to_tar BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_test;
-		"write_with_full_archive BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_with_full_archive;
-                (*"add_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_test;*)
+                "write_with_full_archive BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_with_full_archive;
+                "add_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_test;
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";

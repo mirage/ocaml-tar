@@ -275,10 +275,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
     Tar.Header.make ~mod_time (Mirage_kv.Key.to_string key) (Int64.of_int len)
 
   let space_needed header =
-    let header_size = Tar.Header.length in
     let data_size = header.Tar.Header.file_size in
     let padding_size = Tar.Header.compute_zero_padding_length header in
-    Int64.(add (of_int header_size) (add (of_int padding_size) data_size))
+    Int64.(add (of_int padding_size) data_size)
 
   let update_insert map key hdr offset =
     match map with
@@ -297,14 +296,21 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
     type 'a t = 'a Lwt.t
     let really_write out_channel data =
       assert (Cstruct.length data <= 512);
-      let data = Cstruct.(append data (create (length data - 512))) in
-      let sector = Int64.(div out_channel.offset (of_int out_channel.info.sector_size)) in
-      BLOCK.write out_channel.b sector [ data ] >>= function
+      let data = Cstruct.(append data (create (512 - length data))) in
+      let sector_size = out_channel.info.sector_size in
+      let sector = Int64.(div out_channel.offset (of_int sector_size)) in
+      let block = Cstruct.create sector_size in
+      BLOCK.read out_channel.b sector [ block ] >>= function
+      | Error e -> Lwt.fail (Failure (Format.asprintf "Read failed while writing sector %Ld to block device: %a"
+                                        sector BLOCK.pp_error e))
       | Ok () ->
-        out_channel.offset <- Int64.add out_channel.offset 512L;
-        Lwt.return_unit
-      | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to write sector %Ld to block device: %a"
-                             sector BLOCK.pp_write_error e))
+        let start_offset = Int64.to_int out_channel.offset mod sector_size in
+        Cstruct.blit data 0 block start_offset (Cstruct.length data);
+        BLOCK.write out_channel.b sector [ block ] >>= function
+        | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to write sector %Ld to block device: %a"
+                                          sector BLOCK.pp_write_error e))
+        | Ok () ->
+          Lwt.return_unit
   end
   module HW = Tar.HeaderWriter(Lwt)(Writer)
 
@@ -333,38 +339,67 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let open Int64 in
         let sector_size = of_int t.info.Mirage_block.sector_size in
 
-        let start_bytes = sub t.end_of_archive (mul 2L 512L) in
-        let end_bytes = add start_bytes space_needed in
+        let start_bytes = sub t.end_of_archive 512L in
+        let header_start_bytes = sub start_bytes 512L in
+        let sentinel = 2 * 512 in
+        let end_bytes = add start_bytes (add space_needed (of_int sentinel)) in
         (* Compute the starting sector and ending sector (rounding down then up) *)
-        let start_sector, _start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
+        let start_sector, start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
         let end_sector = div (pred (add end_bytes sector_size)) sector_size in
-        (* first write at the end two zero blocks *)
-        Lwt_result.map_error (fun e -> `Block e)
-          (BLOCK.write t.b end_sector [ Tar.Header.zero_block ; Tar.Header.zero_block ]) >>>= fun () ->
-
-        let data_sectors = sub (pred end_sector) start_sector in
-        let hw = Writer.{ b = t.b ; offset = start_bytes ; info = t.info } in
+        let end_sector_offset = rem end_bytes sector_size in
+        let data_sectors = sub end_sector start_sector in
         let pad = Tar.Header.compute_zero_padding_length hdr in
-        let data = Cstruct.append data (Cstruct.create pad) in
-        let first_block, remaining_blocks =
-          let blocks =
-            List.init (to_int data_sectors)
-              (fun sec -> Cstruct.sub data (sec * to_int sector_size)
-                  (to_int sector_size))
+        let data = Cstruct.append data (Cstruct.create (pad + sentinel)) in
+        let first_block, rest =
+          let s =
+            Stdlib.min
+              (Cstruct.length data)
+              (to_int (sub sector_size start_sector_offset))
           in
-          match blocks with
-          | [] -> [], []
-          | hd :: tl -> [ hd ], tl
+          Cstruct.split data s
         in
-        (* then write block 2 .. end *)
+        let remaining_blocks, last_block =
+          let blocks = to_int (sub data_sectors (if end_sector_offset = 0L then 1L else 2L)) in
+          if blocks < 0 then
+            [], rest
+          else
+            List.init blocks
+              (fun sec ->
+                 Cstruct.sub rest (sec * to_int sector_size)
+                   (to_int sector_size)),
+            Cstruct.shift rest (blocks * to_int sector_size)
+        in
+        (* to write robustly as we can:
+           - we first write the last block, then
+           - we write tar blocks 2..end-1,
+           - finally the header AND the first tar block
+        *)
+        let buf = Cstruct.create (to_int sector_size) in
+        (if Cstruct.length last_block > 0 then
+           Lwt_result.map_error (function _ -> `Block `Disconnected)
+             (BLOCK.read t.b end_sector [ buf ]) >>>= fun () ->
+           Cstruct.blit last_block 0 buf
+             (to_int end_sector_offset - Cstruct.length last_block)
+             (Cstruct.length last_block);
+           Lwt_result.map_error (fun e -> `Block e)
+             (BLOCK.write t.b end_sector [ buf ])
+         else
+           Lwt.return (Ok ())) >>>= fun () ->
+        (* write full blocks 2 .. end *)
         Lwt_result.map_error (fun e -> `Block e)
-          (BLOCK.write t.b (add 2L start_sector) remaining_blocks) >>>= fun () ->
+          (BLOCK.write t.b (succ start_sector) remaining_blocks) >>>= fun () ->
         (* finally write header and first block *)
+        let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
         HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
+        Lwt_result.map_error (function _ -> `Block `Disconnected)
+          (BLOCK.read t.b start_sector [ buf ]) >>>= fun () ->
+        Cstruct.blit first_block 0 buf (to_int start_sector_offset)
+          (Cstruct.length first_block);
         Lwt_result.map_error (fun e -> `Block e)
-          (BLOCK.write t.b (succ start_sector) first_block) >>>= fun () ->
+          (BLOCK.write t.b start_sector [ buf ]) >>>= fun () ->
+        let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
         t.end_of_archive <- add t.end_of_archive space_needed;
-        t.map <- update_insert t.map key hdr (succ start_sector);
+        t.map <- update_insert t.map key hdr tar_offset;
         Lwt.return (Ok ()))
 
   let remove _ _ =
