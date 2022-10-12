@@ -193,10 +193,8 @@ end
 module Test(B: BLOCK) = struct
   let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
     let f tar_filename files =
-      (match Unix.system ("truncate -s +4K " ^ tar_filename) with
-       | Unix.WEXITED 0 -> ()
-       | Unix.WEXITED n -> failwith (Printf.sprintf "truncate exited with %d" n)
-       | _ -> failwith "truncate: exited with error");
+      let size = Unix.(stat tar_filename).st_size in
+      Unix.truncate tar_filename (size + (min (2 * B.block_size) 4096));
       B.connect tar_filename >>= fun b ->
       let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
