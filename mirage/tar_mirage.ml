@@ -317,7 +317,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   end
   module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-  type write_error = [ `Block of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
+  type write_error = [ `Block of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only | `Write_header of string ]
 
   let pp_write_error ppf = function
    | `Block e -> BLOCK.pp_write_error ppf e
@@ -325,6 +325,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
    | `Entry_already_exists -> Fmt.string ppf "entry already exists"
    | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
    | `Append_only -> Fmt.string ppf "append only"
+   | `Write_header msg -> Fmt.pf ppf "writing tar header failed: %s" msg
 
   let set t key data =
     Lwt_mutex.with_lock t.write_lock (fun () ->
@@ -398,7 +399,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           (BLOCK.write t.b (succ start_sector) remaining_sectors) >>>= fun () ->
         (* finally write header and first block *)
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
-        HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
+        Lwt.catch
+          (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
+          (function exn -> Lwt.return (Error (`Write_header (Printexc.to_string exn)))) >>>= fun () ->
         Lwt_result.map_error (function _ -> `Block `Disconnected)
           (BLOCK.read t.b start_sector [ buf ]) >>>= fun () ->
         Cstruct.blit first_sector 0 buf (to_int start_sector_offset)
