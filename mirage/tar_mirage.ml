@@ -92,8 +92,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       let tmp = Cstruct.create sector_aligned_len in
       BLOCK.read in_channel.b sector' [ tmp ]
       >>= function
-      | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
-                             BLOCK.pp_error e))
+      | Error e -> failwith (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
+                               BLOCK.pp_error e)
       | Ok () ->
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
         let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int sector_size)))) in
@@ -304,14 +304,14 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       let sector = Int64.(div out_channel.offset (of_int sector_size)) in
       let block = Cstruct.create sector_size in
       BLOCK.read out_channel.b sector [ block ] >>= function
-      | Error e -> Lwt.fail (Failure (Format.asprintf "Read failed while writing sector %Ld to block device: %a"
-                                        sector BLOCK.pp_error e))
+      | Error e -> failwith (Format.asprintf "Read failed while writing sector %Ld to block device: %a"
+                               sector BLOCK.pp_error e)
       | Ok () ->
         let start_offset = Int64.to_int out_channel.offset mod sector_size in
         Cstruct.blit data 0 block start_offset (Cstruct.length data);
         BLOCK.write out_channel.b sector [ block ] >>= function
-        | Error e -> Lwt.fail (Failure (Format.asprintf "Failed to write sector %Ld to block device: %a"
-                                          sector BLOCK.pp_write_error e))
+        | Error e -> failwith (Format.asprintf "Failed to write sector %Ld to block device: %a"
+                                 sector BLOCK.pp_write_error e)
         | Ok () ->
           Lwt.return_unit
   end
