@@ -353,7 +353,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let data_sectors = sub end_sector start_sector in
         let pad = Tar.Header.compute_zero_padding_length hdr in
         let data = Cstruct.append data (Cstruct.create (pad + sentinel)) in
-        let first_block, rest =
+        let first_sector, rest =
           let s =
             Stdlib.min
               (Cstruct.length data)
@@ -361,16 +361,21 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           in
           Cstruct.split data s
         in
-        let remaining_blocks, last_block =
-          let blocks = to_int (sub data_sectors (if end_sector_offset = 0L then 1L else 2L)) in
-          if blocks < 0 then
+        let remaining_sectors, last_sector =
+          let full_sectors =
+            (* the first sector is special (written last, may be partial) *)
+            let remaining_sectors = to_int (pred data_sectors) in
+            let last_is_full = end_sector_offset = 0L in
+            if last_is_full then remaining_sectors else remaining_sectors - 1
+          in
+          if full_sectors <= 0 then
             [], rest
           else
-            List.init blocks
+            List.init full_sectors
               (fun sec ->
                  Cstruct.sub rest (sec * to_int sector_size)
                    (to_int sector_size)),
-            Cstruct.shift rest (blocks * to_int sector_size)
+            Cstruct.shift rest (full_sectors * to_int sector_size)
         in
         (* to write robustly as we can:
            - we first write the last block, then
@@ -378,26 +383,26 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
            - finally the header AND the first tar block
         *)
         let buf = Cstruct.create (to_int sector_size) in
-        (if Cstruct.length last_block > 0 then
+        (if Cstruct.length last_sector > 0 then
            Lwt_result.map_error (function _ -> `Block `Disconnected)
              (BLOCK.read t.b end_sector [ buf ]) >>>= fun () ->
-           Cstruct.blit last_block 0 buf
-             (to_int end_sector_offset - Cstruct.length last_block)
-             (Cstruct.length last_block);
+           Cstruct.blit last_sector 0 buf
+             (to_int end_sector_offset - Cstruct.length last_sector)
+             (Cstruct.length last_sector);
            Lwt_result.map_error (fun e -> `Block e)
              (BLOCK.write t.b end_sector [ buf ])
          else
            Lwt.return (Ok ())) >>>= fun () ->
         (* write full blocks 2 .. end *)
         Lwt_result.map_error (fun e -> `Block e)
-          (BLOCK.write t.b (succ start_sector) remaining_blocks) >>>= fun () ->
+          (BLOCK.write t.b (succ start_sector) remaining_sectors) >>>= fun () ->
         (* finally write header and first block *)
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
         HW.write ~level:Tar.Header.Ustar hdr hw >>= fun () ->
         Lwt_result.map_error (function _ -> `Block `Disconnected)
           (BLOCK.read t.b start_sector [ buf ]) >>>= fun () ->
-        Cstruct.blit first_block 0 buf (to_int start_sector_offset)
-          (Cstruct.length first_block);
+        Cstruct.blit first_sector 0 buf (to_int start_sector_offset)
+          (Cstruct.length first_sector);
         Lwt_result.map_error (fun e -> `Block e)
           (BLOCK.write t.b start_sector [ buf ]) >>>= fun () ->
         let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
