@@ -297,6 +297,8 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       info: Mirage_block.info;
     }
     type 'a t = 'a Lwt.t
+    exception Read of BLOCK.error
+    exception Write of BLOCK.write_error
     let really_write out_channel data =
       assert (Cstruct.length data <= 512);
       let data = Cstruct.(append data (create (512 - length data))) in
@@ -304,20 +306,18 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       let sector = Int64.(div out_channel.offset (of_int sector_size)) in
       let block = Cstruct.create sector_size in
       BLOCK.read out_channel.b sector [ block ] >>= function
-      | Error e -> failwith (Format.asprintf "Read failed while writing sector %Ld to block device: %a"
-                               sector BLOCK.pp_error e)
+      | Error e -> raise (Read e)
       | Ok () ->
         let start_offset = Int64.to_int out_channel.offset mod sector_size in
         Cstruct.blit data 0 block start_offset (Cstruct.length data);
         BLOCK.write out_channel.b sector [ block ] >>= function
-        | Error e -> failwith (Format.asprintf "Failed to write sector %Ld to block device: %a"
-                                 sector BLOCK.pp_write_error e)
+        | Error e -> raise (Write e)
         | Ok () ->
           Lwt.return_unit
   end
   module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-  type write_error = [ `Block of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only | `Write_header of string ]
+  type write_error = [ `Block of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
 
   let pp_write_error ppf = function
    | `Block e -> BLOCK.pp_write_error ppf e
@@ -401,7 +401,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
         Lwt.catch
           (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
-          (function exn -> Lwt.return (Error (`Write_header (Printexc.to_string exn)))) >>>= fun () ->
+          (function
+            | Writer.Read _ -> Lwt.return (Error (`Block `Disconnected))
+            | Writer.Write e -> Lwt.return (Error (`Block e))
+            | exn -> raise exn) >>>= fun () ->
         Lwt_result.map_error (function _ -> `Block `Disconnected)
           (BLOCK.read t.b start_sector [ buf ]) >>>= fun () ->
         Cstruct.blit first_sector 0 buf (to_int start_sector_offset)
