@@ -23,28 +23,16 @@ let convert_path os path =
   close_in ch;
   line
 
-let win32_openfile path flags perms =
-  Unix.openfile (convert_path `Windows path) flags perms
-
 module Unix = struct
   include Unix
 
-  let openfile = if Sys.win32 then win32_openfile else openfile
+  let openfile path =
+    if Sys.win32 then openfile (convert_path `Windows path) else openfile path
+  let stat path =
+    if Sys.win32 then stat (convert_path `Windows path) else stat path
+  let truncate path =
+    if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
-
-exception Cstruct_differ
-
-let cstruct_equal a b =
-  let check_contents a b =
-    try
-      for i = 0 to Cstruct.length a - 1 do
-        let a' = Cstruct.get_char a i in
-        let b' = Cstruct.get_char b i in
-        if a' <> b' then raise Cstruct_differ
-      done;
-      true
-    with _ -> false in
-  (Cstruct.length a = (Cstruct.length b)) && (check_contents a b)
 
 let header _test_ctxt =
   (* check header marshalling and unmarshalling *)
@@ -55,7 +43,7 @@ let header _test_ctxt =
   let c' = Cstruct.create Tar.Header.length in
   for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
   Tar.Header.marshal c' h;
-  assert_equal ~printer:(fun x -> String.escaped (Cstruct.to_string x)) ~cmp:cstruct_equal c c';
+  assert_equal ~printer:(fun x -> String.escaped (Cstruct.to_string x)) ~cmp:Cstruct.equal c c';
   let printer = function
     | None -> "None"
     | Some x -> "Some " ^ (Tar.Header.to_detailed_string x) in
@@ -64,7 +52,7 @@ let header _test_ctxt =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files ?(block_size = 512) test_ctxt f =
   let format = match level with
     | None -> ""
     | Some format -> "--format=" ^ match format with
@@ -76,7 +64,8 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
   let tar_filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
   close_out ch;
   let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-  let cmdline = Printf.sprintf "tar -cf %s %s %s" tar_filename format (String.concat " " files) in
+  let tar_block_size = block_size / 512 in
+  let cmdline = Printf.sprintf "tar -cf %s -b %d %s %s" tar_filename tar_block_size format (String.concat " " files) in
   begin match Unix.system cmdline with
     | Unix.WEXITED 0 -> ()
     | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
@@ -166,91 +155,103 @@ let can_transform_tar test_ctxt =
 module Block4096 = struct
   include Block
 
-  let get_info b =
-    Block.get_info b
-    >>= fun info ->
-    let size_sectors = Int64.(div (add info.size_sectors 7L) 8L) in
-    Lwt.return { info with Mirage_block.sector_size = 4096; size_sectors }
-
-  let read b ofs bufs =
-    Block.get_info b
-    >>= fun info ->
-    let len = List.fold_left (+) 0 (List.map Cstruct.length bufs) in
-    let requested_end = Int64.(add (mul ofs 4096L) (of_int len)) in
-    let end_of_file = Int64.(mul info.size_sectors (of_int info.sector_size)) in
-    let need_to_trim = max 0L (Int64.sub requested_end end_of_file) |> Int64.to_int in
-    let need_to_keep = len - need_to_trim in
-    let rec trimmed len = function
-      | [] -> []
-      | b :: bs ->
-        let b' = Cstruct.length b in
-        for _ = 0 to b' do Cstruct.set_uint8 b 0 0 done;
-        let to_drop = max 0 (len + b' - need_to_keep) in
-        let to_keep = max 0 (b' - to_drop) in
-        Cstruct.sub b 0 to_keep :: (trimmed (len + b') bs) in
-    let trimmed =  (trimmed 0 bufs) in
-    Block.read b (Int64.mul ofs 8L) trimmed
+  let block_size = 4096
 
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
-    connect name
+    connect ~prefered_sector_size:(Some 4096) name
 end
 
 module type BLOCK = sig
   include Mirage_block.S
   val connect: string -> t Lwt.t
+  val block_size : int
 end
 
 module B = struct
   include Block
 
+  let block_size = 512
+
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
-    connect name
+    connect ~prefered_sector_size:(Some 512) name
 end
 
 module Test(B: BLOCK) = struct
-  let can_read_through_BLOCK ?files test_ctxt =
-    with_tar ?files test_ctxt
-      (fun tar_filename files ->
-         B.connect tar_filename >>= fun b ->
-         let module KV_RO = Tar_mirage.Make_KV_RO(B) in
-         KV_RO.connect b >>= fun k ->
-         Lwt_list.iter_s
-           (fun file ->
-              let stats = Unix.LargeFile.stat file in
-              let read_file key ofs len =
-                let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-                Fun.protect
-                  (fun () ->
-                     let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                     let buf = Bytes.make len '\000' in
-                     let len' = Unix.read fd buf 0 len in
-                     assert_equal ~printer:string_of_int len len';
-                     Bytes.to_string buf
-                  ) ~finally:(fun () -> Unix.close fd) in
-              let read_tar key =
-                KV_RO.get k key >>= function
-                | Error _ -> failwith "KV_RO.read"
-                | Ok buf -> Lwt.return buf in
-              (* Read whole file *)
-              let size = stats.Unix.LargeFile.st_size in
-              let value = read_file file 0 (Int64.to_int size) in
-              read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-              assert_equal ~printer:(fun x -> x) value value';
-              if Int64.compare size 2L = 1 then begin
-                let value = read_file file 1 ((Int64.to_int size) - 2) in
-                read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-                let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
-                assert_equal ~printer:(fun x -> x) value value'';
-                Lwt.return_unit
-              end else Lwt.return_unit
-           ) files
-      )
+  let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
+    let f tar_filename files =
+      let size = Unix.(stat tar_filename).st_size in
+      Unix.truncate tar_filename (size + (min (2 * B.block_size) 4096));
+      B.connect tar_filename >>= fun b ->
+      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+      KV_RW.connect b >>= fun t ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
+      Result.iter_error (fun e ->
+          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        x;
+      let files = "barf" :: files in
+      f tar_filename files
+    in
+    with_tar ?level ?files ~block_size:B.block_size test_ctxt f
 
-    let check_not_padded test_ctxt =
-      Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
-      can_read_through_BLOCK ~files:["empty"] test_ctxt
+  let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
+    let f tar_filename files =
+      B.connect tar_filename >>= fun b ->
+      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+      KV_RW.connect b >>= fun t ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
+      | Error `No_space -> Lwt.return ()
+      | _ -> failwith "expected `No_space"
+    in
+    with_tar ?level ?files test_ctxt f
+
+  let check_tar tar_filename files =
+    B.connect tar_filename >>= fun b ->
+    let module KV_RO = Tar_mirage.Make_KV_RO(B) in
+    KV_RO.connect b >>= fun k ->
+    Lwt_list.iter_s
+      (fun file ->
+         let size =
+           if file = "barf" then 6L else Unix.LargeFile.((stat file).st_size)
+	 in
+         let read_file key ofs len =
+	   if key = "barf" then String.sub "foobar" ofs len else
+           let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+           Fun.protect
+             (fun () ->
+                let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+                let buf = Bytes.make len '\000' in
+                let len' = Unix.read fd buf 0 len in
+                assert_equal ~printer:string_of_int len len';
+                Bytes.to_string buf
+             ) ~finally:(fun () -> Unix.close fd) in
+         let read_tar key =
+           KV_RO.get k key >>= function
+           | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
+           | Ok buf -> Lwt.return buf in
+         (* Read whole file *)
+         let value = read_file file 0 (Int64.to_int size) in
+         read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+         assert_equal ~printer:(fun x -> x) value value';
+         if Int64.compare size 2L = 1 then begin
+           let value = read_file file 1 ((Int64.to_int size) - 2) in
+           read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+           let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
+           assert_equal ~printer:(fun x -> x) value value'';
+           Lwt.return_unit
+         end else Lwt.return_unit
+      ) files
+
+  let can_read_through_BLOCK ?files test_ctxt =
+    with_tar ?files ~block_size:B.block_size test_ctxt check_tar
+
+  let write_test test_ctxt =
+     add_data_to_tar test_ctxt check_tar
+
+  let check_not_padded test_ctxt =
+    Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
+    can_read_through_BLOCK ~files:["empty"] test_ctxt
 end
 
 module Sector512 = Test(B)
@@ -267,6 +268,9 @@ let () =
                 "can write pax headers" >:: can_write_pax;
                 "can read @Longlink" >:: can_list_longlink_tar;
                 "can transform tars" >:: can_transform_tar;
+                "add_data_to_tar BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_test;
+                "write_with_full_archive BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_with_full_archive;
+                "add_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_test;
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";

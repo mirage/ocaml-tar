@@ -209,9 +209,7 @@ module Header = struct
         let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
         Printf.sprintf "%08d %s=%s\n" length k v
       ) pairs) in
-      let buffer = Cstruct.create (String.length txt) in
-      Cstruct.blit_from_string txt 0 buffer 0 (String.length txt);
-      buffer
+      Cstruct.of_string txt
 
     let unmarshal (c: Cstruct.t) : t =
       (* "%d %s=%s\n", <length>, <keyword>, <value> with constraints that
@@ -314,12 +312,7 @@ module Header = struct
   let length = 512
 
   (** A blank header block (two of these in series mark the end of the tar) *)
-  let zero_block =
-    let buf = Cstruct.create length in
-    for i = 0 to Cstruct.length buf - 1 do
-      Cstruct.set_uint8 buf i 0
-    done;
-    buf
+  let zero_block = Cstruct.create length
 
   (** [allzeroes buf] is true if [buf] contains only zero bytes *)
   let allzeroes buf =
@@ -624,7 +617,6 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
   let write_unextended ?level header fd =
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
-    Cstruct.memset buffer 0;
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
     ( if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
         ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
@@ -633,9 +625,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
             Header.imarshal ~level buffer 'K' blank;
             really_write fd buffer
             >>= fun () ->
-            let text = header.Header.link_name ^ "\000" in
-            let payload = Cstruct.create (String.length text) in
-            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
             really_write fd payload
             >>= fun () ->
             really_write fd (Header.zero_padding blank)
@@ -647,9 +637,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
             Header.imarshal ~level buffer 'L' blank;
             really_write fd buffer
             >>= fun () ->
-            let text = header.Header.file_name ^ "\000" in
-            let payload = Cstruct.create (String.length text) in
-            Cstruct.blit_from_string text 0 payload 0 (String.length text);
+            let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
             really_write fd payload
             >>= fun () ->
             really_write fd (Header.zero_padding blank)
