@@ -1,3 +1,11 @@
+## v2.2.0 (2022-10-19)
+
+- `tar-mirage` requires and implements `mirage-kv.5.0.0` (@hannesm, #96)
+- `tar-mirage` implements `Mirage_kv.RW` (append-only) (@hannesm, @reynir, @dinosaure, review by @MisterDA, #93)
+- Update usage of `cstruct` in `tar`: unnecessary memsets removed, use `Cstruct.of_string` (@hannesm, #93)
+- Fix `tar-mirage` read buffer allocation error (@reynir, review by @hannesm, #94)
+- `tar` and `tar-mirage` do not require `re` anymore, `tar-mirage` doesn't depend on `iopage` and works with solo5 and other improvements (@hannesm, review by @reynir, #90)
+
 ## v2.1.0 (2022-08-31)
 
 - `tar-mirage` requires `mirage-block.2.0.0` (@kit-ty-kate, #86)
