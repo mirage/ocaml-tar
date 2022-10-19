@@ -23,6 +23,10 @@ module Make_KV_RO (BLOCK : Mirage_block.S) : sig
   include Mirage_kv.RO
 
   val connect: BLOCK.t -> t Lwt.t
+  (** [connect block]
+
+      @raise Invalid_argument if [block] has a sector size that is not a
+                              positive multiple of 512. *)
 end
 
 module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) : sig
@@ -33,6 +37,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) : sig
   include Mirage_kv.RW
 
   val connect: BLOCK.t -> t Lwt.t
+  (** [connect block]
+
+      @raise Invalid_argument if [block] has a sector size that is not a
+                              positive multiple of 512. *)
 
   val free : t -> int64
   (** [free t] is the number of unused bytes. *)

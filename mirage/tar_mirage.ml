@@ -216,7 +216,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     BLOCK.get_info b >>= fun info ->
     let ssize = info.Mirage_block.sector_size in
     if ssize mod 512 <> 0 || ssize < 512 then
-      failwith "Sector size needs to be >= 512 and a multiple of 512";
+      invalid_argument "Sector size needs to be >= 512 and a multiple of 512";
     let in_channel = { Reader.b; offset = 0L; info } in
     let rec loop map =
       HR.read in_channel >>= function
