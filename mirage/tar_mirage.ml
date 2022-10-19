@@ -284,8 +284,13 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
   let update_insert map key hdr offset =
     match map with
-    | Value _ -> assert false
+    | Value _ ->
+      (* if the root is a value we have done something very wrong. This should
+         be catched by [is_safe_to_set]. *)
+      assert false
     | Dict (root, map) ->
+      (* [insert] may raise if [key] is [empty]. However, [is_safe_to_set]
+         should catch that since [empty] always exists as a dict (root). *)
       let map = insert map key (Value (hdr, offset)) in
       Dict (root, map)
 
