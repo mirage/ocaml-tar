@@ -1,3 +1,7 @@
+## v2.2.1 (2022-10-28)
+
+- `tar-mirage`: fix writing of data, previously the end_of_archive was set 512 bytes short (#99 @hannesm @reynir)
+
 ## v2.2.0 (2022-10-19)
 
 - `tar-mirage` requires and implements `mirage-kv.5.0.0` (@hannesm, #96)
