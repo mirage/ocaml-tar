@@ -214,9 +214,9 @@ module Test(B: BLOCK) = struct
       (fun file ->
          let size =
            if file = "barf" then 6L else Unix.LargeFile.((stat file).st_size)
-	 in
+         in
          let read_file key ofs len =
-	   if key = "barf" then String.sub "foobar" ofs len else
+           if key = "barf" then String.sub "foobar" ofs len else
            let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
            Fun.protect
              (fun () ->
