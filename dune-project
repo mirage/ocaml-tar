@@ -61,6 +61,7 @@
 "\| to facilitate embedding within MirageOS.
  )
  (tags ("org:xapi-project" "org:mirage"))
+ (conflicts (result (< 1.5)))
  (depends
   (ocaml (>= 4.08.0))
   (cstruct (>= 1.9.0))
