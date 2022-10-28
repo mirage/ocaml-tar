@@ -195,6 +195,26 @@ module Test(B: BLOCK) = struct
     in
     with_tar ?level ?files ~block_size:B.block_size test_ctxt f
 
+  let add_more_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
+    let f tar_filename files =
+      let size = Unix.(stat tar_filename).st_size in
+      Unix.truncate tar_filename (size + (min (4 * B.block_size) 4096));
+      B.connect tar_filename >>= fun b ->
+      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+      KV_RW.connect b >>= fun t ->
+      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
+      Result.iter_error (fun e ->
+          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        x;
+      KV_RW.set t (Mirage_kv.Key.v "barf2") "foobar2" >>= fun x ->
+      Result.iter_error (fun e ->
+          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        x;
+      let files = "barf" :: "barf2" :: files in
+      f tar_filename files
+    in
+    with_tar ?level ?files ~block_size:B.block_size test_ctxt f
+
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
     let f tar_filename files =
       B.connect tar_filename >>= fun b ->
@@ -213,19 +233,23 @@ module Test(B: BLOCK) = struct
     Lwt_list.iter_s
       (fun file ->
          let size =
-           if file = "barf" then 6L else Unix.LargeFile.((stat file).st_size)
-	 in
+           if file = "barf" then 6L
+           else if file = "barf2" then 7L
+           else Unix.LargeFile.((stat file).st_size)
+         in
          let read_file key ofs len =
-	   if key = "barf" then String.sub "foobar" ofs len else
-           let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-           Fun.protect
-             (fun () ->
-                let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                let buf = Bytes.make len '\000' in
-                let len' = Unix.read fd buf 0 len in
-                assert_equal ~printer:string_of_int len len';
-                Bytes.to_string buf
-             ) ~finally:(fun () -> Unix.close fd) in
+           if key = "barf" then String.sub "foobar" ofs len
+           else if key = "barf2" then String.sub "foobar2" ofs len
+           else
+             let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+             Fun.protect
+               (fun () ->
+                  let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+                  let buf = Bytes.make len '\000' in
+                  let len' = Unix.read fd buf 0 len in
+                  assert_equal ~printer:string_of_int len len';
+                  Bytes.to_string buf
+               ) ~finally:(fun () -> Unix.close fd) in
          let read_tar key =
            KV_RO.get k key >>= function
            | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
@@ -249,6 +273,9 @@ module Test(B: BLOCK) = struct
   let write_test test_ctxt =
      add_data_to_tar test_ctxt check_tar
 
+  let write_more_test test_ctxt =
+     add_more_data_to_tar test_ctxt check_tar
+
   let check_not_padded test_ctxt =
     Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
     can_read_through_BLOCK ~files:["empty"] test_ctxt
@@ -269,8 +296,10 @@ let () =
                 "can read @Longlink" >:: can_list_longlink_tar;
                 "can transform tars" >:: can_transform_tar;
                 "add_data_to_tar BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_test;
+                "add_more_data_to_tar BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_more_test;
                 "write_with_full_archive BLOCK/512" >:: OUnitLwt.lwt_wrapper Sector512.write_with_full_archive;
                 "add_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_test;
+                "add_more_data_to_tar BLOCK/4096" >:: OUnitLwt.lwt_wrapper Sector4096.write_more_test;
               ] in
   (* pwd = _build/default/lib_test *)
   Unix.chdir "../../..";

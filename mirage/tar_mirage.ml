@@ -349,17 +349,17 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let open Int64 in
         let sector_size = of_int t.info.Mirage_block.sector_size in
 
-        let start_bytes = sub t.end_of_archive 512L in
-        let header_start_bytes = sub start_bytes 512L in
-        let sentinel = 2 * 512 in
-        let end_bytes = add start_bytes (add space_needed (of_int sentinel)) in
+        let start_bytes = sub t.end_of_archive (of_int Tar.Header.length) in
+        let header_start_bytes = sub start_bytes (of_int Tar.Header.length) in
+        let sentinel = mul 2L (of_int Tar.Header.length) in
+        let end_bytes = add start_bytes (add space_needed sentinel) in
         (* Compute the starting sector and ending sector (rounding down then up) *)
         let start_sector, start_sector_offset = div start_bytes sector_size, rem start_bytes sector_size in
         let end_sector = div end_bytes sector_size in
         let end_sector_offset = rem end_bytes sector_size in
         let data_sectors = sub end_sector start_sector in
         let pad = Tar.Header.compute_zero_padding_length hdr in
-        let data = Cstruct.append data (Cstruct.create (pad + sentinel)) in
+        let data = Cstruct.append data (Cstruct.create (pad + to_int sentinel)) in
         let first_sector, rest =
           let s =
             Stdlib.min
@@ -418,7 +418,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         Lwt_result.map_error (fun e -> `Block_write e)
           (BLOCK.write t.b start_sector [ buf ]) >>>= fun () ->
         let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
-        t.end_of_archive <- add t.end_of_archive space_needed;
+        t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
         Lwt.return (Ok ()))
 
