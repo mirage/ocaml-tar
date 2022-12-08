@@ -362,8 +362,19 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let end_sector = div end_bytes sector_size in
         let end_sector_offset = rem end_bytes sector_size in
         let pad = Tar.Header.compute_zero_padding_length hdr in
-        let data = Cstruct.append data (Cstruct.create (pad + to_int sentinel)) in
 
+        (* Read slack for last sector *)
+        begin
+          if end_sector_offset = 0L then
+            Lwt.return_ok Cstruct.empty
+          else begin
+            let buf = Cstruct.create (to_int sector_size) in
+            BLOCK.read t.b end_sector [buf] >|= function
+            | Error e -> Error (`Block e)
+            | Ok () -> Ok (snd (Cstruct.split buf (to_int end_sector_offset)))
+          end
+        end >>>= fun slack ->
+        let data = Cstruct.concat [ data; Cstruct.create (pad + to_int sentinel); slack ] in
         let first_sector, remaining_sectors =
           let s =
             Stdlib.min
@@ -372,25 +383,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           in
           Cstruct.split data s
         in
-        (* Blit last sector if necessary *)
-        begin
-          if end_sector_offset = 0L then
-            Lwt.return_ok remaining_sectors
-          else begin
-            let buf = Cstruct.create (to_int sector_size) in
-            Lwt_result.map_error (fun e -> `Block e)
-              (BLOCK.read t.b end_sector [buf]) >>>= fun () ->
-            Lwt.return_ok
-              (Cstruct.append remaining_sectors
-                 (snd (Cstruct.split buf (to_int end_sector_offset))))
-          end
-        end >>>= fun remaining_sectors ->
         (* to write robustly as we can:
            - we write tar blocks 2..end,
            - then the header AND the first tar block
         *)
-
-        (* write full blocks 2 .. end *)
         let remaining_sectors =
           List.init (Cstruct.length remaining_sectors / to_int sector_size)
             (fun sector ->
