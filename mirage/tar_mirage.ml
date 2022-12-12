@@ -134,6 +134,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         let end_sector = div end_bytes sector_size in
         let n_sectors = succ (sub end_sector start_sector) in
         let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
+        (* XXX: this is to work around limitations in some block implementations *)
         let tmps =
           List.init (to_int n_sectors)
             (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
@@ -388,6 +389,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
            - then the header AND the first tar block
         *)
         let remaining_sectors =
+          (* XXX: this is to work around limitations in some block implementations *)
           List.init (Cstruct.length remaining_sectors / to_int sector_size)
             (fun sector ->
                Cstruct.sub remaining_sectors
