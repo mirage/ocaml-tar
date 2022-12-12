@@ -1,3 +1,7 @@
+## v2.2.2 (2022-12-12)
+
+- `tar-mirage`: fix writing of data when data+tar header is a multiple of `sector_size` greater than 1 (@reynir, review by @hannesm, #100)
+
 ## v2.2.1 (2022-10-28)
 
 - `tar-mirage`: fix writing of data, previously the end_of_archive was set 512 bytes short (#99 @hannesm @reynir)
