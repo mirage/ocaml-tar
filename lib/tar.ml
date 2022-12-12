@@ -193,18 +193,20 @@ module Header = struct
 
     let marshal t =
       let pairs =
-        (match t.access_time    with None -> [] | Some x -> [ "atime", Int64.to_string x ])
-      @ (match t.charset        with None -> [] | Some x -> [ "charset", x ])
-      @ (match t.comment        with None -> [] | Some x -> [ "comment", x ])
-      @ (match t.group_id       with None -> [] | Some x -> [ "gid", string_of_int x ])
-      @ (match t.gname          with None -> [] | Some x -> [ "group_name", x ])
-      @ (match t.header_charset with None -> [] | Some x -> [ "hdrcharset", x ])
-      @ (match t.link_path      with None -> [] | Some x -> [ "linkpath", x ])
-      @ (match t.mod_time       with None -> [] | Some x -> [ "mtime", Int64.to_string x ])
-      @ (match t.path           with None -> [] | Some x -> [ "path", x ])
-      @ (match t.file_size      with None -> [] | Some x -> [ "size", Int64.to_string x ])
-      @ (match t.user_id        with None -> [] | Some x -> [ "uid", string_of_int x ])
-      @ (match t.uname          with None -> [] | Some x -> [ "uname", x ]) in
+        let pair v name conv = Option.fold ~none:[] ~some:(fun x -> [ name, conv x ]) v in
+        pair t.access_time "atime" Int64.to_string @
+        pair t.charset "charset" Fun.id @
+        pair t.comment "comment" Fun.id @
+        pair t.group_id "gid" string_of_int @
+        pair t.gname "group_name" Fun.id @
+        pair t.header_charset "hdrcharset" Fun.id @
+        pair t.link_path "linkpath" Fun.id @
+        pair t.mod_time "mtime" Int64.to_string @
+        pair t.path "path" Fun.id @
+        pair t.file_size "size" Int64.to_string @
+        pair t.user_id "uid" string_of_int @
+        pair t.uname "uname" Fun.id
+      in
       let txt = String.concat "" (List.map (fun (k, v) ->
         let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
         Printf.sprintf "%08d %s=%s\n" length k v
@@ -232,22 +234,19 @@ module Header = struct
           match find remaining ' ' with
           | None -> failwith "Failed to decode pax extended header record"
           | Some i ->
-            let length = int_of_string @@ Cstruct.to_string @@ Cstruct.sub remaining 0 i in
+            let length = int_of_string @@ Cstruct.to_string ~off:0 ~len:i remaining in
             let record = Cstruct.sub remaining 0 length in
             let remaining = Cstruct.shift remaining length in
             begin match find record '=' with
             | None -> failwith "Failed to decode pax extended header record"
             | Some j ->
-              let keyword = Cstruct.to_string @@ Cstruct.sub record (i + 1) (j - i - 1) in
-              let v = Cstruct.to_string @@ Cstruct.sub record (j + 1) (Cstruct.length record - j - 2) in
+              let keyword = Cstruct.to_string ~off:(i + 1) ~len:(j - i - 1) record in
+              let v = Cstruct.to_string ~off:(j + 1) ~len:(length - j - 2) record in
               (keyword, v) :: (loop remaining)
             end
         end in
       let pairs = loop c in
-      let option name f =
-        if List.mem_assoc name pairs
-        then Some (f (List.assoc name pairs))
-        else None in
+      let option name f = Option.map f (List.assoc_opt name pairs) in
       (* integers are stored as decimal, not octal here *)
       let access_time    = option "atime" unmarshal_pax_time in
       let charset        = option "charset" unmarshal_string in
@@ -314,12 +313,6 @@ module Header = struct
   (** A blank header block (two of these in series mark the end of the tar) *)
   let zero_block = Cstruct.create length
 
-  (** [allzeroes buf] is true if [buf] contains only zero bytes *)
-  let allzeroes buf =
-    let rec loop i =
-      (i >= Cstruct.length buf) || (Cstruct.get_uint8 buf i = 0 && (loop (i + 1))) in
-    loop 0
-
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) =
     let table = [ "file_name",      x.file_name;
@@ -334,16 +327,15 @@ module Header = struct
 
   (** Marshal an integer field of size 'n' *)
   let marshal_int (x: int) (n: int) =
-    let octal = Printf.sprintf "%0*o" (n - 1) x in
-    octal ^ "\000" (* space or NULL allowed *)
+    Printf.sprintf "%0*o\000" (n - 1) x (* space or NULL allowed *)
 
   (** Marshal an int64 field of size 'n' *)
   let marshal_int64 (x: int64) (n: int) =
-    let octal = Printf.sprintf "%0*Lo" (n - 1) x in
-    octal ^ "\000" (* space or NULL allowed *)
+    Printf.sprintf "%0*Lo\000" (n - 1) x (* space or NULL allowed *)
 
   (** Marshal an string field of size 'n' *)
   let marshal_string (x: string) (n: int) =
+    assert (String.length x <= n);
     if String.length x < n then
       let bytes = Bytes.make n '\000' in
       Bytes.blit_string x 0 bytes 0 (String.length x);
@@ -354,8 +346,13 @@ module Header = struct
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch
 
+  let eight_spaces_sum =
+    let space = int_of_char ' ' in
+    8 * space
+
   (** From an already-marshalled block, compute what the checksum should be *)
   let checksum (x: Cstruct.t) : int64 =
+    (* XXX: is it safe to use int instead of int64?! *)
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
     let result = ref 0 in
@@ -365,14 +362,15 @@ module Header = struct
     (* since we included the checksum, subtract it and add the spaces *)
     let chksum = get_hdr_chksum x in
     for i = 0 to Cstruct.length chksum - 1 do
-      result := !result - (Cstruct.get_uint8 chksum i) + (int_of_char ' ')
+      result := !result - (Cstruct.get_uint8 chksum i)
     done;
-    Int64.of_int !result
+    Int64.of_int (!result + eight_spaces_sum)
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
   let unmarshal ?level ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
+    if Cstruct.length c <> length then invalid_arg "bad block size";
     let level = get_level level in
-    if allzeroes c then None
+    if Cstruct.equal c zero_block then None
     else
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
       if checksum c <> chksum then raise Checksum_mismatch

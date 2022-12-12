@@ -115,7 +115,8 @@ module Header : sig
 
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
-      will override some fields. *)
+      will override some fields.
+      @raise Invalid_argument if the is not exactly [length] long *)
   val unmarshal : ?level:compatibility -> ?extended:Extended.t -> Cstruct.t -> t option
 
   (** Marshal a header block, computing and inserting the checksum. *)
