@@ -112,7 +112,12 @@ let list filename =
       Format.printf "%a (%a)\n%!"
         pp_filename hdr
         (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
-      Tar_gz.skip ic (Int64.to_int hdr.Tar.Header.file_size) ;
+      (* Alternatively:
+           let padding = Tar.Header.compute_zero_padding_length hdr in
+           let data = Int64.to_int hdr.Tar.Header.file_size in
+           let to_skip = data + padding in *)
+      let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
+      Tar_gz.skip ic to_skip ;
       go ()
     | exception Tar.Header.End_of_stream -> () in
   go ()
