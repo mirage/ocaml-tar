@@ -42,6 +42,7 @@ module Header = struct
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
   let unmarshal_int64 (x: string) : int64 =
+    Printf.printf "unmarshal_int64 %S\n" x;
     let tmp = "0o0" ^ (trim_numerical x) in
     Int64.of_string tmp
 
@@ -350,10 +351,6 @@ module Header = struct
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch
 
-  let eight_spaces_sum =
-    let space = int_of_char ' ' in
-    8 * space
-
   (** From an already-marshalled block, compute what the checksum should be *)
   let checksum (x: Cstruct.t) : int64 =
     (* XXX: is it safe to use int instead of int64?! *)
@@ -366,17 +363,19 @@ module Header = struct
     (* since we included the checksum, subtract it and add the spaces *)
     let chksum = get_hdr_chksum x in
     for i = 0 to Cstruct.length chksum - 1 do
-      result := !result - (Cstruct.get_uint8 chksum i)
+      result := !result - (Cstruct.get_uint8 chksum i) + (int_of_char ' ')
     done;
-    Int64.of_int (!result + eight_spaces_sum)
+    Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
   let unmarshal ?level ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
     if Cstruct.length c <> length then invalid_arg "bad block size";
     let level = get_level level in
-    if Cstruct.equal c zero_block then None
+    if Cstruct.for_all (Char.equal '\000') c then None
     else
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
+      if chksum = 0L then Cstruct.hexdump c;
+      Printf.printf "checksum %Ld v %Ld\n" (checksum c) chksum;
       if checksum c <> chksum then raise Checksum_mismatch;
       let magic = copy_hdr_magic c and version = copy_hdr_version c in
       let ustar =
