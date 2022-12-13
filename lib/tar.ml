@@ -126,6 +126,7 @@ module Header = struct
       | GlobalExtendedHeader
       | PerFileExtendedHeader
       | LongLink
+      | LongName
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
     let to_char ?level =
@@ -139,7 +140,8 @@ module Header = struct
         | FIFO                  -> '6'
         | GlobalExtendedHeader  -> 'g'
         | PerFileExtendedHeader -> 'x'
-        | LongLink              -> 'L'
+        | LongLink              -> 'K'
+        | LongName              -> 'L'
 
     let of_char ?level =
       let level = get_level level in function
@@ -147,7 +149,8 @@ module Header = struct
         | '2' -> Symbolic
         | 'g' -> GlobalExtendedHeader
         | 'x' -> PerFileExtendedHeader
-        | 'L' -> LongLink
+        | 'K' -> LongLink
+        | 'L' -> LongName
         (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
         | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
         | '3' -> Character
@@ -167,6 +170,7 @@ module Header = struct
       | GlobalExtendedHeader -> "GlobalExtendedHeader"
       | PerFileExtendedHeader -> "PerFileExtendedHeader"
       | LongLink -> "LongLink"
+      | LongName -> "LongName"
   end
 
   module Extended = struct
@@ -373,43 +377,48 @@ module Header = struct
     if Cstruct.equal c zero_block then None
     else
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
-      if checksum c <> chksum then raise Checksum_mismatch
-      else let ustar =
-             let magic = unmarshal_string (copy_hdr_magic c) in
-             (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
-             String.length magic >= 5 && (String.sub magic 0 5 = "ustar") in
-        let prefix = if ustar then unmarshal_string (copy_hdr_prefix c) else "" in
-        let file_name =
-          let file_name = unmarshal_string (copy_hdr_file_name c) in
-          if file_name = "" then prefix
-          else if prefix = "" then file_name
-          else Filename.concat prefix file_name in
-        let file_mode = unmarshal_int (copy_hdr_file_mode c) in
-        let user_id = match extended.Extended.user_id with
-          | None -> unmarshal_int (copy_hdr_user_id c)
-          | Some x -> x in
-        let group_id = match extended.Extended.group_id with
-          | None -> unmarshal_int (copy_hdr_group_id c)
-          | Some x -> x in
-        let file_size = match extended.Extended.file_size with
-          | None -> unmarshal_int64 (copy_hdr_file_size c)
-          | Some x -> x in
-        let mod_time = match extended.Extended.mod_time with
-          | None -> unmarshal_int64  (copy_hdr_mod_time c)
-          | Some x -> x in
-        let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
-        let uname = match extended.Extended.uname with
-          | None -> if ustar then unmarshal_string (copy_hdr_uname c) else ""
-          | Some x -> x in
-        let gname = match extended.Extended.gname with
-          | None -> if ustar then unmarshal_string (copy_hdr_gname c) else ""
-          | Some x -> x in
-        let devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0 in
-        let devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0 in
+      if checksum c <> chksum then raise Checksum_mismatch;
+      let magic = copy_hdr_magic c and version = copy_hdr_version c in
+      let ustar =
+        (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
+        String.equal magic "ustar\000" && String.equal version "00" ||
+        String.equal magic "ustar " && String.equal version " \000"
+      in
+      if not ustar && not (String.equal magic (String.make 6 '\000') &&
+                           String.equal version (String.make 2 '\000')) then
+        Printf.ksprintf failwith "Bad magic %S version %S" magic version; (* FIXME *)
+      let prefix = if ustar then unmarshal_string (copy_hdr_prefix c) else "" in
+      let file_name =
+        let file_name = unmarshal_string (copy_hdr_file_name c) in
+        if file_name = "" then prefix
+        else if prefix = "" then file_name
+        else Filename.concat prefix file_name in
+      let file_mode = unmarshal_int (copy_hdr_file_mode c) in
+      let user_id = match extended.Extended.user_id with
+        | None -> unmarshal_int (copy_hdr_user_id c)
+        | Some x -> x in
+      let group_id = match extended.Extended.group_id with
+        | None -> unmarshal_int (copy_hdr_group_id c)
+        | Some x -> x in
+      let file_size = match extended.Extended.file_size with
+        | None -> unmarshal_int64 (copy_hdr_file_size c)
+        | Some x -> x in
+      let mod_time = match extended.Extended.mod_time with
+        | None -> unmarshal_int64  (copy_hdr_mod_time c)
+        | Some x -> x in
+      let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
+      let uname = match extended.Extended.uname with
+        | None -> if ustar then unmarshal_string (copy_hdr_uname c) else ""
+        | Some x -> x in
+      let gname = match extended.Extended.gname with
+        | None -> if ustar then unmarshal_string (copy_hdr_gname c) else ""
+        | Some x -> x in
+      let devmajor  = if ustar then unmarshal_int (copy_hdr_devmajor c) else 0 in
+      let devminor  = if ustar then unmarshal_int (copy_hdr_devminor c) else 0 in
 
-        let link_name = unmarshal_string (copy_hdr_link_name c) in
-        Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
-           ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
+      let link_name = unmarshal_string (copy_hdr_link_name c) in
+      Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
+              ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 
   (** Marshal a header block, computing and inserting the checksum *)
   let imarshal ~level c link_indicator (x: t) =
@@ -431,9 +440,11 @@ module Header = struct
     (* This relies on the fact that the block was initialised to null characters *)
     if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
       if level = Ustar then begin
+        (* "ustar\000" || "00" *)
         set_hdr_magic (marshal_string "ustar" sizeof_hdr_magic) 0 c;
-        set_hdr_version (marshal_int 0 sizeof_hdr_version) 0 c;
-      end else begin
+        set_hdr_version "00" 0 c;
+      end else begin (* level = GNU *)
+        (* "ustar " || " \000" *)
         set_hdr_magic "ustar " 0 c;
         set_hdr_version (marshal_string " " sizeof_hdr_version) 0 c;
       end;
@@ -537,7 +548,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
     let next () =
       next_block ()
       >>= function
-      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader -> next_block ()
+      | Some { Header.link_indicator = Header.Link.GlobalExtendedHeader; _ } -> next_block ()
       | x -> return x in
 
     let get_hdr () =
@@ -558,17 +569,16 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
           return (Error `Eof)
         | Some x -> return (Ok x)
         end
-      | Some x when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
+      | Some x when x.Header.link_indicator = Header.Link.LongName && x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
-        let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (length extra_header_buf - 1)) in
-        begin next ()
-        >>= function
-        | None -> return (Error `Eof)
-        | Some x -> return (Ok { x with file_name })
+        let file_name = Cstruct.to_string ~len:(Cstruct.length extra_header_buf - 1) extra_header_buf in
+        begin next () >>= function
+          | None -> return (Error `Eof)
+          | Some x -> return (Ok { x with file_name })
         end
       | Some x -> return (Ok x)
       | None ->

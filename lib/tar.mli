@@ -46,6 +46,7 @@ module Header : sig
       | GlobalExtendedHeader (** a PaxExtension global header *)
       | PerFileExtendedHeader (** a PaxExtension per-file header *)
       | LongLink (** a LongLink i.e. a very long filename *)
+      | LongName (** a LongName i.e. a very long filename *)
     val to_string: t -> string
   end
 
