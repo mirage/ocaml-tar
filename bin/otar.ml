@@ -61,21 +61,25 @@ let create_tarball directory oc =
   let mtime = Unix.gettimeofday () in
   let out_channel = Tar_gz.of_out_channel ~level:4 ~mtime:(Int32.of_float mtime) os oc in
   let hdr = Tar.Header.make ~file_mode:0o755
-    ~mod_time:(Int64.of_float mtime) (directory  ^ "/") 0L in
+    ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
   Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) ;
   Array.iter begin fun filename -> 
   let fd        = Unix.openfile (directory / filename) Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
   let stat      = Unix.LargeFile.lstat (directory / filename) in
-  let stream    = stream_of_fd fd in
-  let file_mode = if stat.Unix.LargeFile.st_perm land 0o111 <> 0 then 0o755 else 0o644 in
-  let mod_time  = Int64.of_float stat.Unix.LargeFile.st_mtime in
-  let user_id   = stat.Unix.LargeFile.st_uid in
-  let group_id  = stat.Unix.LargeFile.st_gid in
-  let hdr = Tar.Header.make
-    ~file_mode ~mod_time ~user_id ~group_id
-    (directory / filename) stat.Unix.LargeFile.st_size in
-  Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream ;
-  Unix.close fd ;
+  match stat.st_kind with
+  | Unix.S_REG ->
+    let stream    = stream_of_fd fd in
+    let file_mode = if stat.Unix.LargeFile.st_perm land 0o111 <> 0 then 0o755 else 0o644 in
+    let mod_time  = Int64.of_float stat.Unix.LargeFile.st_mtime in
+    let user_id   = stat.Unix.LargeFile.st_uid in
+    let group_id  = stat.Unix.LargeFile.st_gid in
+    let hdr = Tar.Header.make
+        ~file_mode ~mod_time ~user_id ~group_id
+        (directory / filename) stat.Unix.LargeFile.st_size in
+    Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream ;
+    Unix.close fd ;
+  | _ ->
+    Format.eprintf "Skipping non-regular file %s\n" (Filename.concat directory filename)
   end files ;
   Tar_gz.write_end out_channel
 
@@ -129,4 +133,6 @@ let () = match Sys.argv with
     make directory None
   | [| _; directory; output |] when Sys.is_directory directory ->
     make directory (Some output)
-  | _ -> Format.eprintf "%s <directory> [<filename.tar.gz>]" Sys.argv.(0)
+  | _ ->
+    let cmd = Filename.basename Sys.argv.(0) in
+    Format.eprintf "%s <directory> [<filename.tar.gz>]\n%s list <filename.tar.gz>\n" cmd cmd
