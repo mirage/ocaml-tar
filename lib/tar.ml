@@ -42,7 +42,6 @@ module Header = struct
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
   let unmarshal_int64 (x: string) : int64 =
-    Printf.printf "unmarshal_int64 %S\n" x;
     let tmp = "0o0" ^ (trim_numerical x) in
     Int64.of_string tmp
 
@@ -371,21 +370,18 @@ module Header = struct
   let unmarshal ?level ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
     if Cstruct.length c <> length then invalid_arg "bad block size";
     let level = get_level level in
-    if Cstruct.for_all (Char.equal '\000') c then None
+    if Cstruct.equal c zero_block then None
     else
       let chksum = unmarshal_int64 (copy_hdr_chksum c) in
-      if chksum = 0L then Cstruct.hexdump c;
-      Printf.printf "checksum %Ld v %Ld\n" (checksum c) chksum;
       if checksum c <> chksum then raise Checksum_mismatch;
       let magic = copy_hdr_magic c and version = copy_hdr_version c in
       let ustar =
-        (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
-        String.equal magic "ustar\000" && String.equal version "00" ||
+        (* GNU tar and Posix differ in interpretation of the character following
+           ustar. For Posix, it should be '\0' but GNU tar uses ' '.
+           Furthermore, older versions of ocaml-tar used "0\000" as version for Posix. *)
+        String.equal magic "ustar\000" && version.[0] = '0' ||
         String.equal magic "ustar " && String.equal version " \000"
       in
-      if not ustar && not (String.equal magic (String.make 6 '\000') &&
-                           String.equal version (String.make 2 '\000')) then
-        Printf.ksprintf failwith "Bad magic %S version %S" magic version; (* FIXME *)
       let prefix = if ustar then unmarshal_string (copy_hdr_prefix c) else "" in
       let file_name =
         let file_name = unmarshal_string (copy_hdr_file_name c) in
@@ -536,7 +532,6 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
     let level = Header.get_level level in
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
-    let real_header_buf = Cstruct.create Header.length in
 
     let next_block () =
       really_read ifd buffer
@@ -560,9 +555,9 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
         let extended = Header.Extended.unmarshal extra_header_buf in
-        really_read ifd real_header_buf
+        really_read ifd buffer
         >>= fun () ->
-        begin match Header.unmarshal ~level ~extended real_header_buf with
+        begin match Header.unmarshal ~level ~extended buffer with
         | None ->
           (* Corrupt pax headers *)
           return (Error `Eof)
@@ -589,8 +584,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         end in
 
     let rec read_header (file_name, link_name, hdr) : (Header.t, [`Eof]) result Async.t =
-      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
-      if (raw_link_indicator = 'K' || raw_link_indicator = 'L') && level = Header.GNU then
+      if (hdr.Header.link_indicator = Header.Link.LongLink ||
+          hdr.Header.link_indicator = Header.Link.LongName) && level = Header.GNU then
         let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
         let pad = Cstruct.create (Header.compute_zero_padding_length hdr) in
         really_read ifd data
@@ -602,7 +597,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= function
         | Error `Eof -> return (Error `Eof)
         | Ok hdr ->
-          if raw_link_indicator = 'K'
+          if hdr.Header.link_indicator = Header.Link.LongLink
           then read_header (file_name, data, hdr)
           else read_header (data, link_name, hdr)
       else begin
