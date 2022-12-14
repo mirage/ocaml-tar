@@ -238,14 +238,14 @@ module Header = struct
           match find remaining ' ' with
           | None -> failwith "Failed to decode pax extended header record"
           | Some i ->
-            let length = int_of_string @@ Cstruct.to_string ~off:0 ~len:i remaining in
+            let length = int_of_string @@ Cstruct.copy remaining 0 i in
             let record = Cstruct.sub remaining 0 length in
             let remaining = Cstruct.shift remaining length in
             begin match find record '=' with
             | None -> failwith "Failed to decode pax extended header record"
             | Some j ->
-              let keyword = Cstruct.to_string ~off:(i + 1) ~len:(j - i - 1) record in
-              let v = Cstruct.to_string ~off:(j + 1) ~len:(length - j - 2) record in
+              let keyword = Cstruct.copy record (i + 1) (j - i - 1) in
+              let v = Cstruct.copy record (j + 1) (length - j - 2) in
               (keyword, v) :: (loop remaining)
             end
         end in
