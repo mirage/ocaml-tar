@@ -271,10 +271,13 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
     in
     find t.map (Mirage_kv.Key.segments key)
 
-  let header_of_key key len =
+  let header_of_key ?last_modified key len =
     let mod_time =
-      let ptime = Ptime.v (CLOCK.now_d_ps ()) in
-      Int64.of_float (Ptime.to_float_s ptime)
+      match last_modified with
+      | Some mod_time -> Int64.of_float (Ptime.to_float_s mod_time)
+      | None ->
+        let ptime = Ptime.v (CLOCK.now_d_ps ()) in
+        Int64.of_float (Ptime.to_float_s ptime)
     in
     Tar.Header.make ~mod_time (Mirage_kv.Key.to_string key) (Int64.of_int len)
 
@@ -430,6 +433,84 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   let set_partial _ _ ~offset:_ _ =
     Lwt.return (Error `Append_only)
 
-  let allocate _ _ ?last_modified:_ _ =
-    Lwt.return (Error `Append_only)
+  let allocate t key ?last_modified size =
+    Lwt_mutex.with_lock t.write_lock (fun () ->
+        let ( >>>= ) = Lwt_result.bind in
+        let r =
+          let ( let* ) = Result.bind in
+          (* XXX: map `Entry_already_exists to `Append_only ?! *)
+          let* () = is_safe_to_set t key in
+          let hdr = header_of_key ?last_modified key (Optint.Int63.to_int size) in
+          let space_needed = space_needed hdr in
+          let* () = if free t >= space_needed then Ok () else Error `No_space in
+          Ok (hdr, space_needed)
+        in
+        Lwt.return r >>>= fun (hdr, space_needed) ->
+        let open Int64 in
+        let sector_size = of_int t.info.Mirage_block.sector_size in
+        let header_start_bytes =
+          sub t.end_of_archive (of_int (2 * Tar.Header.length))
+        in
+        let to_zero_start_bytes = t.end_of_archive in
+        let end_bytes = add t.end_of_archive
+            (add space_needed (of_int Tar.Header.length)) in
+        (* Compute the starting sector and ending sector *)
+        let to_zero_start_sector, to_zero_start_sector_offset =
+          div to_zero_start_bytes sector_size,
+          rem to_zero_start_bytes sector_size
+        in
+        let last_sector_offset = rem end_bytes sector_size in
+        let end_sector = div (add end_bytes sector_size) sector_size in
+        let num_sectors = to_int (min (sub end_sector to_zero_start_sector) 0L) in
+
+        let zero_sector = Cstruct.create t.info.Mirage_block.sector_size in
+        let data = Array.init num_sectors (fun _ -> zero_sector) in
+        let copy_cstruct c =
+          let c' = Cstruct.create (Cstruct.length c) in
+          Cstruct.blit c 0 c' 0 (Cstruct.length c);
+          c'
+        in
+        (* read first and last sector, if necessary *)
+        begin if num_sectors = 0 then
+            Lwt_result.return ()
+          else begin
+            begin if to_zero_start_sector_offset <> 0L then
+                let () = data.(0) <- copy_cstruct data.(0) in
+                let buf = Cstruct.create t.info.Mirage_block.sector_size in
+                Lwt_result.map_error (fun e -> `Block e)
+                  (BLOCK.read t.b to_zero_start_sector [buf]) >>>= fun () ->
+                let () =
+                  Cstruct.blit buf 0 data.(0) 0 (to_int to_zero_start_sector_offset)
+                in
+                Lwt_result.return ()
+              else
+                Lwt_result.return ()
+            end >>>= fun () ->
+            begin if last_sector_offset <> 0L then
+                let last = copy_cstruct data.(num_sectors - 1) in
+                let () = data.(num_sectors - 1 ) <- last in
+                let buf = Cstruct.create t.info.Mirage_block.sector_size in
+                Lwt_result.map_error (fun e -> `Block e)
+                  (BLOCK.read t.b (pred end_sector) [buf]) >>>= fun () ->
+                let () =
+                  Cstruct.blit buf (to_int last_sector_offset)
+                    last (to_int last_sector_offset)
+                    (t.info.sector_size - to_int last_sector_offset)
+                in
+                Lwt_result.return ()
+              else
+                Lwt_result.return ()
+            end
+          end
+        end >>>= fun () ->
+        Lwt_result.map_error (fun e -> `Block_write e)
+          (BLOCK.write t.b to_zero_start_sector
+             (Array.to_list data)) >>>= fun () ->
+        let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
+        Lwt.catch
+          (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
+          (function
+            | Writer.Read e -> Lwt.return (Error (`Block e))
+            | Writer.Write e -> Lwt.return (Error (`Block_write e))
+            | exn -> raise exn))
 end
