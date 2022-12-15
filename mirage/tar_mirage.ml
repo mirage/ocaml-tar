@@ -430,8 +430,56 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   let rename _ ~source:_ ~dest:_ =
     Lwt.return (Error `Append_only)
 
-  let set_partial _ _ ~offset:_ _ =
-    Lwt.return (Error `Append_only)
+  let set_partial t key ~offset data =
+    let ( >>>= ) = Lwt_result.bind in
+    if Optint.Int63.(compare offset zero < 0) then
+      invalid_arg "Tar_mirage.set_partial: negative offset";
+    Lwt.return begin match get_node t.map key with
+      | Ok Value (hdr, offset) -> Ok (hdr, offset)
+      | Ok Dict _ -> Error `Path_segment_is_a_value
+      | Error _ as e -> e
+    end >>>= fun (hdr, data_offset) ->
+    (* FIXME: check more thoroughly offset *)
+    let open Int64 in
+    let offset = Optint.Int63.to_int64 offset in
+    let end_bytes = add offset (of_int (String.length data)) in
+    begin if hdr.file_size < end_bytes then
+        Lwt_result.fail `Append_only
+      else
+        Lwt_result.return ()
+    end >>>= fun () ->
+    let start_bytes = add data_offset hdr.file_size
+    and end_bytes = add data_offset end_bytes in
+    let sector_size = of_int t.info.sector_size in
+    let start_bytes_offset = rem start_bytes sector_size in
+    let end_bytes_offset = rem end_bytes sector_size in
+
+    let data' =
+      let len =
+        add start_bytes_offset
+          (add (of_int (String.length data))
+             (if end_bytes_offset = 0L then
+                0L
+              else
+                sub sector_size end_bytes_offset))
+      in
+      Cstruct.create (to_int len)
+    in
+    let buf = Cstruct.create t.info.sector_size in
+    Lwt_result.map_error (fun e -> `Block e)
+      (BLOCK.read t.b (div start_bytes sector_size) [buf]) >>>= fun () ->
+    Cstruct.blit buf 0 data' 0 (to_int start_bytes_offset);
+    Lwt_result.map_error (fun e -> `Block e)
+      (BLOCK.read t.b (div end_bytes sector_size) [buf]) >>>= fun () ->
+    Cstruct.blit buf (to_int (add start_bytes_offset end_bytes))
+      buf 0 (to_int (sub sector_size end_bytes_offset));
+    let data' =
+      List.init (Cstruct.length data' / t.info.sector_size)
+        (fun sector ->
+           Cstruct.sub data' (sector * t.info.sector_size) t.info.sector_size)
+    in
+    Lwt_result.map_error (fun e -> `Block_write e)
+      (BLOCK.write t.b (div start_bytes sector_size) data')
 
   let allocate t key ?last_modified size =
     Lwt_mutex.with_lock t.write_lock (fun () ->
