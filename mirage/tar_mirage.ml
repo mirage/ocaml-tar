@@ -114,14 +114,15 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
     | Ok (Value (hdr, start_sector)) ->
       let open Int64 in
+      let offset = Optint.Int63.to_int64 offset in
       let sector_size = of_int t.info.Mirage_block.sector_size in
       (* Compute the unaligned data we need to read *)
       let start_bytes =
         let sec = mul start_sector 512L in
-        add sec (Optint.Int63.to_int64 offset)
+        add sec offset
       in
       let length_bytes =
-        min (sub hdr.Tar.Header.file_size (Optint.Int63.to_int64 offset))
+        min (sub hdr.Tar.Header.file_size offset)
           (of_int length)
       in
       if length_bytes < 0L then
