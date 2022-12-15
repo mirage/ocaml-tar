@@ -400,6 +400,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           (BLOCK.write t.b (succ data_start_sector) remaining_sectors) >>>= fun () ->
         (* finally write header and first block *)
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
+        (* it is important we write at level [Ustar] at most as we assume the
+           header(s) taking up exactly 512 bytes. With [GNU] level extra blocks
+           may be used for long names. *)
         Lwt.catch
           (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
           (function
