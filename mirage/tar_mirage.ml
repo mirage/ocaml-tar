@@ -512,5 +512,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           (function
             | Writer.Read e -> Lwt.return (Error (`Block e))
             | Writer.Write e -> Lwt.return (Error (`Block_write e))
-            | exn -> raise exn))
+            | exn -> raise exn) >>>= fun () ->
+        let tar_offset = div (sub t.end_of_archive 512L) 512L in
+        t.end_of_archive <- end_bytes;
+        t.map <- update_insert t.map key hdr tar_offset;
+        Lwt.return (Ok ()))
 end
