@@ -353,8 +353,11 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
         let data_start_bytes = sub t.end_of_archive (of_int Tar.Header.length) in
         let header_start_bytes = sub data_start_bytes (of_int Tar.Header.length) in
+        let pad = Tar.Header.compute_zero_padding_length hdr in
         let sentinel = mul 2L (of_int Tar.Header.length) in
-        let end_bytes = add data_start_bytes (add space_needed sentinel) in
+        let end_bytes =
+          add data_start_bytes (add space_needed (add (of_int pad) sentinel))
+        in
         (* Compute the starting sector and ending sector *)
         let data_start_sector, data_start_sector_offset =
           div data_start_bytes sector_size,
@@ -362,7 +365,6 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         in
         let end_sector = div end_bytes sector_size in
         let end_sector_offset = rem end_bytes sector_size in
-        let pad = Tar.Header.compute_zero_padding_length hdr in
 
         (* Read slack for last sector *)
         begin
