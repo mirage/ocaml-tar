@@ -68,7 +68,8 @@
   (lwt (>= 5.6.0))
   (mirage-block (>= 2.0.0))
   (mirage-clock (>= 4.0.0))
-  (mirage-kv (>= 5.0.0))
+  (mirage-kv (>= 6.0.0))
+  optint
   ptime
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.5.0)))

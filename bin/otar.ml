@@ -101,20 +101,13 @@ let bytes_to_size ?(decimals = 2) ppf = function
       let r = n /. Float.pow 1024. i in
       Format.fprintf ppf "%.*f %s" decimals r sizes.(int_of_float i)
 
-let pp_filename ppf hdr =
-  let file_name = hdr.Tar.Header.file_name in
-  if String.length file_name > 0
-  && file_name.[String.length file_name - 1] = '/'
-  then Format.fprintf ppf "%s" (String.sub file_name 0 (String.length file_name - 1))
-  else Format.fprintf ppf "%s" file_name
-
 let list filename =
   let ic = open_in filename in
   let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
   let rec go () = match Tar_gz.get_next_header ic with
     | hdr ->
-      Format.printf "%a (%a)\n%!"
-        pp_filename hdr
+      Format.printf "%s (%a)\n%!"
+        hdr.Tar.Header.file_name
         (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
       (* Alternatively:
            let padding = Tar.Header.compute_zero_padding_length hdr in

@@ -65,8 +65,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
 
   let size t key =
     let r = match get_node t.map key with
-      | Ok (Value (e, _)) -> Ok (Int64.to_int e.file_size)
-      | Ok (Dict (e, _)) -> Ok (Int64.to_int e.file_size)
+      | Ok (Value (e, _)) -> Ok (Optint.Int63.of_int64 e.file_size)
+      | Ok (Dict (e, _)) -> Ok (Optint.Int63.of_int64 e.file_size)
       | Error e -> Error e
     in
     Lwt.return r
@@ -114,14 +114,16 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
     | Ok (Value (hdr, start_sector)) ->
       let open Int64 in
+      let offset = Optint.Int63.to_int64 offset in
       let sector_size = of_int t.info.Mirage_block.sector_size in
       (* Compute the unaligned data we need to read *)
       let start_bytes =
         let sec = mul start_sector 512L in
-        add sec (of_int offset)
+        add sec offset
       in
       let length_bytes =
-        min (sub hdr.Tar.Header.file_size (of_int offset)) (of_int length)
+        min (sub hdr.Tar.Header.file_size offset)
+          (of_int length)
       in
       if length_bytes < 0L then
         Lwt.return (Ok "")
@@ -148,12 +150,13 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
           Ok (Cstruct.to_string buf)
 
   let get t key =
-    get_partial t key ~offset:0 ~length:max_int
+    get_partial t key ~offset:Optint.Int63.zero ~length:max_int
 
   let list t key =
     let r = match get_node t.map key with
       | Ok (Dict (_, m)) ->
-        Ok (StringMap.fold (fun key value acc ->
+        Ok (StringMap.fold (fun sub value acc ->
+            let key = Mirage_kv.Key.add key sub in
             match value with
             | Dict _ -> (key, `Dictionary) :: acc
             | Value _ -> (key, `Value) :: acc)
@@ -163,17 +166,14 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     in
     Lwt.return r
 
-  let to_day_ps hdr =
-    let ptime =
-      Option.value ~default:Ptime.epoch
-        (Ptime.of_float_s (Int64.to_float hdr.Tar.Header.mod_time))
-    in
-    Ptime.(Span.to_d_ps (to_span ptime))
+  let to_ptime hdr =
+    Option.value ~default:Ptime.epoch
+      (Ptime.of_float_s (Int64.to_float hdr.Tar.Header.mod_time))
 
   let last_modified t key =
     let r = match get_node t.map key with
-      | Ok (Dict (hdr, _)) -> Ok (to_day_ps hdr)
-      | Ok (Value (hdr, _)) -> Ok (to_day_ps hdr)
+      | Ok (Dict (hdr, _)) -> Ok (to_ptime hdr)
+      | Ok (Value (hdr, _)) -> Ok (to_ptime hdr)
       | Error e -> Error e
     in
     Lwt.return r
@@ -430,6 +430,6 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   let set_partial _ _ ~offset:_ _ =
     Lwt.return (Error `Append_only)
 
-  let batch t ?retries:_ f = f t
-
+  let allocate _ _ ?last_modified:_ _ =
+    Lwt.return (Error `Append_only)
 end
