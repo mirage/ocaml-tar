@@ -43,6 +43,10 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     | #Mirage_kv.error as e -> Mirage_kv.pp_error ppf e
     | `Block b -> BLOCK.pp_error ppf b
 
+  let read t sector_start buffers =
+    Lwt_result.map_error (fun e -> `Block e)
+      (BLOCK.read t.b sector_start buffers)
+
   let get_node t key =
     let rec find e = function
       | [] -> Ok e
@@ -141,8 +145,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
           List.init (to_int n_sectors)
             (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
         in
-        BLOCK.read t.b start_sector tmps >|= function
-        | Error b -> Error (`Block b)
+        read t start_sector tmps >|= function
+        | Error _ as e -> e
         | Ok () ->
           let buf =
             Cstruct.sub buf (to_int start_padding) (to_int length_bytes)
@@ -253,6 +257,21 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
   include Make_KV_RO(BLOCK)
 
+  type write_error = [ `Block of BLOCK.error | `Block_write of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
+
+  let pp_write_error ppf = function
+   | `Block e -> Fmt.pf ppf "read error while writing: %a" BLOCK.pp_error e
+   | `Block_write e -> BLOCK.pp_write_error ppf e
+   | #Mirage_kv.write_error as e -> Mirage_kv.pp_write_error ppf e
+   | `Entry_already_exists -> Fmt.string ppf "entry already exists"
+   | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
+   | `Append_only -> Fmt.string ppf "append only"
+   | `Write_header msg -> Fmt.pf ppf "writing tar header failed: %s" msg
+
+  let write t sector_start buffers =
+    Lwt_result.map_error (fun e -> `Block_write e)
+      (BLOCK.write t.b sector_start buffers)
+
   let free t =
     Int64.(sub (mul (of_int t.info.sector_size) t.info.size_sectors)
              t.end_of_archive)
@@ -327,17 +346,6 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   end
   module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-  type write_error = [ `Block of BLOCK.error | `Block_write of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
-
-  let pp_write_error ppf = function
-   | `Block e -> Fmt.pf ppf "read error while writing: %a" BLOCK.pp_error e
-   | `Block_write e -> BLOCK.pp_write_error ppf e
-   | #Mirage_kv.write_error as e -> Mirage_kv.pp_write_error ppf e
-   | `Entry_already_exists -> Fmt.string ppf "entry already exists"
-   | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
-   | `Append_only -> Fmt.string ppf "append only"
-   | `Write_header msg -> Fmt.pf ppf "writing tar header failed: %s" msg
-
   let set t key data =
     Lwt_mutex.with_lock t.write_lock (fun () ->
         let data = Cstruct.of_string data in
@@ -373,9 +381,8 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             Lwt.return_ok Cstruct.empty
           else begin
             let buf = Cstruct.create (to_int sector_size) in
-            BLOCK.read t.b end_sector [buf] >|= function
-            | Error e -> Error (`Block e)
-            | Ok () -> Ok (snd (Cstruct.split buf (to_int end_sector_offset)))
+            read t end_sector [buf] >>>= fun () ->
+            Lwt.return (Ok (snd (Cstruct.split buf (to_int end_sector_offset))))
           end
         end >>>= fun slack ->
         let data = Cstruct.concat [ data; Cstruct.create (pad + to_int sentinel); slack ] in
@@ -399,8 +406,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
                  (sector * to_int sector_size)
                  (to_int sector_size))
         in
-        Lwt_result.map_error (fun e -> `Block_write e)
-          (BLOCK.write t.b (succ data_start_sector) remaining_sectors) >>>= fun () ->
+        write t (succ data_start_sector) remaining_sectors >>>= fun () ->
         (* finally write header and first block *)
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
         (* it is important we write at level [Ustar] at most as we assume the
@@ -413,12 +419,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             | Writer.Write e -> Lwt.return (Error (`Block_write e))
             | exn -> raise exn) >>>= fun () ->
         let buf = Cstruct.create (to_int sector_size) in
-        Lwt_result.map_error (function e -> `Block e)
-          (BLOCK.read t.b data_start_sector [ buf ]) >>>= fun () ->
+        read t data_start_sector [ buf ] >>>= fun () ->
         Cstruct.blit first_sector 0 buf (to_int data_start_sector_offset)
           (Cstruct.length first_sector);
-        Lwt_result.map_error (fun e -> `Block_write e)
-          (BLOCK.write t.b data_start_sector [ buf ]) >>>= fun () ->
+        write t data_start_sector [ buf ] >>>= fun () ->
         let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
@@ -466,11 +470,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       Cstruct.create (to_int len)
     in
     let buf = Cstruct.create t.info.sector_size in
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.read t.b (div start_bytes sector_size) [buf]) >>>= fun () ->
+    read t (div start_bytes sector_size) [ buf ] >>>= fun () ->
     Cstruct.blit buf 0 data' 0 (to_int start_bytes_offset);
-    Lwt_result.map_error (fun e -> `Block e)
-      (BLOCK.read t.b (div end_bytes sector_size) [buf]) >>>= fun () ->
+    read t (div end_bytes sector_size) [ buf ] >>>= fun () ->
     Cstruct.blit buf (to_int (add start_bytes_offset end_bytes))
       buf 0 (to_int (sub sector_size end_bytes_offset));
     let data' =
@@ -478,8 +480,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         (fun sector ->
            Cstruct.sub data' (sector * t.info.sector_size) t.info.sector_size)
     in
-    Lwt_result.map_error (fun e -> `Block_write e)
-      (BLOCK.write t.b (div start_bytes sector_size) data')
+    write t (div start_bytes sector_size) data'
 
   let allocate t key ?last_modified size =
     Lwt_mutex.with_lock t.write_lock (fun () ->
@@ -525,8 +526,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             begin if to_zero_start_sector_offset <> 0L then
                 let () = data.(0) <- copy_cstruct data.(0) in
                 let buf = Cstruct.create t.info.Mirage_block.sector_size in
-                Lwt_result.map_error (fun e -> `Block e)
-                  (BLOCK.read t.b to_zero_start_sector [buf]) >>>= fun () ->
+                read t to_zero_start_sector [ buf ] >>>= fun () ->
                 let () =
                   Cstruct.blit buf 0 data.(0) 0 (to_int to_zero_start_sector_offset)
                 in
@@ -538,8 +538,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
                 let last = copy_cstruct data.(num_sectors - 1) in
                 let () = data.(num_sectors - 1 ) <- last in
                 let buf = Cstruct.create t.info.Mirage_block.sector_size in
-                Lwt_result.map_error (fun e -> `Block e)
-                  (BLOCK.read t.b (pred end_sector) [buf]) >>>= fun () ->
+                read t (pred end_sector) [ buf ] >>>= fun () ->
                 let () =
                   Cstruct.blit buf (to_int last_sector_offset)
                     last (to_int last_sector_offset)
@@ -551,9 +550,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             end
           end
         end >>>= fun () ->
-        Lwt_result.map_error (fun e -> `Block_write e)
-          (BLOCK.write t.b to_zero_start_sector
-             (Array.to_list data)) >>>= fun () ->
+        write t to_zero_start_sector (Array.to_list data) >>>= fun () ->
         let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
         Lwt.catch
           (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
