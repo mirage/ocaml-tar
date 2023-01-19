@@ -454,59 +454,60 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
   let set_partial t key ~offset data =
     let ( >>>= ) = Lwt_result.bind in
-    if Optint.Int63.(compare offset zero < 0) then
-      invalid_arg "Tar_mirage.set_partial: negative offset";
-    Lwt.return begin match get_node t.map key with
-      | Ok Value (hdr, offset) -> Ok (hdr, offset)
-      | Ok Dict _ -> Error `Path_segment_is_a_value
-      | Error _ as e -> e
-    end >>>= fun (hdr, data_offset) ->
-    (* FIXME: check more thoroughly offset *)
-    let offset = Optint.Int63.to_int64 offset in
-    let open Int64 in
-    let end_bytes = add offset (of_int (String.length data)) in
-    begin if hdr.file_size < end_bytes then
-        Lwt_result.fail `Append_only
-      else
-        Lwt_result.return ()
-    end >>>= fun () ->
-    let end_bytes = add data_offset end_bytes in
-    let start_bytes = add data_offset offset in
-    let sector_size = of_int t.info.sector_size in
-    let start_sector_offset = rem start_bytes sector_size in
-    let end_sector = div (add end_bytes sector_size) sector_size in
-    let last_sector_offset = rem end_bytes sector_size in
-    (* allocate a buffer for what we need to write, and blit in data and slack
-       at first and last sector. *)
-    let data' =
-      let len =
-        add start_sector_offset
-          (add (of_int (String.length data))
-             (if last_sector_offset = 0L then
-                0L
-              else
-                sub sector_size last_sector_offset))
-      in
-      Cstruct.create (to_int len)
-    in
-    Cstruct.blit_from_string data 0 data'
-      (to_int start_sector_offset) (String.length data);
-    read_partial_sector t (div start_bytes sector_size) data'
-      ~offset:0L ~length:start_sector_offset >>>= fun () ->
-    let last_sector =
-      Cstruct.sub data' (Cstruct.length data' - t.info.sector_size)
-        t.info.sector_size
-    in
-    read_partial_sector t (pred end_sector) last_sector
-      ~offset:last_sector_offset
-      ~length:(sub sector_size last_sector_offset) >>>= fun () ->
-    (* XXX: this is to work around limitations in some block implementations *)
-    let data' =
-      List.init (Cstruct.length data' / t.info.sector_size)
-        (fun sector ->
-           Cstruct.sub data' (sector * t.info.sector_size) t.info.sector_size)
-    in
-    write t (div start_bytes sector_size) data'
+    Lwt_mutex.with_lock t.write_lock (fun () ->
+        if Optint.Int63.(compare offset zero < 0) then
+          invalid_arg "Tar_mirage.set_partial: negative offset";
+        Lwt.return begin match get_node t.map key with
+          | Ok Value (hdr, offset) -> Ok (hdr, offset)
+          | Ok Dict _ -> Error `Path_segment_is_a_value
+          | Error _ as e -> e
+        end >>>= fun (hdr, data_offset) ->
+        (* FIXME: check more thoroughly offset *)
+        let offset = Optint.Int63.to_int64 offset in
+        let open Int64 in
+        let end_bytes = add offset (of_int (String.length data)) in
+        begin if hdr.file_size < end_bytes then
+            Lwt_result.fail `Append_only
+          else
+            Lwt_result.return ()
+        end >>>= fun () ->
+        let end_bytes = add data_offset end_bytes in
+        let start_bytes = add data_offset offset in
+        let sector_size = of_int t.info.sector_size in
+        let start_sector_offset = rem start_bytes sector_size in
+        let end_sector = div (add end_bytes sector_size) sector_size in
+        let last_sector_offset = rem end_bytes sector_size in
+        (* allocate a buffer for what we need to write, and blit in data and slack
+           at first and last sector. *)
+        let data' =
+          let len =
+            add start_sector_offset
+              (add (of_int (String.length data))
+                 (if last_sector_offset = 0L then
+                    0L
+                  else
+                    sub sector_size last_sector_offset))
+          in
+          Cstruct.create (to_int len)
+        in
+        Cstruct.blit_from_string data 0 data'
+          (to_int start_sector_offset) (String.length data);
+        read_partial_sector t (div start_bytes sector_size) data'
+          ~offset:0L ~length:start_sector_offset >>>= fun () ->
+        let last_sector =
+          Cstruct.sub data' (Cstruct.length data' - t.info.sector_size)
+            t.info.sector_size
+        in
+        read_partial_sector t (pred end_sector) last_sector
+          ~offset:last_sector_offset
+          ~length:(sub sector_size last_sector_offset) >>>= fun () ->
+        (* XXX: this is to work around limitations in some block implementations *)
+        let data' =
+          List.init (Cstruct.length data' / t.info.sector_size)
+            (fun sector ->
+               Cstruct.sub data' (sector * t.info.sector_size) t.info.sector_size)
+        in
+        write t (div start_bytes sector_size) data')
 
   let allocate t key ?last_modified size =
     Lwt_mutex.with_lock t.write_lock (fun () ->
