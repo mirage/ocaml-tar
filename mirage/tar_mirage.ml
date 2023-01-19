@@ -360,6 +360,18 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   end
   module HW = Tar.HeaderWriter(Lwt)(Writer)
 
+  let write_header (t : t) header_start_bytes hdr =
+    let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
+    (* it is important we write at level [Ustar] at most as we assume the
+       header(s) taking up exactly 512 bytes. With [GNU] level extra blocks
+       may be used for long names. *)
+    Lwt.catch
+      (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
+      (function
+        | Writer.Read e -> Lwt.return (Error (`Block e))
+        | Writer.Write e -> Lwt.return (Error (`Block_write e))
+        | exn -> raise exn)
+
   let set t key data =
     Lwt_mutex.with_lock t.write_lock (fun () ->
         let data = Cstruct.of_string data in
@@ -427,16 +439,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         in
         write t (succ data_start_sector) remaining_sectors >>>= fun () ->
         (* finally write header and first block *)
-        let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
-        (* it is important we write at level [Ustar] at most as we assume the
-           header(s) taking up exactly 512 bytes. With [GNU] level extra blocks
-           may be used for long names. *)
-        Lwt.catch
-          (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
-          (function
-            | Writer.Read e -> Lwt.return (Error (`Block e))
-            | Writer.Write e -> Lwt.return (Error (`Block_write e))
-            | exn -> raise exn) >>>= fun () ->
+        write_header t header_start_bytes hdr >>>= fun () ->
         (* read in slack at beginning which could include the header *)
         read_partial_sector t data_start_sector first_sector
           ~offset:0L ~length:data_start_sector_offset >>>= fun () ->
@@ -570,13 +573,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           end
         end >>>= fun () ->
         write t to_zero_start_sector (Array.to_list data) >>>= fun () ->
-        let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
-        Lwt.catch
-          (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
-          (function
-            | Writer.Read e -> Lwt.return (Error (`Block e))
-            | Writer.Write e -> Lwt.return (Error (`Block_write e))
-            | exn -> raise exn) >>>= fun () ->
+        write_header t header_start_bytes hdr >>>= fun () ->
         let tar_offset = div (sub t.end_of_archive 512L) 512L in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
