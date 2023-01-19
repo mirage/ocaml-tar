@@ -116,9 +116,9 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
      reads a single sector and blits [length] bytes from [offset] into [dst]
      with the same offset. *)
   let read_partial_sector t sector_start ~offset ~length dst =
+    assert Int64.(add offset length <= of_int t.info.sector_size);
     let length = Int64.to_int length and offset = Int64.to_int offset in
     assert (Cstruct.length dst >= t.info.sector_size);
-    assert (offset + length <= t.info.sector_size);
     if length = 0 then Lwt_result.return () else
     let ( >>>= ) = Lwt_result.bind in
     let src = Cstruct.create t.info.sector_size in
@@ -231,6 +231,24 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     in
     go map (Mirage_kv.Key.segments key)
 
+  let remove map key =
+    let rec go m = function
+      | [] -> assert false
+      | [hd] -> StringMap.remove hd m
+      | hd::tl ->
+        let hdr, m' = match StringMap.find_opt hd m with
+          | None -> Tar.Header.make hd 0L, StringMap.empty
+          | Some (Value _) -> assert false
+          | Some (Dict (hdr, m)) -> hdr, m
+        in
+        let m'' = go m' tl in
+        if StringMap.is_empty m'' then
+          StringMap.remove hd m
+        else
+          StringMap.add hd (Dict (hdr, m'')) m
+    in
+    go map (Mirage_kv.Key.segments key)
+
   let connect b =
     BLOCK.get_info b >>= fun info ->
     let ssize = info.Mirage_block.sector_size in
@@ -332,6 +350,17 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       let map = insert map key (Value (hdr, offset)) in
       Dict (root, map)
 
+  let update_remove map key =
+    match map with
+    | Value _ ->
+      (* if the root is a value we have done something very wrong. This should
+         be catched by [is_safe_to_set]. *)
+      assert false
+    | Dict (root, map) ->
+      (* [remove] may raise if [key] is [empty]. *)
+      let map = remove map key in
+      Dict (root, map)
+
   module Writer = struct
     type out_channel = {
       b: BLOCK.t;
@@ -381,13 +410,17 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           let* () = is_safe_to_set t key in
           let hdr = header_of_key key (Cstruct.length data) in
           let space_needed = space_needed hdr in
-          let* () = if free t >= space_needed then Ok () else Error `No_space in
+          let* () =
+            if free t >= Int64.(add space_needed (of_int Tar.Header.length)) then
+              Ok ()
+            else
+              Error `No_space
+          in
           Ok (hdr, space_needed)
         in
         Lwt.return r >>>= fun (hdr, space_needed) ->
         let open Int64 in
         let sector_size = of_int t.info.Mirage_block.sector_size in
-
         let data_start_bytes = sub t.end_of_archive (of_int Tar.Header.length) in
         let header_start_bytes = sub data_start_bytes (of_int Tar.Header.length) in
         let sentinel = mul 2L (of_int Tar.Header.length) in
@@ -401,14 +434,17 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let last_sector_offset = rem end_bytes sector_size in
         let pad = Tar.Header.compute_zero_padding_length hdr in
 
-        let data = Cstruct.concat [
+        let data =
+          let slack =
+            if last_sector_offset = 0L then
+              0
+            else
+              to_int (sub sector_size last_sector_offset)
+          in
+          Cstruct.concat [
             Cstruct.create (to_int data_start_sector_offset);
             data;
-            Cstruct.create (pad + to_int sentinel);
-            (if last_sector_offset = 0L then
-               Cstruct.empty
-             else
-               Cstruct.create (to_int (sub sector_size last_sector_offset)));
+            Cstruct.create (pad + to_int sentinel + slack);
           ]
         in
         (* [data] is always at least one sector as the sentinel is always present *)
@@ -416,13 +452,15 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let last_sector =
           (* sub on whole [data] as the first sector and last sector might be the same *)
           Cstruct.sub data
-            (Stdlib.max 0 (Cstruct.length data - t.info.sector_size))
+            (Cstruct.length data - t.info.sector_size)
             t.info.sector_size
         in
-        (* blit in slack at the end *)
-        read_partial_sector t (max data_start_sector (pred end_sector))
-          ~offset:last_sector_offset last_sector
-          ~length:(sub sector_size last_sector_offset) >>>= fun () ->
+        (* blit in slack at the end if needed *)
+        begin if last_sector_offset = 0L then Lwt_result.return () else
+          read_partial_sector t (pred end_sector) last_sector
+            ~offset:last_sector_offset
+            ~length:(sub sector_size last_sector_offset)
+        end >>>= fun () ->
         (* to write robustly as we can:
            - we write sectors 2..n,
            - then the header,
@@ -444,7 +482,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         read_partial_sector t data_start_sector first_sector
           ~offset:0L ~length:data_start_sector_offset >>>= fun () ->
         write t data_start_sector [ first_sector ] >>>= fun () ->
-        let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
+        let tar_offset = Int64.div data_start_bytes (of_int Tar.Header.length) in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
         Lwt.return (Ok ()))
@@ -452,8 +490,20 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
   let remove _ _ =
     Lwt.return (Error `Append_only)
 
-  let rename _ ~source:_ ~dest:_ =
-    Lwt.return (Error `Append_only)
+  let rename t ~source ~dest =
+    let ( >>>= ) = Lwt_result.bind in
+    Lwt_mutex.with_lock t.write_lock (fun () ->
+        Lwt.return (is_safe_to_set t dest) >>>= fun () ->
+        Lwt.return begin match get_node t.map source with
+          | Ok Value (hdr, data_offset) -> Ok (hdr, data_offset)
+          | Ok Dict _ -> Error `Append_only
+          | Error _ as e -> e
+        end >>>= fun (hdr, data_offset) ->
+        let hdr = { hdr with Tar.Header.file_name = Mirage_kv.Key.to_string dest } in
+        write_header t Int64.(sub (mul data_offset (of_int Tar.Header.length)) (of_int Tar.Header.length)) hdr >>>= fun () ->
+        t.map <- update_insert t.map dest hdr data_offset;
+        t.map <- update_remove t.map source;
+        Lwt_result.return ())
 
   let set_partial t key ~offset data =
     let ( >>>= ) = Lwt_result.bind in
@@ -461,19 +511,20 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         if Optint.Int63.(compare offset zero < 0) then
           invalid_arg "Tar_mirage.set_partial: negative offset";
         Lwt.return begin match get_node t.map key with
-          | Ok Value (hdr, offset) -> Ok (hdr, offset)
+          | Ok Value (hdr, data_offset) ->
+            Ok (hdr, Int64.(mul data_offset (of_int Tar.Header.length)))
           | Ok Dict _ -> Error `Path_segment_is_a_value
           | Error _ as e -> e
         end >>>= fun (hdr, data_offset) ->
-        (* FIXME: check more thoroughly offset *)
         let offset = Optint.Int63.to_int64 offset in
         let open Int64 in
         let end_bytes = add offset (of_int (String.length data)) in
-        begin if hdr.file_size < end_bytes then
+        begin if end_bytes > hdr.file_size then
             Lwt_result.fail `Append_only
           else
             Lwt_result.return ()
         end >>>= fun () ->
+        (* compute the offsets into the archive *)
         let end_bytes = add data_offset end_bytes in
         let start_bytes = add data_offset offset in
         let sector_size = of_int t.info.sector_size in
@@ -501,9 +552,11 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           Cstruct.sub data' (Cstruct.length data' - t.info.sector_size)
             t.info.sector_size
         in
-        read_partial_sector t (pred end_sector) last_sector
-          ~offset:last_sector_offset
-          ~length:(sub sector_size last_sector_offset) >>>= fun () ->
+        begin if last_sector_offset = 0L then Lwt_result.return () else
+          read_partial_sector t (pred end_sector) last_sector
+            ~offset:last_sector_offset
+            ~length:(sub sector_size last_sector_offset)
+        end >>>= fun () ->
         (* XXX: this is to work around limitations in some block implementations *)
         let data' =
           List.init (Cstruct.length data' / t.info.sector_size)
@@ -521,7 +574,12 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           let* () = is_safe_to_set t key in
           let hdr = header_of_key ?last_modified key (Optint.Int63.to_int size) in
           let space_needed = space_needed hdr in
-          let* () = if free t >= space_needed then Ok () else Error `No_space in
+          let* () =
+            if free t >= Int64.(add space_needed (of_int Tar.Header.length)) then
+              Ok ()
+            else
+              Error `No_space
+          in
           Ok (hdr, space_needed)
         in
         Lwt.return r >>>= fun (hdr, space_needed) ->
@@ -561,12 +619,14 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         >>>= fun () ->
         let last = nonzero_sector data.(num_to_zero_sectors - 1) in
         let () = data.(num_to_zero_sectors - 1 ) <- last in
-        read_partial_sector t (pred end_sector) last
-          ~offset:last_sector_offset
-          ~length:(sub sector_size last_sector_offset) >>>= fun () ->
+        begin if last_sector_offset = 0L then Lwt_result.return () else
+          read_partial_sector t (pred end_sector) last
+            ~offset:last_sector_offset
+            ~length:(sub sector_size last_sector_offset)
+        end >>>= fun () ->
         write t to_zero_start_sector (Array.to_list data) >>>= fun () ->
         write_header t header_start_bytes hdr >>>= fun () ->
-        let tar_offset = div (sub t.end_of_archive 512L) 512L in
+        let tar_offset = div (sub t.end_of_archive (of_int Tar.Header.length)) (of_int Tar.Header.length) in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
         Lwt.return (Ok ()))
