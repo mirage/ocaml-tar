@@ -530,7 +530,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let header_start_bytes =
           sub t.end_of_archive (of_int (2 * Tar.Header.length))
         in
+        (* we don't have to zero the block before end_of_archive as it is
+           already zero due to the terminating double zero block (sentinel) *)
         let to_zero_start_bytes = t.end_of_archive in
+        (* space_needed - 1 block + sentinel = space_needed + 1 block *)
         let end_bytes = add t.end_of_archive
             (add space_needed (of_int Tar.Header.length)) in
         (* Compute the starting sector and ending sector *)
@@ -540,38 +543,27 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         in
         let last_sector_offset = rem end_bytes sector_size in
         let end_sector = div (add end_bytes sector_size) sector_size in
-        let num_sectors = to_int (min (sub end_sector to_zero_start_sector) 0L) in
-
+        (* [num_to_zero_sectors] is at least 1 as we need to write at least one
+           zero block of the new sentinel. *)
+        let num_to_zero_sectors = to_int (sub end_sector to_zero_start_sector) in
         let zero_sector = Cstruct.create t.info.Mirage_block.sector_size in
-        let data = Array.init num_sectors (fun _ -> zero_sector) in
-        let copy_cstruct c =
-          let c' = Cstruct.create (Cstruct.length c) in
-          Cstruct.blit c 0 c' 0 (Cstruct.length c);
-          c'
+        let data = Array.init num_to_zero_sectors (fun _ -> zero_sector) in
+        let nonzero_sector c =
+          (* we allocate a new buffer if [c] is [zero_sector], otherwise we can
+             reuse it in the case first and last sectors are the same. *)
+          if c != zero_sector then c else Cstruct.create (Cstruct.length c)
         in
-        (* read first and last sector, if necessary *)
-        begin if num_sectors = 0 then
-            Lwt_result.return ()
-          else begin
-            begin if to_zero_start_sector_offset <> 0L then
-                let () = data.(0) <- copy_cstruct data.(0) in
-                read_partial_sector t to_zero_start_sector data.(0)
-                  ~offset:0L
-                  ~length:to_zero_start_sector_offset
-              else
-                Lwt_result.return ()
-            end >>>= fun () ->
-            begin if last_sector_offset <> 0L then
-                let last = copy_cstruct data.(num_sectors - 1) in
-                let () = data.(num_sectors - 1 ) <- last in
-                read_partial_sector t (pred end_sector) last
-                  ~offset:last_sector_offset
-                  ~length:(sub sector_size last_sector_offset)
-              else
-                Lwt_result.return ()
-            end
-          end
-        end >>>= fun () ->
+        (* Read slack at start and end sector(s) *)
+        let () = data.(0) <- nonzero_sector data.(0) in
+        read_partial_sector t to_zero_start_sector data.(0)
+          ~offset:0L
+          ~length:to_zero_start_sector_offset
+        >>>= fun () ->
+        let last = nonzero_sector data.(num_to_zero_sectors - 1) in
+        let () = data.(num_to_zero_sectors - 1 ) <- last in
+        read_partial_sector t (pred end_sector) last
+          ~offset:last_sector_offset
+          ~length:(sub sector_size last_sector_offset) >>>= fun () ->
         write t to_zero_start_sector (Array.to_list data) >>>= fun () ->
         write_header t header_start_bytes hdr >>>= fun () ->
         let tar_offset = div (sub t.end_of_archive 512L) 512L in
