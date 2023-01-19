@@ -404,7 +404,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let last_sector =
           (* sub on whole [data] as the first sector and last sector might be the same *)
           Cstruct.sub data
-            (Int.max 0 (Cstruct.length data - t.info.sector_size))
+            (Stdlib.max 0 (Cstruct.length data - t.info.sector_size))
             t.info.sector_size
         in
         (* blit in slack at the end *)
