@@ -52,7 +52,7 @@ let header _test_ctxt =
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
-let with_tar ?(level:Tar.Header.compatibility option) ?files ?(block_size = 512) test_ctxt f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512) test_ctxt f =
   let format = match level with
     | None -> ""
     | Some format -> "--format=" ^ match format with
@@ -64,7 +64,7 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(block_size = 512)
   let tar_filename, ch = bracket_tmpfile ~prefix:"tar-test" ~suffix:".tar" test_ctxt in
   close_out ch;
   let tar_filename = if Sys.win32 then convert_path `Unix tar_filename else tar_filename in
-  let tar_block_size = block_size / 512 in
+  let tar_block_size = sector_size / 512 in
   let cmdline = Printf.sprintf "tar -cf %s -b %d %s %s" tar_filename tar_block_size format (String.concat " " files) in
   begin match Unix.system cmdline with
     | Unix.WEXITED 0 -> ()
@@ -155,7 +155,7 @@ let can_transform_tar test_ctxt =
 module Block4096 = struct
   include Block
 
-  let block_size = 4096
+  let sector_size = 4096
 
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
@@ -165,13 +165,13 @@ end
 module type BLOCK = sig
   include Mirage_block.S
   val connect: string -> t Lwt.t
-  val block_size : int
+  val sector_size : int
 end
 
 module B = struct
   include Block
 
-  let block_size = 512
+  let sector_size = 512
 
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
@@ -182,7 +182,8 @@ module Test(B: BLOCK) = struct
   let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
     let f tar_filename files =
       let size = Unix.(stat tar_filename).st_size in
-      Unix.truncate tar_filename (size + (min (2 * B.block_size) 4096));
+      let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
+      Unix.truncate tar_filename size;
       B.connect tar_filename >>= fun b ->
       let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
@@ -193,12 +194,14 @@ module Test(B: BLOCK) = struct
       let files = "barf" :: files in
       f tar_filename files
     in
-    with_tar ?level ?files ~block_size:B.block_size test_ctxt f
+    with_tar ?level ?files ~sector_size:B.sector_size test_ctxt f
 
   let add_more_data_to_tar ?(level:Tar.Header.compatibility option) ?files test_ctxt f =
     let f tar_filename files =
       let size = Unix.(stat tar_filename).st_size in
-      Unix.truncate tar_filename (size + (min (4 * B.block_size) 4096));
+      (* Add 4 KB rounding up to block size *)
+      let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
+      Unix.truncate tar_filename size;
       B.connect tar_filename >>= fun b ->
       let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
       KV_RW.connect b >>= fun t ->
@@ -213,7 +216,7 @@ module Test(B: BLOCK) = struct
       let files = "barf" :: "barf2" :: files in
       f tar_filename files
     in
-    with_tar ?level ?files ~block_size:B.block_size test_ctxt f
+    with_tar ?level ?files ~sector_size:B.sector_size test_ctxt f
 
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files test_ctxt =
     let f tar_filename files =
@@ -268,7 +271,7 @@ module Test(B: BLOCK) = struct
       ) files
 
   let can_read_through_BLOCK ?files test_ctxt =
-    with_tar ?files ~block_size:B.block_size test_ctxt check_tar
+    with_tar ?files ~sector_size:B.sector_size test_ctxt check_tar
 
   let write_test test_ctxt =
      add_data_to_tar test_ctxt check_tar

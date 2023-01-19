@@ -118,6 +118,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
   let read_partial_sector t sector_start ~offset ~length dst =
     let length = Int64.to_int length and offset = Int64.to_int offset in
     assert (Cstruct.length dst >= t.info.sector_size);
+    assert (offset + length <= t.info.sector_size);
+    if length = 0 then Lwt_result.return () else
     let ( >>>= ) = Lwt_result.bind in
     let src = Cstruct.create t.info.sector_size in
     read t sector_start [ src ] >>>= fun () ->
@@ -397,29 +399,22 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
                Cstruct.create (to_int (sub sector_size last_sector_offset)));
           ]
         in
-        let first_sector, remaining_sectors =
-          let s =
-            Stdlib.min
-              (Cstruct.length data)
-              (to_int (sub sector_size data_start_sector_offset))
-          in
-          Cstruct.split data s
-        in
+        let first_sector, remaining_sectors = Cstruct.split data t.info.sector_size in
         let last_sector =
           (* sub on whole [data] as the first sector and last sector might be the same *)
           Cstruct.sub data
-            (Cstruct.length remaining_sectors - t.info.sector_size)
+            (Int.max 0 (Cstruct.length data - t.info.sector_size))
             t.info.sector_size
         in
-        (* blit in slack at the ends *)
-        read_partial_sector t data_start_sector first_sector
-          ~offset:0L ~length:data_start_sector_offset >>>= fun () ->
-        read_partial_sector t (pred end_sector)
+        (* blit in slack at the end *)
+        read_partial_sector t (max data_start_sector (pred end_sector))
           ~offset:last_sector_offset last_sector
           ~length:(sub sector_size last_sector_offset) >>>= fun () ->
         (* to write robustly as we can:
-           - we write tar blocks 2..end,
-           - then the header AND the first tar block
+           - we write sectors 2..n,
+           - then the header,
+           - then we blit the first (data) sector as it may contain the header,
+           - finally we write the first (data) sector.
         *)
         let remaining_sectors =
           (* XXX: this is to work around limitations in some block implementations *)
@@ -441,10 +436,10 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             | Writer.Read e -> Lwt.return (Error (`Block e))
             | Writer.Write e -> Lwt.return (Error (`Block_write e))
             | exn -> raise exn) >>>= fun () ->
-        let buf = Cstruct.create (to_int sector_size) in
-        read_partial_sector t data_start_sector buf
+        (* read in slack at beginning which could include the header *)
+        read_partial_sector t data_start_sector first_sector
           ~offset:0L ~length:data_start_sector_offset >>>= fun () ->
-        write t data_start_sector [ buf ] >>>= fun () ->
+        write t data_start_sector [ first_sector ] >>>= fun () ->
         let tar_offset = Int64.div (sub t.end_of_archive 512L) 512L in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
