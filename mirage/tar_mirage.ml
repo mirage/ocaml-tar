@@ -399,6 +399,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
                Cstruct.create (to_int (sub sector_size last_sector_offset)));
           ]
         in
+        (* [data] is always at least one sector as the sentinel is always present *)
         let first_sector, remaining_sectors = Cstruct.split data t.info.sector_size in
         let last_sector =
           (* sub on whole [data] as the first sector and last sector might be the same *)
@@ -414,7 +415,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
            - we write sectors 2..n,
            - then the header,
            - then we blit the first (data) sector as it may contain the header,
-           - finally we write the first (data) sector.
+           - finally we write the first (data) sector which contains the first tar data block.
         *)
         let remaining_sectors =
           (* XXX: this is to work around limitations in some block implementations *)
