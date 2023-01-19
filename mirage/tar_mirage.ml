@@ -462,21 +462,22 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       | Error _ as e -> e
     end >>>= fun (hdr, data_offset) ->
     (* FIXME: check more thoroughly offset *)
-    let open Int64 in
     let offset = Optint.Int63.to_int64 offset in
+    let open Int64 in
     let end_bytes = add offset (of_int (String.length data)) in
     begin if hdr.file_size < end_bytes then
         Lwt_result.fail `Append_only
       else
         Lwt_result.return ()
     end >>>= fun () ->
-    let start_bytes = add data_offset hdr.file_size
-    and end_bytes = add data_offset end_bytes in
+    let end_bytes = add data_offset end_bytes in
+    let start_bytes = add data_offset offset in
     let sector_size = of_int t.info.sector_size in
     let start_sector_offset = rem start_bytes sector_size in
     let end_sector = div (add end_bytes sector_size) sector_size in
     let last_sector_offset = rem end_bytes sector_size in
-
+    (* allocate a buffer for what we need to write, and blit in data and slack
+       at first and last sector. *)
     let data' =
       let len =
         add start_sector_offset
@@ -488,6 +489,8 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       in
       Cstruct.create (to_int len)
     in
+    Cstruct.blit_from_string data 0 data'
+      (to_int start_sector_offset) (String.length data);
     read_partial_sector t (div start_bytes sector_size) data'
       ~offset:0L ~length:start_sector_offset >>>= fun () ->
     let last_sector =
@@ -497,6 +500,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
     read_partial_sector t (pred end_sector) last_sector
       ~offset:last_sector_offset
       ~length:(sub sector_size last_sector_offset) >>>= fun () ->
+    (* XXX: this is to work around limitations in some block implementations *)
     let data' =
       List.init (Cstruct.length data' / t.info.sector_size)
         (fun sector ->
