@@ -130,13 +130,13 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     match get_node t.map key with
     | Error e -> Lwt.return (Error e)
     | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
-    | Ok (Value (hdr, start_sector)) ->
+    | Ok (Value (hdr, start_block)) ->
       let open Int64 in
       let offset = Optint.Int63.to_int64 offset in
       let sector_size = of_int t.info.Mirage_block.sector_size in
       (* Compute the unaligned data we need to read *)
       let start_bytes =
-        let sec = mul start_sector 512L in
+        let sec = mul start_block 512L in
         add sec offset
       in
       let length_bytes =
@@ -487,8 +487,47 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         t.map <- update_insert t.map key hdr tar_offset;
         Lwt.return (Ok ()))
 
-  let remove _ _ =
-    Lwt.return (Error `Append_only)
+  let remove t key =
+    let ( >>>= ) = Lwt_result.bind in
+    Lwt_mutex.with_lock t.write_lock (fun () ->
+        match get_node t.map key with
+        | Error e -> Lwt.return (Error e)
+        | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
+        | Ok (Value (hdr, start_block)) ->
+          let end_bytes = Int64.(add hdr.file_size (mul start_block 512L)) in
+          (* We can only easily remove if the key is the very last entry. *)
+          let open Int64 in
+          if equal end_bytes (sub t.end_of_archive 1024L) then begin
+            t.map <- update_remove t.map key;
+            let start_bytes = mul (pred start_block) 512L in
+            let sector_size = of_int t.info.sector_size in
+            let start_sector, start_sector_offset =
+              div start_bytes sector_size, rem start_bytes sector_size
+            in
+            let end_sector, last_sector_offset =
+              let end_bytes = add start_bytes 1024L in
+              div (add end_bytes sector_size) sector_size, rem start_bytes sector_size
+            in
+            let buf = Cstruct.create (to_int (sub end_sector start_sector)) in
+            let first_sector = Cstruct.sub buf 0 t.info.sector_size in
+            let last_sector =
+              Cstruct.sub buf (Cstruct.length buf - t.info.sector_size) t.info.sector_size
+            in
+            read_partial_sector t start_sector_offset first_sector
+              ~offset:0L ~length:start_sector_offset >>>= fun () ->
+            begin if last_sector_offset = 0L then Lwt_result.return () else
+                read_partial_sector t (pred end_sector) last_sector
+                  ~offset:last_sector_offset ~length:(sub sector_size last_sector_offset)
+            end >>>= fun () ->
+            (* XXX: this is to work around limitations in some block implementations *)
+            let bufs =
+              List.init (Cstruct.length buf / t.info.sector_size)
+                (fun sector ->
+                   Cstruct.sub buf (sector * t.info.sector_size) t.info.sector_size)
+            in
+            write t start_sector bufs
+          end else
+            Lwt.return (Error `Append_only))
 
   let rename t ~source ~dest =
     let ( >>>= ) = Lwt_result.bind in
