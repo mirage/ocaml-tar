@@ -519,13 +519,14 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
                 read_partial_sector t (pred end_sector) last_sector
                   ~offset:last_sector_offset ~length:(sub sector_size last_sector_offset)
             end >>>= fun () ->
-            (* XXX: this is to work around limitations in some block implementations *)
-            let bufs =
-              List.init (Cstruct.length buf / t.info.sector_size)
-                (fun sector ->
-                   Cstruct.sub buf (sector * t.info.sector_size) t.info.sector_size)
-            in
-            write t start_sector bufs
+            (* To remove as robustly as possible we first zero the second
+               sector (if applicable). *)
+            if Cstruct.length buf > t.info.sector_size then
+              write t start_sector
+                [Cstruct.sub buf t.info.sector_size t.info.sector_size] >>>= fun () ->
+              write t start_sector [Cstruct.sub buf 0 t.info.sector_size]
+            else
+              write t start_sector [buf]
           end else
             Lwt.return (Error `Append_only))
 
