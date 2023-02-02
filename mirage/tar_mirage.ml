@@ -430,7 +430,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           div data_start_bytes sector_size,
           rem data_start_bytes sector_size
         in
-        let end_sector = div (add end_bytes sector_size) sector_size in
+        let end_sector = div (add end_bytes (pred sector_size)) sector_size in
         let last_sector_offset = rem end_bytes sector_size in
         let pad = Tar.Header.compute_zero_padding_length hdr in
 
@@ -506,9 +506,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             in
             let end_sector, last_sector_offset =
               let end_bytes = add start_bytes 1024L in
-              div (add end_bytes sector_size) sector_size, rem start_bytes sector_size
+              div (add end_bytes (pred sector_size)) sector_size, rem start_bytes sector_size
             in
-            let buf = Cstruct.create (to_int (sub end_sector start_sector)) in
+            let buf = Cstruct.create (to_int (mul sector_size (sub end_sector start_sector))) in
             let first_sector = Cstruct.sub buf 0 t.info.sector_size in
             let last_sector =
               Cstruct.sub buf (Cstruct.length buf - t.info.sector_size) t.info.sector_size
@@ -569,7 +569,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         let start_bytes = add data_offset offset in
         let sector_size = of_int t.info.sector_size in
         let start_sector_offset = rem start_bytes sector_size in
-        let end_sector = div (add end_bytes sector_size) sector_size in
+        let end_sector = div (add end_bytes (pred sector_size)) sector_size in
         let last_sector_offset = rem end_bytes sector_size in
         (* allocate a buffer for what we need to write, and blit in data and slack
            at first and last sector. *)
@@ -640,7 +640,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           rem to_zero_start_bytes sector_size
         in
         let last_sector_offset = rem end_bytes sector_size in
-        let end_sector = div (add end_bytes sector_size) sector_size in
+        let end_sector = div (add end_bytes (pred sector_size)) sector_size in
         (* [num_to_zero_sectors] is at least 1 as we need to write at least one
            zero block of the new sentinel. *)
         let num_to_zero_sectors = to_int (sub end_sector to_zero_start_sector) in

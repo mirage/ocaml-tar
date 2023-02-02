@@ -88,6 +88,32 @@ module Test(B : BLOCK) = struct
     KV_RW.set t (Mirage_kv.Key.v "second") (str (2 * B.block_size - 512)) >>=
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
+
+  let write_two_files_remove_first ctx =
+    let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
+    connect_block ctx >>= fun b ->
+    resize b 10240L >>= fun () ->
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t first (str (B.block_size - 512)) >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.set t second (str (2 * B.block_size - 512)) >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.remove t first >>= function
+    | Error _ (* XXX: `Append_only *) ->
+      Lwt.return_unit
+    | Ok () -> OUnit2.assert_failure "Expected Error `Append_only"
+
+  let write_two_files_remove_second ctx =
+    let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
+    connect_block ctx >>= fun b ->
+    resize b 10240L >>= fun () ->
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t first (str (B.block_size - 512)) >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.set t second (str (2 * B.block_size - 512)) >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.remove t second >>=
+    kv_rw_write_error
 end
 
 module Test512 = Test(Block512)
@@ -107,6 +133,10 @@ let () =
       "write two blocks 4096" >:: OUnitLwt.lwt_wrapper Test4096.write_two_block_size;
       "write two files 512" >:: OUnitLwt.lwt_wrapper Test512.write_two_files;
       "write two files 4096" >:: OUnitLwt.lwt_wrapper Test4096.write_two_files;
+      "write two files remove first 512" >:: OUnitLwt.lwt_wrapper Test512.write_two_files_remove_first;
+      "write two files remove first 4096" >:: OUnitLwt.lwt_wrapper Test4096.write_two_files_remove_first;
+      "write two files remove second 512" >:: OUnitLwt.lwt_wrapper Test512.write_two_files_remove_second;
+      "write two files remove second 4096" >:: OUnitLwt.lwt_wrapper Test4096.write_two_files_remove_second;
     ]
   in
   run_test_tt_main suite
