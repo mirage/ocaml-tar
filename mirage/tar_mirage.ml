@@ -527,9 +527,11 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             if Cstruct.length buf > t.info.sector_size then
               write t start_sector
                 [Cstruct.sub buf t.info.sector_size t.info.sector_size] >>>= fun () ->
-              write t start_sector [Cstruct.sub buf 0 t.info.sector_size]
+              write t start_sector [Cstruct.sub buf 0 t.info.sector_size] >>>= fun () ->
+              (t.end_of_archive <- mul 512L (pred start_block); Lwt_result.return ())
             else
-              write t start_sector [buf]
+              write t start_sector [buf] >>>= fun () ->
+              (t.end_of_archive <- mul 512L (pred start_block); Lwt_result.return ())
           end else
             Lwt.return (Error `Append_only))
 
