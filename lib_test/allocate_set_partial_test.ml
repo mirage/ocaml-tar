@@ -136,6 +136,20 @@ module Test(B : BLOCK) = struct
     kv_rw_error >|= fun s' ->
     assert_equal ~cmp:String.equal ~printer:String.escaped
       s s'
+
+  let tests =
+    let ( >:: ) desc f =
+      Printf.sprintf "%s b%d" desc B.sector_size >:: OUnitLwt.lwt_wrapper f
+    in
+    [
+      "allocate empty file" >:: allocate_empty_file;
+      "set_partial nonexistent file" >:: set_partial_no_file;
+      "allocate is zeroed" >:: allocate_is_zeroed;
+      "allocate two one-byte files" >:: allocate_two_one_byte_files_zeroed;
+      "allocate and set first byte" >:: allocate_set_partial_first_byte;
+      "set and rename" >:: set_rename;
+    ]
+
 end
 
 module Test512 = Test(Block512)
@@ -145,19 +159,6 @@ module Test4096 = Test(Block4096)
 let () =
   let suite =
     "tar-allocate-set-partial" >:::
-    [
-      "allocate empty file 512" >:: OUnitLwt.lwt_wrapper Test512.allocate_empty_file;
-      "allocate empty file 4096" >:: OUnitLwt.lwt_wrapper Test4096.allocate_empty_file;
-      "set_partial nonexistent file 512" >:: OUnitLwt.lwt_wrapper Test512.set_partial_no_file;
-      "set_partial nonexistent file 4096" >:: OUnitLwt.lwt_wrapper Test4096.set_partial_no_file;
-      "allocate is zeroed 512" >:: OUnitLwt.lwt_wrapper Test512.allocate_is_zeroed;
-      "allocate is zeroed 4096" >:: OUnitLwt.lwt_wrapper Test4096.allocate_is_zeroed;
-      "allocate two one-byte files 512" >:: OUnitLwt.lwt_wrapper Test512.allocate_two_one_byte_files_zeroed;
-      "allocate two one-byte files 4096" >:: OUnitLwt.lwt_wrapper Test4096.allocate_two_one_byte_files_zeroed;
-      "allocate and set first byte 512" >:: OUnitLwt.lwt_wrapper Test512.allocate_set_partial_first_byte;
-      "allocate and set first byte 4096" >:: OUnitLwt.lwt_wrapper Test4096.allocate_set_partial_first_byte;
-      "set and rename 512" >:: OUnitLwt.lwt_wrapper Test512.set_rename;
-      "set and rename 4096" >:: OUnitLwt.lwt_wrapper Test4096.set_rename;
-    ]
+    (Test512.tests @ Test4096.tests)
   in
   run_test_tt_main suite
