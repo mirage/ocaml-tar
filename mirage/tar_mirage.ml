@@ -525,7 +525,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             (* To remove as robustly as possible we first zero the second
                sector (if applicable). *)
             begin if Cstruct.length buf > t.info.sector_size then
-                write t start_sector
+                write t (succ start_sector)
                   [Cstruct.sub buf t.info.sector_size t.info.sector_size] >>>= fun () ->
                 write t start_sector [Cstruct.sub buf 0 t.info.sector_size]
               else
