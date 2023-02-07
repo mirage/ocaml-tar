@@ -1,3 +1,7 @@
+## v2.3.0 (2023-02-07)
+
+- `tar-mirage`: implement mirage-kv.6.0.0 (@reynir, @hannesm)
+
 ## v2.2.2 (2022-12-12)
 
 - `tar-mirage`: fix writing of data when data+tar header is a multiple of `sector_size` greater than 1 (@reynir, review by @hannesm, #100)
