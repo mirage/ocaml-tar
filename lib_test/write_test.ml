@@ -142,7 +142,7 @@ module Test(B : BLOCK) = struct
     KV_RW.allocate t first (Optint.Int63.of_int data_size) >>=
     kv_rw_write_error >|= fun () ->
     let ic = open_in config.path in
-    In_channel.seek ic 512L; (* skip header *)
+    seek_in ic 512; (* skip header *)
     (* check file content *)
     for _ = 1 to data_size do
       assert_equal ~cmp:Char.equal ~printer:Char.escaped
@@ -166,7 +166,7 @@ module Test(B : BLOCK) = struct
         '\xff' (input_char ic)
         ~msg:"corrupt tail"
     done;
-    assert (In_channel.pos ic = Int64.of_int size)
+    assert (pos_in ic = size)
 
 
 
