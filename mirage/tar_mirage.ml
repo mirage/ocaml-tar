@@ -509,7 +509,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             in
             let end_sector, last_sector_offset =
               let end_bytes = add start_bytes 1024L in
-              div (add end_bytes (pred sector_size)) sector_size, rem start_bytes sector_size
+              div (add end_bytes (pred sector_size)) sector_size, rem end_bytes sector_size
             in
             let buf = Cstruct.create (to_int (mul sector_size (sub end_sector start_sector))) in
             let first_sector = Cstruct.sub buf 0 t.info.sector_size in
@@ -531,7 +531,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
               else
                 write t start_sector [buf]
             end >>>= fun () ->
-            t.end_of_archive <- mul 512L (pred start_block);
+            t.end_of_archive <- start_bytes;
             Lwt_result.return ()
           end else
             Lwt.return (Error `Append_only))
