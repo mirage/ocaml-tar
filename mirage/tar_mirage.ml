@@ -494,9 +494,12 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         | Error e -> Lwt.return (Error e)
         | Ok (Dict _) -> Lwt.return (Error (`Value_expected key))
         | Ok (Value (hdr, start_block)) ->
-          let end_bytes = Int64.(add hdr.file_size (mul start_block 512L)) in
           (* We can only easily remove if the key is the very last entry. *)
           let open Int64 in
+          let end_bytes =
+            add (mul start_block 512L)
+              (add hdr.file_size (of_int (Tar.Header.compute_zero_padding_length hdr)))
+          in
           if equal end_bytes (sub t.end_of_archive 1024L) then begin
             t.map <- update_remove t.map key;
             let start_bytes = mul (pred start_block) 512L in
