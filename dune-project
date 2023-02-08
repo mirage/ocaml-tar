@@ -72,7 +72,7 @@
   optint
   ptime
   (tar (= :version))
-  (mirage-block-unix (and :with-test (>= 2.5.0)))
+  (mirage-block-unix (and :with-test (>= 2.13.0)))
   (mirage-clock-unix :with-test)
   (ounit2 :with-test)
   (ounit2-lwt :with-test)
