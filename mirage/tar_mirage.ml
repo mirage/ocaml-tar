@@ -531,7 +531,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
               else
                 write t start_sector [buf]
             end >>>= fun () ->
-            t.end_of_archive <- start_bytes;
+            t.end_of_archive <- end_bytes;
             Lwt_result.return ()
           end else
             Lwt.return (Error `Append_only))
