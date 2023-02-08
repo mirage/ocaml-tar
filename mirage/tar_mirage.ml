@@ -507,8 +507,8 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             let start_sector, start_sector_offset =
               div start_bytes sector_size, rem start_bytes sector_size
             in
+            let end_bytes = add start_bytes 1024L in
             let end_sector, last_sector_offset =
-              let end_bytes = add start_bytes 1024L in
               div (add end_bytes (pred sector_size)) sector_size, rem end_bytes sector_size
             in
             let buf = Cstruct.create (to_int (mul sector_size (sub end_sector start_sector))) in
