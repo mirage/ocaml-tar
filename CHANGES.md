@@ -1,4 +1,4 @@
-## v2.3.0 (2023-02-07)
+## v2.3.0 (2023-02-09)
 
 - `tar-mirage`: implement mirage-kv.6.0.0 (@reynir, @hannesm)
 
