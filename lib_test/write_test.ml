@@ -125,6 +125,18 @@ module Test(B : BLOCK) = struct
     KV_RW.remove t first >>=
     kv_rw_write_error
 
+  let set_after_remove test_ctxt =
+    let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
+    connect_block test_ctxt >>= fun b ->
+    resize b 10240L >>= fun () ->
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t first "Some data\n" >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.remove t first >>=
+    kv_rw_write_error >>= fun () ->
+    KV_RW.set t second "More data\n" >>=
+    kv_rw_write_error
+
   let allocate_doesn't_affect_beyond_end_of_archive data_size ctx =
     let first = Mirage_kv.Key.v "first" in
     connect_block ctx >>= fun b ->
@@ -183,6 +195,7 @@ module Test(B : BLOCK) = struct
       "write two files remove first" >:: write_two_files_remove_first;
       "write two files remove second" >:: write_two_files_remove_second;
       "remove odd sized file" >:: remove_odd_file;
+      "set after remove" >:: set_after_remove;
       "allocate doesn't affect tail after archive 0" >:: allocate_doesn't_affect_beyond_end_of_archive 0;
       "allocate doesn't affect tail after archive 1" >:: allocate_doesn't_affect_beyond_end_of_archive 1;
       "allocate doesn't affect tail after archive 1 sector" >:: allocate_doesn't_affect_beyond_end_of_archive (B.sector_size - 512);
