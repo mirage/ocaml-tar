@@ -88,7 +88,6 @@ module Header = struct
   let hdr_link_name_off = 157
   let sizeof_hdr_link_name = 100
 
-
   let hdr_magic_off = 257
   let sizeof_hdr_magic = 6
 
