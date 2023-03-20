@@ -28,8 +28,7 @@
  (tags ("org:xapi-project" "org:mirage"))
  (depends
   camlp-streams
-  (ocaml (>= 4.08.0))
-  (ppx_cstruct (and :build (>= 3.6.0)))
+  (ocaml (>= 4.13.0))
   (cstruct (>= 6.0.0))
   (decompress (>= 1.5.1))
  )
@@ -44,7 +43,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.03.0))
+  (ocaml (>= 4.13.0))
   (cstruct (>= 6.0.0))
   cstruct-lwt
   lwt
@@ -63,7 +62,7 @@
  (tags ("org:xapi-project" "org:mirage"))
  (conflicts (result (< 1.5)))
  (depends
-  (ocaml (>= 4.08.0))
+  (ocaml (>= 4.13.0))
   (cstruct (>= 1.9.0))
   (lwt (>= 5.6.0))
   (mirage-block (>= 2.0.0))
