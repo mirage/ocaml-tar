@@ -57,11 +57,11 @@ let copy_n ifd ofd n =
 module HR = Tar.HeaderReader(Lwt)(Reader)
 module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-let get_next_header ?level ic =
-  HR.read ?level ic
+let get_next_header ?level ?global ic =
+  HR.read ?level ?global ic
   >>= function
   | Error `Eof -> Lwt.return None
-  | Ok hdr -> Lwt.return (Some hdr)
+  | Ok hdrs -> Lwt.return (Some hdrs)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
@@ -103,10 +103,11 @@ module Archive = struct
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header *)
-  let with_next_file (fd: Lwt_unix.file_descr) (f: Lwt_unix.file_descr -> Tar.Header.t -> 'a Lwt.t) =
-    get_next_header fd >>= function
-    | Some hdr ->
-      f fd hdr >>= fun result ->
+  let with_next_file (fd: Lwt_unix.file_descr) ?(global: Tar.Header.Extended.t option)
+        (f: Lwt_unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a Lwt.t) =
+    get_next_header ?global fd >>= function
+    | Some (hdr, global) ->
+      f fd global hdr >>= fun result ->
       Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
       Lwt.return (Some result)
     | None ->
@@ -114,36 +115,36 @@ module Archive = struct
 
   (** List the contents of a tar *)
   let list ?level fd =
-    let rec loop acc = get_next_header ?level fd >>= function
+    let rec loop global acc = get_next_header ?level ?global fd >>= function
       | None -> Lwt.return (List.rev acc)
-      | Some hdr ->
+      | Some (hdr, global) ->
         Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
         Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
-        loop (hdr :: acc) in
-    loop []
+        loop global (hdr :: acc) in
+    loop None []
 
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
-    let rec loop () = get_next_header ifd >>= function
+    let rec loop global () = get_next_header ?global ifd >>= function
       | None -> Lwt.return_unit
-      | Some hdr ->
+      | Some (hdr, global) ->
         let filename = dest hdr.Tar.Header.file_name in
         with_file filename [Unix.O_WRONLY; O_CLOEXEC] 0 @@ fun ofd ->
         copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
         Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
-        loop () in
-    loop ()
+        loop global () in
+    loop None ()
 
   let transform ?level f ifd ofd =
-    let rec loop () = get_next_header ifd >>= function
+    let rec loop global () = get_next_header ?global ifd >>= function
       | None -> Lwt.return_unit
-      | Some header' ->
+      | Some (header', global) ->
         let header = f header' in
         let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
         write_block ?level header body ofd >>= fun () ->
         Reader.skip ifd (Tar.Header.compute_zero_padding_length header') >>= fun () ->
-        loop () in
-    loop () >>= fun () ->
+        loop global () in
+    loop None () >>= fun () ->
     write_end ofd
 
   (** Create a tar on file descriptor fd from the filename list

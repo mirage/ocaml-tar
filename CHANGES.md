@@ -1,3 +1,8 @@
+## unreleased
+
+- `tar`: support pax Global Extended Headers. This adds state to tar parsing.
+  (#119, #120, @MisterDA)
+
 ## v2.4.0 (2023-03-30)
 
 - Switch to alcotest for tests (@MisterDA, review by @reynir, #121)

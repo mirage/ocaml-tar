@@ -34,7 +34,8 @@ module Make
       positioned at the possible start of a header block.
 
       @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-  val get_next_header : ?level:Tar.Header.compatibility -> in_channel -> Tar.Header.t Async.t
+  val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t -> in_channel ->
+                        (Tar.Header.t * Tar.Header.Extended.t option) Async.t
 
   val really_read : in_channel -> Cstruct.t -> unit Async.t
   (** [really_read fd buf] fills [buf] with data from [fd] or raises

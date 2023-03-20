@@ -63,7 +63,7 @@ let create_tarball directory oc =
   let hdr = Tar.Header.make ~file_mode:0o755
     ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
   Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) ;
-  Array.iter begin fun filename -> 
+  Array.iter begin fun filename ->
   let fd        = Unix.openfile (directory / filename) Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
   let stat      = Unix.LargeFile.lstat (directory / filename) in
   match stat.st_kind with
@@ -104,8 +104,8 @@ let bytes_to_size ?(decimals = 2) ppf = function
 let list filename =
   let ic = open_in filename in
   let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
-  let rec go () = match Tar_gz.get_next_header ic with
-    | hdr ->
+  let rec go global () = match Tar_gz.get_next_header ?global ic with
+    | (hdr, global) ->
       Format.printf "%s (%a)\n%!"
         hdr.Tar.Header.file_name
         (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
@@ -115,9 +115,9 @@ let list filename =
            let to_skip = data + padding in *)
       let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
       Tar_gz.skip ic to_skip ;
-      go ()
+      go global ()
     | exception Tar.Header.End_of_stream -> () in
-  go ()
+  go None ()
 
 let () = match Sys.argv with
   | [| _; "list"; filename; |] when Sys.file_exists filename ->
