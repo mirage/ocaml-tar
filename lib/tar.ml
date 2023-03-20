@@ -539,7 +539,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
     let next () =
       next_block ()
       >>= function
-      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader -> next_block ()
+      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
+        skip ifd (Int64.to_int x.file_size + Header.compute_zero_padding_length x) >>= next_block
       | x -> return x in
 
     let get_hdr () =
