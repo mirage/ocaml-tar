@@ -3,9 +3,7 @@
  (modules tar tar_cstruct)
  (public_name tar)
  (wrapped false)
- (libraries cstruct camlp-streams)
- (preprocess
-  (pps ppx_cstruct)))
+ (libraries cstruct camlp-streams))
 
 (library
  (name tar_gz)
