@@ -53,6 +53,25 @@ module Header = struct
     with
       Not_found -> x (* TODO should error *)
 
+  (** Marshal an integer field of size 'n' *)
+  let marshal_int (x: int) (n: int) =
+    let octal = Printf.sprintf "%0*o" (n - 1) x in
+    octal ^ "\000" (* space or NULL allowed *)
+
+  (** Marshal an int64 field of size 'n' *)
+  let marshal_int64 (x: int64) (n: int) =
+    let octal = Printf.sprintf "%0*Lo" (n - 1) x in
+    octal ^ "\000" (* space or NULL allowed *)
+
+  (** Marshal an string field of size 'n' *)
+  let marshal_string (x: string) (n: int) =
+    if String.length x < n then
+      let bytes = Bytes.make n '\000' in
+      Bytes.blit_string x 0 bytes 0 (String.length x);
+      Bytes.unsafe_to_string bytes
+    else
+      x
+
   (** Unmarshal a pax Extended Header File time
       It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
       https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13_05 *)
@@ -110,38 +129,52 @@ module Header = struct
   let sizeof_hdr_prefix = 155
 
   let get_hdr_file_name buf =
-    Cstruct.to_string ~off:hdr_file_name_off ~len:sizeof_hdr_file_name buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_file_name_off ~len:sizeof_hdr_file_name buf)
   let set_hdr_file_name buf v =
+    let v = marshal_string v sizeof_hdr_file_name in
     Cstruct.blit_from_string v 0 buf hdr_file_name_off sizeof_hdr_file_name
 
   let get_hdr_file_mode buf =
-    Cstruct.to_string ~off:hdr_file_mode_off ~len:sizeof_hdr_file_mode buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_file_mode_off ~len:sizeof_hdr_file_mode buf)
   let set_hdr_file_mode buf v =
+    let v = marshal_int v sizeof_hdr_file_mode in
     Cstruct.blit_from_string v 0 buf hdr_file_mode_off sizeof_hdr_file_mode
 
   let get_hdr_user_id buf =
-    Cstruct.to_string ~off:hdr_user_id_off ~len:sizeof_hdr_user_id buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_user_id_off ~len:sizeof_hdr_user_id buf)
   let set_hdr_user_id buf v =
+    let v = marshal_int v sizeof_hdr_user_id in
     Cstruct.blit_from_string v 0 buf hdr_user_id_off sizeof_hdr_user_id
 
   let get_hdr_group_id buf =
-    Cstruct.to_string ~off:hdr_group_id_off ~len:sizeof_hdr_group_id buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_group_id_off ~len:sizeof_hdr_group_id buf)
   let set_hdr_group_id buf v =
+    let v = marshal_int v sizeof_hdr_group_id in
     Cstruct.blit_from_string v 0 buf hdr_group_id_off sizeof_hdr_group_id
 
   let get_hdr_file_size buf =
-    Cstruct.to_string ~off:hdr_file_size_off ~len:sizeof_hdr_file_size buf
+    unmarshal_int64
+      (Cstruct.to_string ~off:hdr_file_size_off ~len:sizeof_hdr_file_size buf)
   let set_hdr_file_size buf v =
+    let v = marshal_int64 v sizeof_hdr_file_size in
     Cstruct.blit_from_string v 0 buf hdr_file_size_off sizeof_hdr_file_size
 
   let get_hdr_mod_time buf =
-    Cstruct.to_string ~off:hdr_mod_time_off ~len:sizeof_hdr_mod_time buf
+    unmarshal_int64
+      (Cstruct.to_string ~off:hdr_mod_time_off ~len:sizeof_hdr_mod_time buf)
   let set_hdr_mod_time buf v =
+    let v = marshal_int64 v sizeof_hdr_mod_time in
     Cstruct.blit_from_string v 0 buf hdr_mod_time_off sizeof_hdr_mod_time
 
   let get_hdr_chksum buf =
-    Cstruct.to_string ~off:hdr_chksum_off ~len:sizeof_hdr_chksum buf
+    unmarshal_int64
+      (Cstruct.to_string ~off:hdr_chksum_off ~len:sizeof_hdr_chksum buf)
   let set_hdr_chksum buf v =
+    let v = marshal_int64 v sizeof_hdr_chksum in
     Cstruct.blit_from_string v 0 buf hdr_chksum_off sizeof_hdr_chksum
 
   let get_hdr_link_indicator buf = Cstruct.get_char buf hdr_link_indicator_off
@@ -149,43 +182,59 @@ module Header = struct
     Cstruct.set_char buf hdr_link_indicator_off v
 
   let get_hdr_link_name buf =
-    Cstruct.to_string ~off:hdr_link_name_off ~len:sizeof_hdr_link_name buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_link_name_off ~len:sizeof_hdr_link_name buf)
   let set_hdr_link_name buf v =
+    let v = marshal_string v sizeof_hdr_link_name in
     Cstruct.blit_from_string v 0 buf hdr_link_name_off sizeof_hdr_link_name
 
   let get_hdr_magic buf =
-    Cstruct.to_string ~off:hdr_magic_off ~len:sizeof_hdr_magic buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_magic_off ~len:sizeof_hdr_magic buf)
   let set_hdr_magic buf v =
+    let v = marshal_string v sizeof_hdr_magic in
     Cstruct.blit_from_string v 0 buf hdr_magic_off sizeof_hdr_magic
 
   let _get_hdr_version buf =
-    Cstruct.to_string ~off:hdr_version_off ~len:sizeof_hdr_version buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_version_off ~len:sizeof_hdr_version buf)
   let set_hdr_version buf v =
+    let v = marshal_int v sizeof_hdr_version in
     Cstruct.blit_from_string v 0 buf hdr_version_off sizeof_hdr_version
 
   let get_hdr_uname buf =
-    Cstruct.to_string ~off:hdr_uname_off ~len:sizeof_hdr_uname buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_uname_off ~len:sizeof_hdr_uname buf)
   let set_hdr_uname buf v =
+    let v = marshal_string v sizeof_hdr_uname in
     Cstruct.blit_from_string v 0 buf hdr_uname_off sizeof_hdr_uname
 
   let get_hdr_gname buf =
-    Cstruct.to_string ~off:hdr_gname_off ~len:sizeof_hdr_gname buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_gname_off ~len:sizeof_hdr_gname buf)
   let set_hdr_gname buf v =
+    let v = marshal_string v sizeof_hdr_gname in
     Cstruct.blit_from_string v 0 buf hdr_gname_off sizeof_hdr_gname
 
   let get_hdr_devmajor buf =
-    Cstruct.to_string ~off:hdr_devmajor_off ~len:sizeof_hdr_devmajor buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_devmajor_off ~len:sizeof_hdr_devmajor buf)
   let set_hdr_devmajor buf v =
+    let v = marshal_int v sizeof_hdr_devmajor in
     Cstruct.blit_from_string v 0 buf hdr_devmajor_off sizeof_hdr_devmajor
 
   let get_hdr_devminor buf =
-    Cstruct.to_string ~off:hdr_devminor_off ~len:sizeof_hdr_devminor buf
+    unmarshal_int
+      (Cstruct.to_string ~off:hdr_devminor_off ~len:sizeof_hdr_devminor buf)
   let set_hdr_devminor buf v =
+    let v = marshal_int v sizeof_hdr_devminor in
     Cstruct.blit_from_string v 0 buf hdr_devminor_off sizeof_hdr_devminor
 
   let get_hdr_prefix buf =
-    Cstruct.to_string ~off:hdr_prefix_off ~len:sizeof_hdr_prefix buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_prefix_off ~len:sizeof_hdr_prefix buf)
   let set_hdr_prefix buf v =
+    let v = marshal_string v sizeof_hdr_prefix in
     Cstruct.blit_from_string v 0 buf hdr_prefix_off sizeof_hdr_prefix
 
   type compatibility =
@@ -419,25 +468,6 @@ module Header = struct
                   "link_name",      x.link_name ] in
     "{\n" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
-  (** Marshal an integer field of size 'n' *)
-  let marshal_int (x: int) (n: int) =
-    let octal = Printf.sprintf "%0*o" (n - 1) x in
-    octal ^ "\000" (* space or NULL allowed *)
-
-  (** Marshal an int64 field of size 'n' *)
-  let marshal_int64 (x: int64) (n: int) =
-    let octal = Printf.sprintf "%0*Lo" (n - 1) x in
-    octal ^ "\000" (* space or NULL allowed *)
-
-  (** Marshal an string field of size 'n' *)
-  let marshal_string (x: string) (n: int) =
-    if String.length x < n then
-      let bytes = Bytes.make n '\000' in
-      Bytes.blit_string x 0 bytes 0 (String.length x);
-      Bytes.unsafe_to_string bytes
-    else
-      x
-
   (** Thrown when unmarshalling a header if the checksums don't match *)
   exception Checksum_mismatch
 
@@ -465,42 +495,42 @@ module Header = struct
     let level = get_level level in
     if allzeroes c then None
     else
-      let chksum = unmarshal_int64 (get_hdr_chksum c) in
+      let chksum = get_hdr_chksum c in
       if checksum c <> chksum then raise Checksum_mismatch
       else let ustar =
-             let magic = unmarshal_string (get_hdr_magic c) in
+             let magic = get_hdr_magic c in
              (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
              String.length magic >= 5 && (String.sub magic 0 5 = "ustar") in
-        let prefix = if ustar then unmarshal_string (get_hdr_prefix c) else "" in
+        let prefix = if ustar then get_hdr_prefix c else "" in
         let file_name =
-          let file_name = unmarshal_string (get_hdr_file_name c) in
+          let file_name = get_hdr_file_name c in
           if file_name = "" then prefix
           else if prefix = "" then file_name
           else Filename.concat prefix file_name in
-        let file_mode = unmarshal_int (get_hdr_file_mode c) in
+        let file_mode = get_hdr_file_mode c in
         let user_id = match extended.Extended.user_id with
-          | None -> unmarshal_int (get_hdr_user_id c)
+          | None -> get_hdr_user_id c
           | Some x -> x in
         let group_id = match extended.Extended.group_id with
-          | None -> unmarshal_int (get_hdr_group_id c)
+          | None -> get_hdr_group_id c
           | Some x -> x in
         let file_size = match extended.Extended.file_size with
-          | None -> unmarshal_int64 (get_hdr_file_size c)
+          | None -> get_hdr_file_size c
           | Some x -> x in
         let mod_time = match extended.Extended.mod_time with
-          | None -> unmarshal_int64 (get_hdr_mod_time c)
+          | None -> get_hdr_mod_time c
           | Some x -> x in
         let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
         let uname = match extended.Extended.uname with
-          | None -> if ustar then unmarshal_string (get_hdr_uname c) else ""
+          | None -> if ustar then get_hdr_uname c else ""
           | Some x -> x in
         let gname = match extended.Extended.gname with
-          | None -> if ustar then unmarshal_string (get_hdr_gname c) else ""
+          | None -> if ustar then get_hdr_gname c else ""
           | Some x -> x in
-        let devmajor  = if ustar then unmarshal_int (get_hdr_devmajor c) else 0 in
-        let devminor  = if ustar then unmarshal_int (get_hdr_devminor c) else 0 in
+        let devmajor  = if ustar then get_hdr_devmajor c else 0 in
+        let devminor  = if ustar then get_hdr_devminor c else 0 in
 
-        let link_name = unmarshal_string (get_hdr_link_name c) in
+        let link_name = get_hdr_link_name c in
         Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
            ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 
@@ -517,24 +547,26 @@ module Header = struct
                  else if String.length prefix > sizeof_hdr_prefix then split (Filename.dirname prefix) (Filename.concat (Filename.basename prefix) file_name ^ is_directory)
                  else (prefix, file_name) in
                split (Filename.dirname x.file_name) (Filename.basename x.file_name ^ is_directory) in
-          set_hdr_file_name c (marshal_string file_name sizeof_hdr_file_name);
-          set_hdr_prefix c (marshal_string prefix sizeof_hdr_prefix)
+          set_hdr_file_name c file_name;
+          set_hdr_prefix c prefix
       else failwith "file_name too long"
-    else set_hdr_file_name c (marshal_string x.file_name sizeof_hdr_file_name);
+    else set_hdr_file_name c x.file_name;
     (* This relies on the fact that the block was initialised to null characters *)
     if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
       if level = Ustar then begin
-        set_hdr_magic c (marshal_string "ustar" sizeof_hdr_magic);
-        set_hdr_version c (marshal_int 0 sizeof_hdr_version);
+        set_hdr_magic c "ustar";
+        set_hdr_version c 0;
       end else begin
-        set_hdr_magic c "ustar ";
-        set_hdr_version c (marshal_string " " sizeof_hdr_version);
+        (* OLD GNU MAGIC: use "ustar " as magic, and another " " in the version *)
+        let t = sizeof_hdr_magic + sizeof_hdr_version in
+        let magic = marshal_string "ustar  " t in
+        Cstruct.blit_from_string magic 0 c hdr_magic_off t
       end;
-      set_hdr_uname c (marshal_string x.uname sizeof_hdr_uname);
-      set_hdr_gname c (marshal_string x.gname sizeof_hdr_gname);
+      set_hdr_uname c x.uname;
+      set_hdr_gname c x.gname;
       if level = Ustar then begin
-        set_hdr_devmajor c (marshal_int x.devmajor sizeof_hdr_devmajor);
-        set_hdr_devminor c (marshal_int x.devminor sizeof_hdr_devminor);
+        set_hdr_devmajor c x.devmajor;
+        set_hdr_devminor c x.devminor;
       end
     end else begin
       if x.devmajor <> 0 then failwith "devmajor not supported in this format";
@@ -542,18 +574,18 @@ module Header = struct
       if x.uname <> "" then failwith "uname not supported in this format";
       if x.gname <> "" then failwith "gname not supported in this format";
     end;
-    set_hdr_file_mode c (marshal_int x.file_mode sizeof_hdr_file_mode);
-    set_hdr_user_id c (marshal_int x.user_id sizeof_hdr_user_id);
-    set_hdr_group_id c (marshal_int x.group_id sizeof_hdr_group_id);
-    set_hdr_file_size c (marshal_int64 x.file_size sizeof_hdr_file_size);
-    set_hdr_mod_time c (marshal_int64 x.mod_time sizeof_hdr_mod_time);
+    set_hdr_file_mode c x.file_mode;
+    set_hdr_user_id c x.user_id;
+    set_hdr_group_id c x.group_id;
+    set_hdr_file_size c x.file_size;
+    set_hdr_mod_time c x.mod_time;
     set_hdr_link_indicator c link_indicator;
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
     if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then failwith "link_name too long";
-    set_hdr_link_name c (marshal_string x.link_name sizeof_hdr_link_name);
+    set_hdr_link_name c x.link_name;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
-    set_hdr_chksum c (marshal_int64 chksum sizeof_hdr_chksum)
+    set_hdr_chksum c chksum
 
   let marshal ?level c (x: t) =
     let level = get_level level in
