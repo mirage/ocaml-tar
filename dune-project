@@ -72,7 +72,7 @@
   ptime
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.13.0)))
-  (mirage-clock-unix :with-test)
+  (mirage-clock-unix (and :with-test (>= 4.0.0)))
   (ounit2 :with-test)
   (ounit2-lwt :with-test)
   (tar-unix (and :with-test (= :version)))
