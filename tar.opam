@@ -17,7 +17,7 @@ bug-reports: "https://github.com/mirage/ocaml-tar/issues"
 depends: [
   "dune" {>= "2.9"}
   "camlp-streams"
-  "ocaml" {>= "4.13.0"}
+  "ocaml" {>= "4.08.0"}
   "cstruct" {>= "6.0.0"}
   "decompress" {>= "1.5.1"}
   "odoc" {with-doc}

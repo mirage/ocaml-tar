@@ -446,13 +446,17 @@ module Header = struct
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
     let result = ref 0 in
+    let in_checksum_range i =
+      i >= hdr_chksum_off && i < hdr_chksum_off + sizeof_hdr_chksum
+    in
     for i = 0 to Cstruct.length x - 1 do
-      result := !result + (Cstruct.get_uint8 x i)
-    done;
-    (* since we included the checksum, subtract it and add the spaces *)
-    let chksum = get_hdr_chksum x in
-    for i = 0 to String.length chksum - 1 do
-      result := !result - (String.get_uint8 chksum i) + (int_of_char ' ')
+      let v =
+        if in_checksum_range i then
+          int_of_char ' '
+        else
+          Cstruct.get_uint8 x i
+      in
+      result := !result + v
     done;
     Int64.of_int !result
 
