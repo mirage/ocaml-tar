@@ -65,7 +65,7 @@ let with_tmpdir f =
   Unix.mkdir filename 0o700;
   Fun.protect (fun () -> f filename) ~finally:(fun () -> Unix.rmdir filename)
 
-let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512) f =
+let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512) () f =
   let format = match level with
     | None -> ""
     | Some format -> "--format=" ^ match format with
@@ -86,16 +86,14 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512
   f tar_filename files
 
 let can_read_tar () =
-  with_tar
-    (fun tar_filename files ->
-       let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
-       let files' = List.map (fun t -> t.Tar.Header.file_name) (Tar_unix.Archive.list fd) in
-       Unix.close fd;
-       let missing = set_difference files files' in
-       let missing' = set_difference files' files in
-       Alcotest.(check (list string)) "missing" [] missing;
-       Alcotest.(check (list string)) "missing'" [] missing'
-    )
+  with_tar () @@ fun tar_filename files ->
+  let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
+  let files' = List.map (fun t -> t.Tar.Header.file_name) (Tar_unix.Archive.list fd) in
+  Unix.close fd;
+  let missing = set_difference files files' in
+  let missing' = set_difference files' files in
+  Alcotest.(check (list string)) "missing" [] missing;
+  Alcotest.(check (list string)) "missing'" [] missing'
 
 let can_write_pax () =
   let open Tar_unix in
@@ -147,20 +145,20 @@ let starts_with ~prefix s =
 
 let can_transform_tar () =
   let level = Tar.Header.Ustar in
-  with_tar ~level (fun tar_in _file_list ->
-      let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
-      let tar_out = Filename.temp_file "tar-transformed" ".tar" in
-      let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
-      with_tmpdir @@ fun temp_dir ->
-      Tar_unix.Archive.transform ~level (fun hdr ->
-          {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
-        fd_in fd_out;
-      Unix.close fd_in;
-      Unix.close fd_out;
-      let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
-      Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
-          Alcotest.(check bool) "Filename was transformed" true (starts_with ~prefix:temp_dir hdr.file_name));
-      Unix.close fd_in)
+  with_tar ~level () @@ fun tar_in _file_list ->
+  let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
+  let tar_out = Filename.temp_file "tar-transformed" ".tar" in
+  let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
+  with_tmpdir @@ fun temp_dir ->
+  Tar_unix.Archive.transform ~level (fun hdr ->
+      {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
+    fd_in fd_out;
+  Unix.close fd_in;
+  Unix.close fd_out;
+  let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
+  Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
+      Alcotest.(check bool) "Filename was transformed" true (starts_with ~prefix:temp_dir hdr.file_name));
+  Unix.close fd_in
 
 module Block4096 = struct
   include Block
@@ -190,98 +188,90 @@ end
 
 module Test(B: BLOCK) = struct
   let add_data_to_tar ?(level:Tar.Header.compatibility option) ?files switch () f =
-    let f tar_filename files =
-      let size = Unix.(stat tar_filename).st_size in
-      let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
-      Unix.truncate tar_filename size;
-      B.connect tar_filename >>= fun b ->
-      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
-      KV_RW.connect b >>= fun t ->
-      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
-      Result.iter_error (fun e ->
-          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
-        x;
-      let files = "barf" :: files in
-      f tar_filename files
-    in
-    with_tar ?level ?files ~sector_size:B.sector_size f
+    with_tar ?level ?files ~sector_size:B.sector_size () @@ fun tar_filename files ->
+    let size = Unix.(stat tar_filename).st_size in
+    let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
+    Unix.truncate tar_filename size;
+    B.connect tar_filename >>= fun b ->
+    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
+    Result.iter_error (fun e ->
+        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+      x;
+    let files = "barf" :: files in
+    f tar_filename files
 
   let add_more_data_to_tar ?(level:Tar.Header.compatibility option) ?files switch () f =
-    let f tar_filename files =
-      let size = Unix.(stat tar_filename).st_size in
-      (* Add 4 KB rounding up to block size *)
-      let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
-      Unix.truncate tar_filename size;
-      B.connect tar_filename >>= fun b ->
-      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
-      KV_RW.connect b >>= fun t ->
-      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
-      Result.iter_error (fun e ->
-          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
-        x;
-      KV_RW.set t (Mirage_kv.Key.v "barf2") "foobar2" >>= fun x ->
-      Result.iter_error (fun e ->
-          failwith (Fmt.to_to_string KV_RW.pp_write_error e))
-        x;
-      let files = "barf" :: "barf2" :: files in
-      f tar_filename files
-    in
-    with_tar ?level ?files ~sector_size:B.sector_size f
+    with_tar ?level ?files ~sector_size:B.sector_size () @@ fun tar_filename files ->
+    let size = Unix.(stat tar_filename).st_size in
+    (* Add 4 KB rounding up to block size *)
+    let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
+    Unix.truncate tar_filename size;
+    B.connect tar_filename >>= fun b ->
+    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
+    Result.iter_error (fun e ->
+        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+      x;
+    KV_RW.set t (Mirage_kv.Key.v "barf2") "foobar2" >>= fun x ->
+    Result.iter_error (fun e ->
+        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+      x;
+    let files = "barf" :: "barf2" :: files in
+    f tar_filename files
 
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files switch () =
-    let f tar_filename files =
-      B.connect tar_filename >>= fun b ->
-      let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
-      KV_RW.connect b >>= fun t ->
-      KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
-      | Error `No_space -> Lwt.return ()
-      | _ -> failwith "expected `No_space"
-    in
-    with_tar ?level ?files f
+    with_tar ?level ?files () @@ fun tar_filename files ->
+    B.connect tar_filename >>= fun b ->
+    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    KV_RW.connect b >>= fun t ->
+    KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
+    | Error `No_space -> Lwt.return ()
+    | _ -> failwith "expected `No_space"
 
   let check_tar tar_filename files =
     B.connect tar_filename >>= fun b ->
     let module KV_RO = Tar_mirage.Make_KV_RO(B) in
     KV_RO.connect b >>= fun k ->
-    Lwt_list.iter_s
-      (fun file ->
-         let size =
-           if file = "barf" then 6L
-           else if file = "barf2" then 7L
-           else Unix.LargeFile.((stat file).st_size)
-         in
-         let read_file key ofs len =
-           if key = "barf" then String.sub "foobar" ofs len
-           else if key = "barf2" then String.sub "foobar2" ofs len
-           else
-             let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
-             Fun.protect
-               (fun () ->
-                  let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
-                  let buf = Bytes.make len '\000' in
-                  let len' = Unix.read fd buf 0 len in
-                  Alcotest.(check int) "same length" len len';
-                  Bytes.to_string buf
-               ) ~finally:(fun () -> Unix.close fd) in
-         let read_tar key =
-           KV_RO.get k key >>= function
-           | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
-           | Ok buf -> Lwt.return buf in
-         (* Read whole file *)
-         let value = read_file file 0 (Int64.to_int size) in
-         read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-         Alcotest.(check string) "same content" value value';
-         if Int64.compare size 2L = 1 then begin
-           let value = read_file file 1 ((Int64.to_int size) - 2) in
-           read_tar (Mirage_kv.Key.v file) >>= fun value' ->
-           let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
-           Alcotest.(check string) "same content" value value'';
-           Lwt.return_unit
-         end else Lwt.return_unit
-      ) files
+    files |> Lwt_list.iter_s @@ fun file ->
+      let size =
+        if file = "barf" then 6L
+        else if file = "barf2" then 7L
+        else Unix.LargeFile.((stat file).st_size)
+      in
+      let read_file key ofs len =
+        if key = "barf" then String.sub "foobar" ofs len
+        else if key = "barf2" then String.sub "foobar2" ofs len
+        else
+          let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+          Fun.protect
+            (fun () ->
+               let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
+               let buf = Bytes.make len '\000' in
+               let len' = Unix.read fd buf 0 len in
+               Alcotest.(check int) "same length" len len';
+               Bytes.to_string buf
+            ) ~finally:(fun () -> Unix.close fd) in
+      let read_tar key =
+        KV_RO.get k key >>= function
+        | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
+        | Ok buf -> Lwt.return buf in
+      (* Read whole file *)
+      let value = read_file file 0 (Int64.to_int size) in
+      read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+      Alcotest.(check string) "same content" value value';
+      if Int64.compare size 2L = 1 then begin
+        let value = read_file file 1 ((Int64.to_int size) - 2) in
+        read_tar (Mirage_kv.Key.v file) >>= fun value' ->
+        let value'' = String.sub value' 1 ((Int64.to_int size) - 2) in
+        Alcotest.(check string) "same content" value value'';
+        Lwt.return_unit
+      end else Lwt.return_unit
 
   let can_read_through_BLOCK ~files switch () =
-    with_tar ~files ~sector_size:B.sector_size check_tar
+    with_tar ~files ~sector_size:B.sector_size () check_tar
 
   let write_test switch () =
      add_data_to_tar switch () check_tar
