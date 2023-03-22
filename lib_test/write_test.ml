@@ -1,4 +1,3 @@
-open OUnit2
 open Lwt.Infix
 
 module B(Size : sig val sector_size : int end) = struct
@@ -36,9 +35,9 @@ module Test(B : BLOCK) = struct
   let str n =
     Bytes.unsafe_to_string (Bytes.create n)
 
-  let connect_block test_ctxt =
-    let filename, ch = bracket_tmpfile ~prefix:"tar-write-test" ~suffix:".tar" test_ctxt in
-    close_out ch;
+  let connect_block switch =
+    let filename = Filename.temp_file "tar-write-test" ".tar" in
+    Lwt_switch.add_hook (Some switch) (fun () -> Lwt_unix.unlink filename);
     B.connect filename
 
   let resize b size =
@@ -47,40 +46,40 @@ module Test(B : BLOCK) = struct
         Fmt.kstr failwith "%a" B.pp_write_error e)
       x
 
-  let write_empty_file test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let write_empty_file switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "" >>=
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
 
-  let write_sector_size_file test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let write_sector_size_file switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") (str B.sector_size) >>=
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
 
-  let write_sector_size test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let write_sector_size switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") (str (B.sector_size - 512)) >>=
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
 
-  let write_two_sector_size ctx =
-    connect_block ctx >>= fun b ->
+  let write_two_sector_size switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") (str (2 * B.sector_size - 512)) >>=
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
 
-  let write_two_files ctx =
-    connect_block ctx >>= fun b ->
+  let write_two_files switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "first") (str (B.sector_size - 512)) >>=
@@ -89,9 +88,9 @@ module Test(B : BLOCK) = struct
     kv_rw_write_error >>= fun () ->
     Lwt.return_unit
 
-  let write_two_files_remove_first ctx =
+  let write_two_files_remove_first switch () =
     let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
-    connect_block ctx >>= fun b ->
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t first (str (B.sector_size - 512)) >>=
@@ -101,11 +100,11 @@ module Test(B : BLOCK) = struct
     KV_RW.remove t first >>= function
     | Error _ (* XXX: `Append_only *) ->
       Lwt.return_unit
-    | Ok () -> OUnit2.assert_failure "Expected Error `Append_only"
+    | Ok () -> Alcotest.fail "Expected Error `Append_only"
 
-  let write_two_files_remove_second ctx =
+  let write_two_files_remove_second switch () =
     let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
-    connect_block ctx >>= fun b ->
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t first (str (B.sector_size - 512)) >>=
@@ -115,9 +114,9 @@ module Test(B : BLOCK) = struct
     KV_RW.remove t second >>=
     kv_rw_write_error
 
-  let remove_odd_file ctx =
+  let remove_odd_file switch () =
     let first = Mirage_kv.Key.v "first" in
-    connect_block ctx >>= fun b ->
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t first (str 1) >>=
@@ -125,9 +124,9 @@ module Test(B : BLOCK) = struct
     KV_RW.remove t first >>=
     kv_rw_write_error
 
-  let set_after_remove test_ctxt =
+  let set_after_remove switch () =
     let first = Mirage_kv.Key.v "first" and second = Mirage_kv.Key.v "second" in
-    connect_block test_ctxt >>= fun b ->
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set t first "Some data\n" >>=
@@ -137,9 +136,9 @@ module Test(B : BLOCK) = struct
     KV_RW.set t second "More data\n" >>=
     kv_rw_write_error
 
-  let allocate_doesn't_affect_beyond_end_of_archive data_size ctx =
+  let allocate_doesn't_affect_beyond_end_of_archive data_size switch () =
     let first = Mirage_kv.Key.v "first" in
-    connect_block ctx >>= fun b ->
+    connect_block switch >>= fun b ->
     let align_sector n = (n + pred B.sector_size) / B.sector_size in
     let align_block n = (n + 511) / 512 in
     let size = B.sector_size * align_sector (512 + 512 * (align_block data_size) + 1024 + 512) in
@@ -157,26 +156,18 @@ module Test(B : BLOCK) = struct
     seek_in ic 512; (* skip header *)
     (* check file content *)
     for _ = 1 to data_size do
-      assert_equal ~cmp:Char.equal ~printer:Char.escaped
-        '\x00' (input_char ic)
-        ~msg:"corrupt data";
+      Alcotest.(check char) "corrupt data" '\x00' (input_char ic);
     done;
     for _ = 1 to 512 * align_block data_size - data_size do
-      assert_equal ~cmp:Char.equal ~printer:Char.escaped
-        '\x00' (input_char ic)
-        ~msg:"corrupt padding";
+      Alcotest.(check char) "corrupt padding" '\x00' (input_char ic);
     done;
     (* check sentinel *)
     for _ = 1 to 1024 do
-      assert_equal ~cmp:Char.equal ~printer:Char.escaped
-        '\x00' (input_char ic)
-        ~msg:"corrupt sentinel"
+      Alcotest.(check char) "corrupt sentinel" '\x00' (input_char ic);
     done;
     (* check tail is untouched *)
     for _ = 1 to size - 512 - 512 * align_block data_size - 1024 do
-      assert_equal ~cmp:Char.equal ~printer:Char.escaped
-        '\xff' (input_char ic)
-        ~msg:"corrupt tail"
+      Alcotest.(check char) "corrupt tail" '\xff' (input_char ic);
     done;
     assert (pos_in ic = size)
 
@@ -184,7 +175,7 @@ module Test(B : BLOCK) = struct
 
   let tests =
     let ( >:: ) desc f =
-      Printf.sprintf "%s b%d" desc B.sector_size >:: OUnitLwt.lwt_wrapper f
+      Alcotest_lwt.test_case (Printf.sprintf "%s b%d" desc B.sector_size) `Quick f
     in
     [
       "write empty" >:: write_empty_file;
@@ -206,8 +197,7 @@ module Test512 = Test(Block512)
 module Test4096 = Test(Block4096)
 
 let () =
-  let suite =
-    "tar-write" >:::
-    (Test512.tests @ Test4096.tests)
-  in
-  run_test_tt_main suite
+  Lwt_main.run @@ Alcotest_lwt.run "tar-write" [
+    "Test512", Test512.tests;
+    "Test4096", Test4096.tests;
+  ]
