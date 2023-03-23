@@ -196,8 +196,10 @@ module Header = struct
     Cstruct.blit_from_string v 0 buf hdr_magic_off sizeof_hdr_magic
 
   let _get_hdr_version buf =
-    Cstruct.to_string ~off:hdr_version_off ~len:sizeof_hdr_version buf
+    unmarshal_string
+      (Cstruct.to_string ~off:hdr_version_off ~len:sizeof_hdr_version buf)
   let set_hdr_version buf v =
+    let v = marshal_string v sizeof_hdr_version in
     Cstruct.blit_from_string v 0 buf hdr_version_off sizeof_hdr_version
 
   let get_hdr_uname buf =
@@ -556,9 +558,8 @@ module Header = struct
         set_hdr_version c "00";
       end else begin
         (* OLD GNU MAGIC: use "ustar " as magic, and another " " in the version *)
-        let magic_len = sizeof_hdr_magic + sizeof_hdr_version in
-        let magic = marshal_string "ustar  " magic_len in
-        Cstruct.blit_from_string magic 0 c hdr_magic_off magic_len
+        set_hdr_magic c "ustar ";
+        set_hdr_version c " ";
       end;
       set_hdr_uname c x.uname;
       set_hdr_gname c x.gname;
