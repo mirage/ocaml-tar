@@ -29,7 +29,6 @@
  (depends
   camlp-streams
   (ocaml (>= 4.08.0))
-  (ppx_cstruct (and :build (>= 3.6.0)))
   (cstruct (>= 6.0.0))
   (decompress (>= 1.5.1))
  )
@@ -44,7 +43,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.03.0))
+  (ocaml (>= 4.08.0))
   (cstruct (>= 6.0.0))
   cstruct-lwt
   lwt
@@ -73,7 +72,7 @@
   ptime
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.13.0)))
-  (mirage-clock-unix :with-test)
+  (mirage-clock-unix (and :with-test (>= 4.0.0)))
   (ounit2 :with-test)
   (ounit2-lwt :with-test)
   (tar-unix (and :with-test (= :version)))
