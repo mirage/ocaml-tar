@@ -87,7 +87,7 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512
 
 let can_read_tar () =
   with_tar () @@ fun tar_filename files ->
-  let fd = Unix.openfile tar_filename [ Unix.O_RDONLY ] 0 in
+  let fd = Unix.openfile tar_filename [ O_RDONLY; O_CLOEXEC ] 0 in
   let files' = List.map (fun t -> t.Tar.Header.file_name) (Tar_unix.Archive.list fd) in
   Unix.close fd;
   let missing = set_difference files files' in
@@ -101,7 +101,7 @@ let can_write_pax () =
   (* This userid is too large for a regular ustar header *)
   let user_id = 0x07777777 + 1 in
   (* Write a file which would need a pax header *)
-  let fd = Unix.openfile filename [ Unix.O_CREAT; Unix.O_WRONLY ] 0o0644 in
+  let fd = Unix.openfile filename [ O_CREAT; O_WRONLY; O_CLOEXEC ] 0o0644 in
   Fun.protect
     (fun () ->
       let hdr = Tar.Header.make ~user_id "test" 0L in
@@ -109,7 +109,7 @@ let can_write_pax () =
       write_end fd;
     ) ~finally:(fun () -> Unix.close fd);
   (* Read it back and verify the header was read *)
-  let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
+  let fd = Unix.openfile filename [ O_RDONLY; O_CLOEXEC ] 0 in
   Fun.protect
     (fun () ->
       match Archive.list fd with
@@ -120,7 +120,7 @@ let can_write_pax () =
 
 let can_list_longlink_tar () =
   let open Tar_unix in
-  let fd = Unix.openfile "lib_test/long.tar" [ Unix.O_RDONLY ] 0o0 in
+  let fd = Unix.openfile "lib_test/long.tar" [ O_RDONLY; O_CLOEXEC ] 0o0 in
   Fun.protect
     (fun () ->
       let all = Archive.list fd in
@@ -146,16 +146,16 @@ let starts_with ~prefix s =
 let can_transform_tar () =
   let level = Tar.Header.Ustar in
   with_tar ~level () @@ fun tar_in _file_list ->
-  let fd_in = Unix.openfile tar_in [O_RDONLY] 0 in
+  let fd_in = Unix.openfile tar_in [ O_RDONLY; O_CLOEXEC ] 0 in
   let tar_out = Filename.temp_file "tar-transformed" ".tar" in
-  let fd_out = Unix.openfile tar_out [O_WRONLY; O_CREAT] 0o644 in
+  let fd_out = Unix.openfile tar_out [ O_WRONLY; O_CREAT; O_CLOEXEC ] 0o644 in
   with_tmpdir @@ fun temp_dir ->
   Tar_unix.Archive.transform ~level (fun hdr ->
       {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
     fd_in fd_out;
   Unix.close fd_in;
   Unix.close fd_out;
-  let fd_in = Unix.openfile tar_out [O_RDONLY] 0 in
+  let fd_in = Unix.openfile tar_out [ O_RDONLY; O_CLOEXEC ] 0 in
   Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
       Alcotest.(check bool) "Filename was transformed" true (starts_with ~prefix:temp_dir hdr.file_name));
   Unix.close fd_in
@@ -245,7 +245,7 @@ module Test(B: BLOCK) = struct
         if key = "barf" then String.sub "foobar" ofs len
         else if key = "barf2" then String.sub "foobar2" ofs len
         else
-          let fd = Unix.openfile key [ Unix.O_RDONLY ] 0 in
+          let fd = Unix.openfile key [ O_RDONLY; O_CLOEXEC ] 0 in
           Fun.protect
             (fun () ->
                let (_: int) = Unix.lseek fd ofs Unix.SEEK_SET in
@@ -280,7 +280,7 @@ module Test(B: BLOCK) = struct
      add_more_data_to_tar switch () check_tar
 
   let check_not_padded switch () =
-    Unix.openfile "empty" [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 |> Unix.close;
+    Unix.openfile "empty" [ O_WRONLY; O_CREAT; O_TRUNC; O_CLOEXEC ] 0o644 |> Unix.close;
     can_read_through_BLOCK ~files:["empty"] switch ()
 end
 
