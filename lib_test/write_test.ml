@@ -30,7 +30,7 @@ module Test(B : BLOCK) = struct
 
   let kv_rw_write_error =
     Lwt.wrap1
-      (Result.iter_error (Fmt.kstr failwith "%a" KV_RW.pp_write_error))
+      (Result.iter_error (Alcotest.failf "%a" KV_RW.pp_write_error))
 
   let str n =
     Bytes.unsafe_to_string (Bytes.create n)
@@ -42,8 +42,7 @@ module Test(B : BLOCK) = struct
 
   let resize b size =
     B.resize b size >|= fun x ->
-    Result.iter_error (fun e ->
-        Fmt.kstr failwith "%a" B.pp_write_error e)
+    Result.iter_error (Alcotest.failf "%a" B.pp_write_error)
       x
 
   let write_empty_file switch () =
