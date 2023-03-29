@@ -156,8 +156,9 @@ let can_transform_tar () =
   Unix.close fd_in;
   Unix.close fd_out;
   let fd_in = Unix.openfile tar_out [ O_RDONLY; O_CLOEXEC ] 0 in
-  Tar_unix.Archive.with_next_file fd_in (fun _fd_in hdr ->
-      Alcotest.(check bool) "Filename was transformed" true (starts_with ~prefix:temp_dir hdr.file_name));
+  Tar_unix.Archive.with_next_file fd_in (fun fd_file hdr ->
+      Alcotest.(check bool) "Filename was transformed" true (starts_with ~prefix:temp_dir hdr.file_name);
+      Tar_unix.Archive.skip fd_file (Int64.to_int hdr.file_size));
   Unix.close fd_in
 
 module Block4096 = struct
