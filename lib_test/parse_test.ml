@@ -168,11 +168,15 @@ module Block4096 = struct
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
     connect ~prefered_sector_size:(Some 4096) name
+
+  let with_block name f =
+    connect name >>= fun b ->
+    Lwt.finalize (fun () -> f b) (fun () -> disconnect b)
 end
 
 module type BLOCK = sig
   include Mirage_block.S
-  val connect: string -> t Lwt.t
+  val with_block: string -> (t -> unit Lwt.t) -> unit Lwt.t
   val sector_size : int
 end
 
@@ -184,6 +188,10 @@ module B = struct
   let connect name =
     let name = if Sys.win32 then convert_path `Windows name else name in
     connect ~prefered_sector_size:(Some 512) name
+
+  let with_block name f =
+    connect name >>= fun b ->
+    Lwt.finalize (fun () -> f b) (fun () -> disconnect b)
 end
 
 module Test(B: BLOCK) = struct
@@ -192,7 +200,7 @@ module Test(B: BLOCK) = struct
     let size = Unix.(stat tar_filename).st_size in
     let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
     Unix.truncate tar_filename size;
-    B.connect tar_filename >>= fun b ->
+    B.with_block tar_filename @@ fun b ->
     let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
@@ -208,7 +216,7 @@ module Test(B: BLOCK) = struct
     (* Add 4 KB rounding up to block size *)
     let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
     Unix.truncate tar_filename size;
-    B.connect tar_filename >>= fun b ->
+    B.with_block tar_filename @@ fun b ->
     let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
@@ -224,7 +232,7 @@ module Test(B: BLOCK) = struct
 
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files switch () =
     with_tar ?level ?files () @@ fun tar_filename files ->
-    B.connect tar_filename >>= fun b ->
+    B.with_block tar_filename @@ fun b ->
     let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
@@ -232,7 +240,7 @@ module Test(B: BLOCK) = struct
     | _ -> Alcotest.fail "expected `No_space"
 
   let check_tar tar_filename files =
-    B.connect tar_filename >>= fun b ->
+    B.with_block tar_filename @@ fun b ->
     let module KV_RO = Tar_mirage.Make_KV_RO(B) in
     KV_RO.connect b >>= fun k ->
     files |> Lwt_list.iter_s @@ fun file ->

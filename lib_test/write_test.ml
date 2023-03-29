@@ -37,8 +37,11 @@ module Test(B : BLOCK) = struct
 
   let connect_block switch =
     let filename = Filename.temp_file "tar-write-test" ".tar" in
-    Lwt_switch.add_hook (Some switch) (fun () -> Lwt_unix.unlink filename);
-    B.connect filename
+    B.connect filename >|= fun b ->
+    Lwt_switch.add_hook (Some switch) (fun () ->
+        B.disconnect b >>= fun () ->
+        Lwt_unix.unlink filename);
+    b
 
   let resize b size =
     B.resize b size >|= fun x ->
