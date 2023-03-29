@@ -80,8 +80,8 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512
   let cmdline = Printf.sprintf "tar -cf %s -b %d %s %s" tar_filename tar_block_size format (String.concat " " files) in
   begin match Unix.system cmdline with
     | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwith (Printf.sprintf "%s: exited with %d" cmdline n)
-    | _ -> failwith (Printf.sprintf "%s: unknown error" cmdline)
+    | Unix.WEXITED n -> Alcotest.failf "%s: exited with %d" cmdline n
+    | _ -> Alcotest.failf "%s: unknown error" cmdline
   end;
   f tar_filename files
 
@@ -197,7 +197,7 @@ module Test(B: BLOCK) = struct
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
     Result.iter_error (fun e ->
-        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        Alcotest.failf "%a" KV_RW.pp_write_error e)
       x;
     let files = "barf" :: files in
     f tar_filename files
@@ -213,11 +213,11 @@ module Test(B: BLOCK) = struct
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
     Result.iter_error (fun e ->
-        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        Alcotest.failf "%a" KV_RW.pp_write_error e)
       x;
     KV_RW.set t (Mirage_kv.Key.v "barf2") "foobar2" >>= fun x ->
     Result.iter_error (fun e ->
-        failwith (Fmt.to_to_string KV_RW.pp_write_error e))
+        Alcotest.failf "%a" KV_RW.pp_write_error e)
       x;
     let files = "barf" :: "barf2" :: files in
     f tar_filename files
@@ -229,7 +229,7 @@ module Test(B: BLOCK) = struct
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
     | Error `No_space -> Lwt.return ()
-    | _ -> failwith "expected `No_space"
+    | _ -> Alcotest.fail "expected `No_space"
 
   let check_tar tar_filename files =
     B.connect tar_filename >>= fun b ->
@@ -256,7 +256,7 @@ module Test(B: BLOCK) = struct
             ) ~finally:(fun () -> Unix.close fd) in
       let read_tar key =
         KV_RO.get k key >>= function
-        | Error e -> Fmt.failwith "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
+        | Error e -> Alcotest.failf "KV_RO.read (%a) %a" Mirage_kv.Key.pp key KV_RO.pp_error e
         | Ok buf -> Lwt.return buf in
       (* Read whole file *)
       let value = read_file file 0 (Int64.to_int size) in

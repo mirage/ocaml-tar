@@ -33,10 +33,10 @@ module Test(B : BLOCK) = struct
   module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B)
 
   let kv_rw_error =
-    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Fmt.kstr failwith "%a" KV_RW.pp_error))
+    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Alcotest.failf "%a" KV_RW.pp_error))
 
   let kv_rw_write_error =
-    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Fmt.kstr failwith "%a" KV_RW.pp_write_error))
+    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Alcotest.failf "%a" KV_RW.pp_write_error))
 
   let connect_block switch =
     let filename = Filename.temp_file "tar-allocate-set-partial-test" ".tar" in
@@ -45,7 +45,7 @@ module Test(B : BLOCK) = struct
 
   let resize b size =
     B.resize b size >|=
-    Result.iter_error (Fmt.kstr failwith "%a" B.pp_write_error)
+    Result.iter_error (Alcotest.failf "%a" B.pp_write_error)
 
   let allocate_empty_file switch () =
     connect_block switch >>= fun b ->
