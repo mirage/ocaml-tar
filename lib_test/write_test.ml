@@ -37,6 +37,8 @@ module Test(B : BLOCK) = struct
 
   let connect_block switch =
     let filename = Filename.temp_file "tar-write-test" ".tar" in
+    if not (Sys.file_exists filename) then
+      Fmt.kstr failwith "File %s does not exist!" filename;
     Lwt_switch.add_hook (Some switch) (fun () -> Lwt_unix.unlink filename);
     B.connect filename
 
