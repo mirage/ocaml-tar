@@ -43,8 +43,11 @@ module Test(B : BLOCK) = struct
     B.connect filename
 
   let resize b size =
-    B.resize b size >|= fun x ->
-    Result.iter_error (Alcotest.failf "%a" B.pp_write_error)
+    B.resize b size >>= fun x ->
+    B.get_info b >|= fun info ->
+    if not Int64.(equal size info.size_sectors) then
+        Fmt.kstr failwith "Expected size %Ld, got size %Ld" size info.size_sectors;
+    Result.iter_error (Fmt.kstr failwith "%a" B.pp_write_error)
       x
 
   let write_empty_file switch () =
