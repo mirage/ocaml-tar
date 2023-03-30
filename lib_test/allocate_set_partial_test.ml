@@ -1,4 +1,3 @@
-open OUnit2
 open Lwt.Infix
 
 module Int63 = Optint.Int63
@@ -34,38 +33,40 @@ module Test(B : BLOCK) = struct
   module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B)
 
   let kv_rw_error =
-    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Fmt.kstr failwith "%a" KV_RW.pp_error))
+    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Alcotest.failf "%a" KV_RW.pp_error))
 
   let kv_rw_write_error =
-    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Fmt.kstr failwith "%a" KV_RW.pp_write_error))
+    Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Alcotest.failf "%a" KV_RW.pp_write_error))
 
-  let connect_block test_ctxt =
-    let filename, ch = bracket_tmpfile ~prefix:"tar-allocate-set-partial-test" ~suffix:".tar" test_ctxt in
-    close_out ch;
-    B.connect filename
+  let connect_block switch =
+    let filename = Filename.temp_file "tar-allocate-set-partial-test" ".tar" in
+    B.connect filename >|= fun b ->
+    Lwt_switch.add_hook (Some switch) (fun () ->
+        B.disconnect b >>= fun () -> Lwt_unix.unlink filename);
+    b
 
   let resize b size =
     B.resize b size >|=
-    Result.iter_error (Fmt.kstr failwith "%a" B.pp_write_error)
+    Result.iter_error (Alcotest.failf "%a" B.pp_write_error)
 
-  let allocate_empty_file test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let allocate_empty_file switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.allocate t (Mirage_kv.Key.v "empty") Int63.zero >>=
     kv_rw_write_error
 
-  let set_partial_no_file test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let set_partial_no_file switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     KV_RW.set_partial t (Mirage_kv.Key.v "nonexistent")
       ~offset:Int63.zero "" >>= function
-    | Ok () -> assert_failure "expected set_partial on nonexistent file to fail"
+    | Ok () -> Alcotest.fail "expected set_partial on nonexistent file to fail"
     | Error _ -> Lwt.return_unit
 
-  let allocate_is_zeroed test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let allocate_is_zeroed switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     let key = Mirage_kv.Key.v "zeroed" in
@@ -73,11 +74,10 @@ module Test(B : BLOCK) = struct
     kv_rw_write_error >>= fun () ->
     KV_RW.get t key >>=
     kv_rw_error >|=
-    assert_equal ~cmp:String.equal ~printer:String.escaped
-      (String.make Tar.Header.length '\000')
+    Alcotest.(check string) "is zeroed" (String.make Tar.Header.length '\000')
 
-  let allocate_two_one_byte_files_zeroed test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let allocate_two_one_byte_files_zeroed switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     let k1 = Mirage_kv.Key.v "zeroed" and k2 = Mirage_kv.Key.v "zeroed2" in
@@ -87,15 +87,13 @@ module Test(B : BLOCK) = struct
     kv_rw_write_error >>= fun () ->
     KV_RW.get t k1 >>=
     kv_rw_error >>= fun s ->
-    assert_equal ~cmp:String.equal ~printer:String.escaped
-      "\000" s;
+    Alcotest.(check string) "is zero" "\000" s;
     KV_RW.get t k2 >>=
     kv_rw_error >|=
-    assert_equal ~cmp:String.equal ~printer:String.escaped
-      "\000"
+    Alcotest.(check string) "is zero" "\000"
 
-  let allocate_set_partial_first_byte test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let allocate_set_partial_first_byte switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     let k = Mirage_kv.Key.v "X" in
@@ -105,21 +103,20 @@ module Test(B : BLOCK) = struct
     kv_rw_write_error >>= fun () ->
     KV_RW.get t k >>=
     kv_rw_error >|=
-    assert_equal ~cmp:String.equal ~printer:String.escaped
-      "X\000"
+    Alcotest.(check string) "partial" "X\000"
 
-  let rename_nonexistent_file test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let rename_nonexistent_file switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     let source = Mirage_kv.Key.v "source"
     and dest = Mirage_kv.Key.v "destination" in
     KV_RW.rename t ~source ~dest >|= function
-    | Ok () -> assert_failure "Expected failure to rename nonexistent file"
+    | Ok () -> Alcotest.fail "Expected failure to rename nonexistent file"
     | Error _ -> ()
 
-  let set_rename test_ctxt =
-    connect_block test_ctxt >>= fun b ->
+  let set_rename switch () =
+    connect_block switch >>= fun b ->
     resize b 10240L >>= fun () ->
     KV_RW.connect b >>= fun t ->
     let source = Mirage_kv.Key.v "source"
@@ -134,12 +131,11 @@ module Test(B : BLOCK) = struct
     kv_rw_write_error >>= fun () ->
     KV_RW.get t dest >>=
     kv_rw_error >|= fun s' ->
-    assert_equal ~cmp:String.equal ~printer:String.escaped
-      s s'
+    Alcotest.(check string) "renamed" s s'
 
   let tests =
     let ( >:: ) desc f =
-      Printf.sprintf "%s b%d" desc B.sector_size >:: OUnitLwt.lwt_wrapper f
+      Alcotest_lwt.test_case (Printf.sprintf "%s b%d" desc B.sector_size) `Quick f
     in
     [
       "allocate empty file" >:: allocate_empty_file;
@@ -154,11 +150,11 @@ end
 
 module Test512 = Test(Block512)
 module Test4096 = Test(Block4096)
-    
+
 
 let () =
-  let suite =
-    "tar-allocate-set-partial" >:::
-    (Test512.tests @ Test4096.tests)
-  in
-  run_test_tt_main suite
+  Lwt_main.run @@ Alcotest_lwt.run "tar-allocate-set-partial"
+  [
+    "Test512", Test512.tests;
+    "Test4096", Test4096.tests;
+  ]

@@ -5,8 +5,8 @@
   mirage-block-unix
   mirage-block
   mirage-clock-unix
-  ounit2
-  ounit2-lwt
+  alcotest
+  alcotest-lwt
   lwt
   tar-unix
   tar-mirage))
