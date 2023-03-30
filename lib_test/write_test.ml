@@ -155,23 +155,26 @@ module Test(B : BLOCK) = struct
     KV_RW.allocate t first (Optint.Int63.of_int data_size) >>=
     kv_rw_write_error >|= fun () ->
     let ic = open_in config.path in
-    seek_in ic 512; (* skip header *)
-    (* check file content *)
-    for _ = 1 to data_size do
-      Alcotest.(check char) "corrupt data" '\x00' (input_char ic);
-    done;
-    for _ = 1 to 512 * align_block data_size - data_size do
-      Alcotest.(check char) "corrupt padding" '\x00' (input_char ic);
-    done;
-    (* check sentinel *)
-    for _ = 1 to 1024 do
-      Alcotest.(check char) "corrupt sentinel" '\x00' (input_char ic);
-    done;
-    (* check tail is untouched *)
-    for _ = 1 to size - 512 - 512 * align_block data_size - 1024 do
-      Alcotest.(check char) "corrupt tail" '\xff' (input_char ic);
-    done;
-    Alcotest.(check int) "same position" size (pos_in ic)
+    Fun.protect
+      (fun () ->
+        seek_in ic 512; (* skip header *)
+        (* check file content *)
+        for _ = 1 to data_size do
+          Alcotest.(check char) "corrupt data" '\x00' (input_char ic);
+        done;
+        for _ = 1 to 512 * align_block data_size - data_size do
+          Alcotest.(check char) "corrupt padding" '\x00' (input_char ic);
+        done;
+        (* check sentinel *)
+        for _ = 1 to 1024 do
+          Alcotest.(check char) "corrupt sentinel" '\x00' (input_char ic);
+        done;
+        (* check tail is untouched *)
+        for _ = 1 to size - 512 - 512 * align_block data_size - 1024 do
+          Alcotest.(check char) "corrupt tail" '\xff' (input_char ic);
+        done;
+        Alcotest.(check int) "same position" size (pos_in ic)
+      ) ~finally:(fun () -> close_in ic)
 
 
 
