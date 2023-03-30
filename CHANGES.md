@@ -1,3 +1,11 @@
+## v2.4.0 (2023-03-30)
+
+- Switch to alcotest for tests (@MisterDA, review by @reynir, #121)
+- **BREAKING**: fix ustar magic version. Previously, the version "0\000" was output
+  instead of the correct version "00". (@reynir, @hannesm, #117 and #122)
+- Remove `ppx_cstruct`dependency (@hannesm, review by @reynir, #117)
+- Properly skip Pax GlobalExtendedHeaders (@MisterDA, @reynir, #116 and #118)
+
 ## v2.3.0 (2023-02-09)
 
 - `tar-mirage`: implement mirage-kv.6.0.0 (@reynir, @hannesm)
