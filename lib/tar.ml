@@ -709,6 +709,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
+        (* unmarshal merges the previous global (if any) with the
+           discovered global (if any) and returns the new global. *)
         let global = Header.Extended.unmarshal ~global extra_header_buf in
         next (Some global) ()
       | x -> return x in
