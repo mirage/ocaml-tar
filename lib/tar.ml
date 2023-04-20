@@ -697,13 +697,13 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
       >>= fun () ->
       match Header.unmarshal ?extended:global ~level buffer with
       | None -> return None
-      | Some hdr -> return (Some (hdr, global))
+      | Some hdr -> return (Some hdr)
       in
 
     let rec next global () =
       next_block global ()
       >>= function
-      | Some (x, global) when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
+      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
@@ -713,7 +713,9 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
            discovered global (if any) and returns the new global. *)
         let global = Header.Extended.unmarshal ~global extra_header_buf in
         next (Some global) ()
-      | x -> return x in
+      | Some x -> return (Some (x, global))
+      | None -> return None
+      in
 
     let get_hdr global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
       next global ()
