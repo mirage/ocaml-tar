@@ -28,7 +28,7 @@ val really_write: Lwt_unix.file_descr -> Cstruct.t -> unit Lwt.t
     zero-filled blocks are discovered. Assumes stream is positioned at the
     possible start of a header block.
     @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t -> Lwt_unix.file_descr ->
+val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option -> Lwt_unix.file_descr ->
                       (Tar.Header.t * Tar.Header.Extended.t option) option Lwt.t
 
 (** Return the header needed for a particular file on disk. *)
@@ -40,7 +40,7 @@ module Archive : sig
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header. *)
-  val with_next_file : Lwt_unix.file_descr -> ?global:Tar.Header.Extended.t ->
+  val with_next_file : Lwt_unix.file_descr -> global:Tar.Header.Extended.t option ->
                        (Lwt_unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a Lwt.t) -> 'a option Lwt.t
 
   (** List the contents of a tar to stdout. *)

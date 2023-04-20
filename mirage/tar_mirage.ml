@@ -255,8 +255,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     if ssize mod 512 <> 0 || ssize < 512 then
       invalid_arg "Sector size needs to be >= 512 and a multiple of 512";
     let in_channel = { Reader.b; offset = 0L; info } in
-    let rec loop ?global map =
-      HR.read ?global in_channel >>= function
+    let rec loop ~global map =
+      HR.read ~global in_channel >>= function
       | Error `Eof -> Lwt.return map
       | Ok (tar, global) ->
         let filename = trim_slash tar.Tar.Header.file_name in
@@ -270,10 +270,10 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         in
         Reader.skip in_channel (Int64.to_int tar.Tar.Header.file_size) >>= fun () ->
         Reader.skip in_channel (Tar.Header.compute_zero_padding_length tar) >>= fun () ->
-        loop ?global map
+        loop ~global map
     in
     let root = StringMap.empty in
-    loop root >>= fun map ->
+    loop ~global:None root >>= fun map ->
     (* This is after the two [zero_block]s *)
     let end_of_archive = in_channel.Reader.offset in
     let map = Dict (Tar.Header.make "/" 0L, map) in

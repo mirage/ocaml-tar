@@ -387,7 +387,7 @@ module Header = struct
            user_id; uname }
       | None -> extended
 
-    let unmarshal ?(global: t option) (c: Cstruct.t) : t =
+    let unmarshal ~(global: t option) (c: Cstruct.t) : t =
       (* "%d %s=%s\n", <length>, <keyword>, <value> with constraints that
          - the <keyword> cannot contain an equals sign
          - the <length> is the number of octets of the record, including \n
@@ -686,7 +686,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
   open Reader
 
 
-  let read ?level ?global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
+  let read ?level ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
     let level = Header.get_level level in
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
@@ -709,7 +709,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
-        let global = Header.Extended.unmarshal ?global extra_header_buf in
+        let global = Header.Extended.unmarshal ~global extra_header_buf in
         next (Some global) ()
       | x -> return x in
 
@@ -724,7 +724,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
-        let extended = Header.Extended.unmarshal ?global extra_header_buf in
+        let extended = Header.Extended.unmarshal ~global extra_header_buf in
         really_read ifd real_header_buf
         >>= fun () ->
         begin match Header.unmarshal ~level ~extended real_header_buf with
@@ -897,8 +897,8 @@ module Make (IO : IO) = struct
 
   module HW = HeaderWriter(Direct)(Writer)
 
-  let write_block ?level (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
-    HW.write ?level header fd;
+  let write_block ?level ?global (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
+    HW.write ?level ?global header fd;
     body fd;
     really_write fd (Header.zero_padding header)
 
@@ -908,7 +908,7 @@ module Make (IO : IO) = struct
 
   module HR = HeaderReader(Direct)(Reader)
 
-  let get_next_header ?level ?global ic = match HR.read ?level ?global ic with
+  let get_next_header ?level ~global ic = match HR.read ?level ~global ic with
     | Ok hdrs -> hdrs
     | Error `Eof -> raise Header.End_of_stream
 
@@ -921,8 +921,8 @@ module Make (IO : IO) = struct
         header (if any), and the current header. The function should leave the fd positioned
         immediately after the datablock. Finally the function skips past the zero padding to
         the next header *)
-    let with_next_file (fd: IO.in_channel) ?(global: Header.Extended.t option) (f: IO.in_channel -> Header.Extended.t option -> Header.t -> 'a) =
-      match HR.read ?global fd with
+    let with_next_file (fd: IO.in_channel) ~(global: Header.Extended.t option) (f: IO.in_channel -> Header.Extended.t option -> Header.t -> 'a) =
+      match HR.read ~global fd with
       | Ok (hdr, global) ->
         (* NB if the function 'f' fails we're boned *)
         Fun.protect (fun () -> f fd global hdr)
@@ -936,7 +936,7 @@ module Make (IO : IO) = struct
       let list = ref [] in
       try
         while true do
-          match HR.read ~level ?global:!global fd with
+          match HR.read ~level ~global:!global fd with
           | Ok (hdr, global') ->
             global := global';
             list := hdr :: !list;
@@ -971,7 +971,7 @@ module Make (IO : IO) = struct
       let global = ref None in
       try
         while true do
-          match HR.read ?global:!global ifd with
+          match HR.read ~global:!global ifd with
           | Ok (hdr, global') ->
             global := global';
             let size = hdr.Header.file_size in

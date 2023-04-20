@@ -156,7 +156,7 @@ let can_transform_tar () =
   Unix.close fd_in;
   Unix.close fd_out;
   let fd_in = Unix.openfile tar_out [ O_RDONLY; O_CLOEXEC ] 0 in
-  Tar_unix.Archive.with_next_file fd_in (fun fd_file _global hdr ->
+  Tar_unix.Archive.with_next_file fd_in ~global:None (fun fd_file _global hdr ->
       Alcotest.(check string) "Filename was transformed" temp_dir
         (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
       Tar_unix.Archive.skip fd_file (Int64.to_int hdr.file_size));

@@ -73,9 +73,9 @@ module Header : sig
     val to_detailed_string : t -> string
 
     (** Unmarshal a pax Extended Header block. This header block may
-        be preceded by [?global] blocks which will override some
+        be preceded by [global] blocks which will override some
         fields. *)
-    val unmarshal : ?global:t -> Cstruct.t -> t
+    val unmarshal : global:t option -> Cstruct.t -> t
   end
 
   (** Represents a standard archive (note checksum not stored). *)
@@ -168,7 +168,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
       @param global Holds the current global pax extended header, if
         any. Needs to be given to the next call to [read].
       @raise Header.End_of_stream if the stream unexpectedly fails. *)
-  val read : ?level:Header.compatibility -> ?global:Header.Extended.t -> Reader.in_channel -> (Header.t * Header.Extended.t option, [`Eof]) result Async.t
+  val read : ?level:Header.compatibility -> global:Header.Extended.t option -> Reader.in_channel -> (Header.t * Header.Extended.t option, [`Eof]) result Async.t
 end
 
 module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) : sig
@@ -198,9 +198,9 @@ module Make (IO : IO) : sig
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block.
       @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-  val get_next_header : ?level:Header.compatibility -> ?global:Header.Extended.t -> IO.in_channel -> Header.t * Header.Extended.t option
+  val get_next_header : ?level:Header.compatibility -> global:Header.Extended.t option -> IO.in_channel -> Header.t * Header.Extended.t option
 
-  val write_block: ?level:Header.compatibility -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
+  val write_block: ?level:Header.compatibility -> ?global:Header.Extended.t -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
     [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]
   (** Write [hdr], then call [write_body fd] to write the body,
       then zero-pads so the stream is positioned for the next block. *)
@@ -216,7 +216,7 @@ module Make (IO : IO) : sig
         header (if any), and the current header. The function should leave the fd positioned
         immediately after the datablock. Finally the function skips past the zero padding to
         the next header *)
-    val with_next_file : IO.in_channel -> ?global:Header.Extended.t ->
+    val with_next_file : IO.in_channel -> global:Header.Extended.t option ->
                          (IO.in_channel -> Header.Extended.t option -> Header.t -> 'a) -> 'a
 
     (** List the contents of a tar. *)

@@ -34,8 +34,8 @@ module Make
       positioned at the possible start of a header block.
 
       @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-  val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t -> in_channel ->
-                        (Tar.Header.t * Tar.Header.Extended.t option) Async.t
+  val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option
+    -> in_channel -> (Tar.Header.t * Tar.Header.Extended.t option) Async.t
 
   val really_read : in_channel -> Cstruct.t -> unit Async.t
   (** [really_read fd buf] fills [buf] with data from [fd] or raises
@@ -48,8 +48,8 @@ module Make
   val of_out_channel : ?bits:int -> ?q:int -> level:int ->
     mtime:int32 -> Gz.os -> Writer.out_channel -> out_channel
 
-  val write_block : ?level:Tar.Header.compatibility -> Tar.Header.t ->
-    out_channel -> (unit -> string option Async.t) -> unit Async.t
+  val write_block : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t ->
+    Tar.Header.t -> out_channel -> (unit -> string option Async.t) -> unit Async.t
   (** [write_block hdr oc stream] writes [hdr], then {i deflate} the given
       [stream], then zero-pads so the stream is positionned for the next
       block.

@@ -81,7 +81,7 @@ let use_global_extended_headers _test_ctxt =
     let pp ppf hdr = Fmt.pf ppf "%s" (Tar.Header.Extended.to_detailed_string hdr) in
     Alcotest.testable (fun ppf hdr -> Fmt.pf ppf "%a" Fmt.(option pp) hdr) ( = )
   in
-  ( match HR.read ~level ?global:!global cin with
+  ( match HR.read ~level ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g0) global';
        global := global';
@@ -89,7 +89,7 @@ let use_global_extended_headers _test_ctxt =
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
     | Error `Eof -> failwith "Couldn't read header" );
-  ( match HR.read ~level ?global:!global cin with
+  ( match HR.read ~level ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g0) global';
        global := global';
@@ -97,7 +97,7 @@ let use_global_extended_headers _test_ctxt =
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
     | Error `Eof -> failwith "Couldn't read header" );
-  ( match HR.read ~level ?global:!global cin with
+  ( match HR.read ~level ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g0) global';
        global := global';
@@ -105,7 +105,7 @@ let use_global_extended_headers _test_ctxt =
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
     | Error `Eof -> failwith "Couldn't read header" );
-  ( match HR.read ~level ?global:!global cin with
+  ( match HR.read ~level ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g1) global';
        global := global';
@@ -113,7 +113,7 @@ let use_global_extended_headers _test_ctxt =
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
     | Error `Eof -> failwith "Couldn't read header" );
-  ( match HR.read ~level ?global:!global cin with
+  ( match HR.read ~level ~global:!global cin with
     | Ok _ -> failwith "Should have found EOF"
     | Error `Eof -> () );
   ()

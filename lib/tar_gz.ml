@@ -123,8 +123,8 @@ module Make
     ; in_channel
     ; pos= 0 }
 
-  let get_next_header ?level ?global ic =
-    TarGzHeaderReader.read ?level ?global ic >>= function
+  let get_next_header ?level ~global ic =
+    TarGzHeaderReader.read ?level ~global ic >>= function
     | Ok hdrs -> Async.return hdrs
     | Error `Eof -> raise Tar.Header.End_of_stream
 
@@ -144,8 +144,8 @@ module Make
     let gz = Gz.Def.dst gz buffer off len in
     { Gz_writer.gz; ic_buffer; oc_buffer; out_channel; }
 
-  let write_block ?level hdr ({ Gz_writer.ic_buffer= buf; oc_buffer; out_channel; _ } as state) block =
-    TarGzHeaderWriter.write ?level hdr state >>= fun () ->
+  let write_block ?level ?global hdr ({ Gz_writer.ic_buffer= buf; oc_buffer; out_channel; _ } as state) block =
+    TarGzHeaderWriter.write ?level ?global hdr state >>= fun () ->
     (* XXX(dinosaure): we can refactor this code with [Gz_writer.really_write]
        but this loop saves and uses [ic_buffer]/[buf] to avoid extra
        allocations on the case between [string] and [Cstruct.t]. *)

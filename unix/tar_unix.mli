@@ -28,12 +28,14 @@ val really_write: Unix.file_descr -> Cstruct.t -> unit
     zero-filled blocks are discovered. Assumes stream is positioned at the
     possible start of a header block.
     @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t -> Unix.file_descr -> Tar.Header.t * Tar.Header.Extended.t option
+val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option ->
+  Unix.file_descr -> Tar.Header.t * Tar.Header.Extended.t option
 
 (** Return the header needed for a particular file on disk. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t
 
-val write_block: ?level:Tar.Header.compatibility -> Tar.Header.t -> (Unix.file_descr -> unit) -> Unix.file_descr -> unit
+val write_block: ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t ->
+  Tar.Header.t -> (Unix.file_descr -> unit) -> Unix.file_descr -> unit
   [@@ocaml.deprecated "Deprecated in favor of Tar.HeaderWriter"]
   (** Write [hdr], then call [write_body fd] to write the body,
       then zero-pads so the stream is positioned for the next block. *)
@@ -48,7 +50,7 @@ module Archive : sig
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header. *)
-  val with_next_file : Unix.file_descr -> ?global: Tar.Header.Extended.t -> (Unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) -> 'a
+  val with_next_file : Unix.file_descr -> global:Tar.Header.Extended.t option -> (Unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) -> 'a
 
   (** List the contents of a tar. *)
   val list : ?level:Tar.Header.compatibility -> Unix.file_descr -> Tar.Header.t list

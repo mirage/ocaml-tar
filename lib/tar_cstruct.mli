@@ -23,7 +23,7 @@ val really_write : out_channel -> Cstruct.t -> unit
 (** [really_write oc buf] writes the full contents of [buf] to [oc]
     or raises {!Stdlib.End_of_file}. *)
 
-val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t -> in_channel ->
+val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option -> in_channel ->
                       Tar.Header.t * Tar.Header.Extended.t option
 (** [get_next_header ?level ic] returns the next header block or fails with
     [`Eof] if two consecutive zero-filled blocks are discovered. Assumes [ic]
@@ -31,7 +31,7 @@ val get_next_header : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Exte
     @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
 
 module Archive : sig
-  val with_next_file : in_channel -> ?global:Tar.Header.Extended.t ->
+  val with_next_file : in_channel -> global:Tar.Header.Extended.t option ->
                        (in_channel -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) -> 'a
   (** [with_next_file ic f] Read the next header, apply the function [f] to
       [ic] and the header.  The function should leave [ic] positioned

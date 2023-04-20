@@ -57,8 +57,8 @@ let copy_n ifd ofd n =
 module HR = Tar.HeaderReader(Lwt)(Reader)
 module HW = Tar.HeaderWriter(Lwt)(Writer)
 
-let get_next_header ?level ?global ic =
-  HR.read ?level ?global ic
+let get_next_header ?level ~global ic =
+  HR.read ?level ~global ic
   >>= function
   | Error `Eof -> Lwt.return None
   | Ok hdrs -> Lwt.return (Some hdrs)
@@ -83,8 +83,8 @@ let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
   Lwt.return (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
     ~uname ~gname ~devmajor ~devminor file file_size)
 
-let write_block ?level (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
-  HW.write ?level header fd
+let write_block ?level ?global (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
+  HW.write ?level ?global header fd
   >>= fun () ->
   body fd >>= fun () ->
   really_write fd (Tar.Header.zero_padding header)
@@ -103,9 +103,9 @@ module Archive = struct
   (** Read the next header, apply the function 'f' to the fd and the header. The function
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header *)
-  let with_next_file (fd: Lwt_unix.file_descr) ?(global: Tar.Header.Extended.t option)
+  let with_next_file (fd: Lwt_unix.file_descr) ~(global: Tar.Header.Extended.t option)
         (f: Lwt_unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a Lwt.t) =
-    get_next_header ?global fd >>= function
+    get_next_header ~global fd >>= function
     | Some (hdr, global) ->
       f fd global hdr >>= fun result ->
       Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
@@ -115,7 +115,7 @@ module Archive = struct
 
   (** List the contents of a tar *)
   let list ?level fd =
-    let rec loop global acc = get_next_header ?level ?global fd >>= function
+    let rec loop global acc = get_next_header ?level ~global fd >>= function
       | None -> Lwt.return (List.rev acc)
       | Some (hdr, global) ->
         Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
@@ -125,7 +125,7 @@ module Archive = struct
 
   (** Extract the contents of a tar to directory 'dest' *)
   let extract dest ifd =
-    let rec loop global () = get_next_header ?global ifd >>= function
+    let rec loop global () = get_next_header ~global ifd >>= function
       | None -> Lwt.return_unit
       | Some (hdr, global) ->
         let filename = dest hdr.Tar.Header.file_name in
@@ -136,14 +136,14 @@ module Archive = struct
     loop None ()
 
   let transform ?level f ifd ofd =
-    let rec loop global () = get_next_header ?global ifd >>= function
+    let rec loop global () = get_next_header ~global ifd >>= function
       | None -> Lwt.return_unit
-      | Some (header', global) ->
+      | Some (header', global') ->
         let header = f header' in
         let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
-        write_block ?level header body ofd >>= fun () ->
+        write_block ?level ?global:(if global <> global' then global' else None) header body ofd >>= fun () ->
         Reader.skip ifd (Tar.Header.compute_zero_padding_length header') >>= fun () ->
-        loop global () in
+        loop global' () in
     loop None () >>= fun () ->
     write_end ofd
 

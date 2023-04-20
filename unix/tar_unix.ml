@@ -93,14 +93,14 @@ module Archive = struct
 
   let transform ?level f ifd ofd =
     let rec loop global () =
-      match get_next_header ?global ifd with
+      match get_next_header ~global ifd with
       | exception Tar.Header.End_of_stream -> ()
-      | (header', global) ->
+      | (header', global') ->
         let header = f header' in
         let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
-        write_block ?level header body ofd;
+        write_block ?level ?global:(if global <> global' then global' else None) header body ofd;
         skip ifd (Tar.Header.compute_zero_padding_length header');
-        loop global () in
+        loop global' () in
     loop None ();
     write_end ofd
 
