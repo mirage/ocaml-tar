@@ -69,7 +69,7 @@ module Header : sig
     (** [make ()] creates an extended header. *)
     val make : ?access_time:int64 -> ?charset:string -> ?comment:string -> ?group_id:int -> ?gname:string -> ?header_charset:string -> ?link_path:string -> ?mod_time:int64 -> ?path:string -> ?file_size:int64 -> ?user_id:int -> ?uname:string -> unit -> t
 
-    (** Pretty-print the header record. *)
+    (** Pretty-print the extended header record. *)
     val to_detailed_string : t -> string
 
     (** Unmarshal a pax Extended Header block. This header block may
