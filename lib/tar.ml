@@ -700,7 +700,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
       | Some hdr -> return (Some hdr)
       in
 
-    let rec next global () =
+    let rec get_hdr global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
       next_block global ()
       >>= function
       | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
@@ -712,17 +712,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         (* unmarshal merges the previous global (if any) with the
            discovered global (if any) and returns the new global. *)
         let global = Header.Extended.unmarshal ~global extra_header_buf in
-        next (Some global) ()
-      | Some x -> return (Some (x, global))
-      | None -> return None
-      in
-
-    let get_hdr global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
-      next global ()
-      >>= function
-      | Some (x, _) when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
-         assert false
-      | Some (x, global) when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
+        get_hdr (Some global) ()
+      | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
@@ -737,24 +728,24 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
           return (Error `Eof)
         | Some x -> return (Ok (x, global))
         end
-      | Some (x, global) when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
+      | Some x when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
         let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (length extra_header_buf - 1)) in
-        begin next global ()
+        begin next_block global ()
         >>= function
         | None -> return (Error `Eof)
-        | Some (x, global) -> return (Ok ({ x with file_name }, global))
+        | Some x -> return (Ok ({ x with file_name }, global))
         end
-      | Some x -> return (Ok x)
+      | Some x -> return (Ok (x, global))
       | None ->
         begin
-          next global ()
+          next_block global ()
           >>= function
-          | Some x -> return (Ok x)
+          | Some x -> return (Ok (x, global))
           | None -> return (Error `Eof)
         end in
 
