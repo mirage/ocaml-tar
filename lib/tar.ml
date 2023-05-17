@@ -262,6 +262,7 @@ module Header = struct
       | GlobalExtendedHeader
       | PerFileExtendedHeader
       | LongLink
+      | LongName
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
     let to_char ?level =
@@ -275,22 +276,21 @@ module Header = struct
         | FIFO                  -> '6'
         | GlobalExtendedHeader  -> 'g'
         | PerFileExtendedHeader -> 'x'
-        | LongLink              -> 'L'
+        | LongLink              -> 'K'
+        | LongName              -> 'L'
 
-    let of_char ?level =
-      let level = get_level level in function
-        | '1' -> Hard
-        | '2' -> Symbolic
-        | 'g' -> GlobalExtendedHeader
-        | 'x' -> PerFileExtendedHeader
-        | 'L' -> LongLink
-        (* All other types returned as Normal in V7 for compatibility with older versions of ocaml-tar *)
-        | _ when level = V7 -> Normal (* if value is malformed, treat as a normal file *)
-        | '3' -> Character
-        | '4' -> Block
-        | '5' -> Directory
-        | '6' -> FIFO
-        | _ -> Normal (* if value is malformed, treat as a normal file *)
+    let of_char = function
+      | '1' -> Hard
+      | '2' -> Symbolic
+      | 'g' -> GlobalExtendedHeader
+      | 'x' -> PerFileExtendedHeader
+      | 'K' -> LongLink
+      | 'L' -> LongName
+      | '3' -> Character
+      | '4' -> Block
+      | '5' -> Directory
+      | '6' -> FIFO
+      | _ -> Normal (* if value is malformed, treat as a normal file *)
 
     let to_string = function
       | Normal -> "Normal"
@@ -303,6 +303,7 @@ module Header = struct
       | GlobalExtendedHeader -> "GlobalExtendedHeader"
       | PerFileExtendedHeader -> "PerFileExtendedHeader"
       | LongLink -> "LongLink"
+      | LongName -> "LongName"
   end
 
   module Extended = struct
@@ -463,7 +464,7 @@ module Header = struct
   let make ?(file_mode=0o400) ?(user_id=0) ?(group_id=0) ?(mod_time=0L) ?(link_indicator=Link.Normal) ?(link_name="") ?(uname="") ?(gname="") ?(devmajor=0) ?(devminor=0) file_name file_size =
     (* If some fields are too big, we must use a pax header *)
     let need_pax_header =
-       file_size   > 0o077777777777L
+      Int64.unsigned_compare file_size 0o077777777777L > 0
        || user_id  > 0x07777777
        || group_id > 0x07777777 in
     let extended =
@@ -531,8 +532,7 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal ?level ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
-    let level = get_level level in
+  let unmarshal ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
     if allzeroes c then None
     else
       let chksum = get_hdr_chksum c in
@@ -562,7 +562,7 @@ module Header = struct
         let mod_time = match extended.Extended.mod_time with
           | None -> get_hdr_mod_time c
           | Some x -> x in
-        let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
+        let link_indicator = Link.of_char (get_hdr_link_indicator c) in
         let uname = match extended.Extended.uname with
           | None -> if ustar then get_hdr_uname c else ""
           | Some x -> x in
@@ -579,7 +579,8 @@ module Header = struct
            ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 
   (** Marshal a header block, computing and inserting the checksum *)
-  let imarshal ~level c link_indicator (x: t) =
+  let marshal ?level c (x: t) =
+    let level = get_level level in
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
     if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
       if level = Ustar then
@@ -622,17 +623,13 @@ module Header = struct
     set_hdr_group_id c x.group_id;
     set_hdr_file_size c x.file_size;
     set_hdr_mod_time c x.mod_time;
-    set_hdr_link_indicator c link_indicator;
+    set_hdr_link_indicator c (Link.to_char ~level x.link_indicator);
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
     if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then failwith "link_name too long";
     set_hdr_link_name c x.link_name;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
     set_hdr_chksum c chksum
-
-  let marshal ?level c (x: t) =
-    let level = get_level level in
-    imarshal ~level c (Link.to_char ~level x.link_indicator) x
 
   (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
   exception End_of_stream
@@ -662,36 +659,43 @@ module type ASYNC = sig
   val return: 'a -> 'a t
 end
 
-(* If we aren't using Lwt/Async style threads, instantiate the functor with
-   this. *)
-module Direct = struct
-  type 'a t = 'a
-  let return x = x
-  let ( >>= ) m f = f m
-end
-
 module type READER = sig
   type in_channel
-  type 'a t
-  val really_read: in_channel -> Cstruct.t -> unit t
-  val skip: in_channel -> int -> unit t
+  type 'a io
+  val really_read: in_channel -> Cstruct.t -> unit io
+  val skip: in_channel -> int -> unit io
 end
 
 module type WRITER = sig
   type out_channel
-  type 'a t
-  val really_write: out_channel -> Cstruct.t -> unit t
+  type 'a io
+  val really_write: out_channel -> Cstruct.t -> unit io
+end
+
+module type HEADERREADER = sig
+  type in_channel
+  type 'a io
+  val read : global:Header.Extended.t option -> in_channel ->
+    (Header.t * Header.Extended.t option, [` Eof ]) result io
+end
+
+module type HEADERWRITER = sig
+  type out_channel
+  type 'a io
+  val write : ?level:Header.compatibility -> Header.t -> out_channel -> unit io
+  val write_global_extended_header : Header.Extended.t -> out_channel -> unit io
 end
 
 let longlink = "././@LongLink"
 
-module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = struct
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) = struct
   open Async
   open Reader
 
+  type in_channel = Reader.in_channel
+  type 'a io = 'a Async.t
 
-  let read ?level ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
-    let level = Header.get_level level in
+  let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
     let real_header_buf = Cstruct.create Header.length in
@@ -699,12 +703,12 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
     let next_block global () =
       really_read ifd buffer
       >>= fun () ->
-      match Header.unmarshal ?extended:global ~level buffer with
+      match Header.unmarshal ?extended:global buffer with
       | None -> return None
       | Some hdr -> return (Some hdr)
-      in
+    in
 
-    let rec get_hdr global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
+    let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
       next_block global ()
       >>= function
       | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
@@ -716,7 +720,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         (* unmarshal merges the previous global (if any) with the
            discovered global (if any) and returns the new global. *)
         let global = Header.Extended.unmarshal ~global extra_header_buf in
-        get_hdr (Some global) ()
+        get_hdr ~next_longname ~next_longlink (Some global) ()
       | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
@@ -726,92 +730,76 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
         let extended = Header.Extended.unmarshal ~global extra_header_buf in
         really_read ifd real_header_buf
         >>= fun () ->
-        begin match Header.unmarshal ~level ~extended real_header_buf with
-        | None ->
-          (* Corrupt pax headers *)
-          return (Error `Eof)
-        | Some x -> return (Ok (x, global))
+        begin match Header.unmarshal ~extended real_header_buf with
+          | None ->
+            (* FIXME: Corrupt pax headers *)
+            return (Error `Eof)
+          | Some x -> return (Ok (x, global))
         end
-      | Some x when x.Header.link_indicator = Header.Link.LongLink && x.Header.file_name = longlink ->
+      | Some ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x)
         >>= fun () ->
-        let file_name = Cstruct.(to_string @@ sub extra_header_buf 0 (length extra_header_buf - 1)) in
-        begin next_block global ()
-        >>= function
-        | None -> return (Error `Eof)
-        | Some x -> return (Ok ({ x with file_name }, global))
-        end
-      | Some x -> return (Ok (x, global))
+        let name = Cstruct.to_string ~len:(Cstruct.length extra_header_buf - 1) extra_header_buf in
+        let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else next_longlink in
+        let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else next_longname in
+        get_hdr ~next_longname ~next_longlink global ()
+      | Some x ->
+        (* XXX: unclear how/if pax headers should interact with gnu extensions *)
+        let x = match next_longname with
+          | None -> x
+          | Some file_name -> { x with file_name }
+        in
+        let x = match next_longlink with
+          | None -> x
+          | Some link_name -> { x with link_name }
+        in
+        let x = 
+          (* For backward compatibility we treat normal files ending in slash
+             as directories. Because [Link.of_char] treats unrecognized link
+             indicator values as normal files we check directly. This is not
+             completely correct as [Header.Link.of_char] turns unknown link
+             indicators into [Header.Link.Normal]. Ideally, it should only be
+             done for '0' and '\000'. *)
+          if String.length x.file_name > 0
+          && x.file_name.[String.length x.file_name - 1] = '/'
+          && x.link_indicator = Header.Link.Normal then
+            { x with link_indicator = Header.Link.Directory }
+          else
+            x
+        in
+        return (Ok (x, global))
       | None ->
         begin
           next_block global ()
           >>= function
           | Some x -> return (Ok (x, global))
           | None -> return (Error `Eof)
-        end in
+        end
+    in
 
-      let true_link_indicator link_indicator file_name =
-        (* For backward compatibility we treat normal files ending in slash
-           as directories. Because [Link.of_char] treats unrecognized link
-           indicator values as normal files we check directly. This is not
-           completely correct as [Header.Link.of_char] turns unknown link
-           indicators into [Header.Link.Normal]. Ideally, it should only be
-           done for '0' and '\000'. *)
-        if String.length file_name > 0
-           && file_name.[String.length file_name - 1] = '/'
-           && link_indicator = Header.Link.Normal then
-            Header.Link.Directory
-          else
-            link_indicator
-        in
-
-    let rec read_header global (file_name, link_name, hdr) : (Header.t * Header.Extended.t option, [`Eof]) result Async.t =
-      let raw_link_indicator = Header.get_hdr_link_indicator buffer in
-      if (raw_link_indicator = 'K' || raw_link_indicator = 'L') && level = Header.GNU then
-        let data = Cstruct.create (Int64.to_int hdr.Header.file_size) in
-        let pad = Cstruct.create (Header.compute_zero_padding_length hdr) in
-        really_read ifd data
-        >>= fun () ->
-        really_read ifd pad
-        >>= fun () ->
-        let data = Header.unmarshal_string (Cstruct.to_string data) in
-        get_hdr global ()
-        >>= function
-        | Error `Eof -> return (Error `Eof)
-        | Ok (hdr, global) ->
-          if raw_link_indicator = 'K'
-          then read_header global (file_name, data, hdr)
-          else read_header global (data, link_name, hdr)
-      else begin
-        let link_name = if link_name = "" then hdr.Header.link_name else link_name in
-        let file_name = if file_name = "" then hdr.Header.file_name else file_name in
-        let link_indicator = true_link_indicator hdr.Header.link_indicator file_name in
-        return (Ok ({hdr with Header.link_name; file_name; link_indicator }, global))
-      end in
-
-    get_hdr global ()
-    >>= function
-    | Error `Eof -> return (Error `Eof)
-    | Ok (hdr, global) ->
-      read_header global ("", "", hdr)
+    get_hdr ~next_longname:None ~next_longlink:None global ()
 
 end
 
-module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = struct
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) = struct
   open Async
   open Writer
+
+  type out_channel = Writer.out_channel
+  type 'a io = 'a Async.t
+
   let write_unextended ?level header fd =
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
-    ( if (String.length header.Header.link_name > Header.sizeof_hdr_link_name || String.length header.Header.file_name > Header.sizeof_hdr_file_name) && level = Header.GNU then begin
+    ( if level = Header.GNU then begin
         ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.imarshal ~level buffer 'K' blank;
+            Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink };
             really_write fd buffer
             >>= fun () ->
             let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
@@ -823,7 +811,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
         ( if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
             let file_size = String.length header.Header.file_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.imarshal ~level buffer 'L' blank;
+            Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName };
             really_write fd buffer
             >>= fun () ->
             let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
@@ -854,162 +842,14 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) = 
     >>= fun () ->
     really_write fd (Header.zero_padding pax)
 
-  let write ?level ?global header fd =
-    ( match global with
-     | None -> return ()
-     | Some g ->
-       write_extended ?level ~link_indicator:Header.Link.GlobalExtendedHeader g fd )
-    >>= fun () ->
+  let write ?level header fd =
     ( match header.Header.extended with
       | None -> return ()
       | Some e ->
         write_extended ?level ~link_indicator:Header.Link.PerFileExtendedHeader e fd )
     >>= fun () ->
     write_unextended ?level header fd
-end
 
-module type IO = sig
-  type in_channel
-  type out_channel
-
-  val really_input : in_channel -> bytes -> int -> int -> unit
-  val input : in_channel -> bytes -> int -> int -> int
-  val output : out_channel -> bytes -> int -> int -> unit
-  val close_out : out_channel -> unit
-end
-
-module Make (IO : IO) = struct
-  module Reader = struct
-    type in_channel = IO.in_channel
-    type 'a t = 'a Direct.t
-    (* XXX: there's no function to read directly into a bigarray *)
-    let really_read (ifd: IO.in_channel) buffer : unit t =
-      let s = Bytes.create (Cstruct.length buffer) in
-      IO.really_input ifd s 0 (Cstruct.length buffer);
-      Cstruct.blit_from_bytes s 0 buffer 0 (Cstruct.length buffer)
-
-    let skip (ifd: in_channel) (n: int) =
-      let buffer = Cstruct.create 4096 in
-      let rec loop (n: int) =
-        if n <= 0 then ()
-        else
-          let amount = min n (Cstruct.length buffer) in
-          really_read ifd (Cstruct.sub buffer 0 amount);
-          loop (n - amount) in
-      loop n
-  end
-  module Writer = struct
-    type out_channel = IO.out_channel
-    type 'a t = 'a Direct.t
-    (* XXX: there's no function to write directly from a bigarray *)
-    let really_write fd buffer =
-      let s = Cstruct.to_string buffer |> Bytes.of_string in
-      if Bytes.length s > 0
-      then IO.output fd s 0 (Bytes.length s)
-  end
-  let really_read = Reader.really_read
-  let really_write = Writer.really_write
-
-  module HW = HeaderWriter(Direct)(Writer)
-
-  let write_block ?level ?global (header: Header.t) (body: IO.out_channel -> unit) (fd : IO.out_channel) =
-    HW.write ?level ?global header fd;
-    body fd;
-    really_write fd (Header.zero_padding header)
-
-  let write_end (fd: IO.out_channel) =
-    really_write fd Header.zero_block;
-    really_write fd Header.zero_block
-
-  module HR = HeaderReader(Direct)(Reader)
-
-  let get_next_header ?level ~global ic = match HR.read ?level ~global ic with
-    | Ok hdrs -> hdrs
-    | Error `Eof -> raise Header.End_of_stream
-
-  (** Utility functions for operating over whole tar archives *)
-  module Archive = struct
-
-    let skip = Reader.skip
-
-    (** Read the next header, apply the function [f] to the fd, the global pax extended
-        header (if any), and the current header. The function should leave the fd positioned
-        immediately after the datablock. Finally the function skips past the zero padding to
-        the next header *)
-    let with_next_file (fd: IO.in_channel) ~(global: Header.Extended.t option) (f: IO.in_channel -> Header.Extended.t option -> Header.t -> 'a) =
-      match HR.read ~global fd with
-      | Ok (hdr, global) ->
-        (* NB if the function 'f' fails we're boned *)
-        Fun.protect (fun () -> f fd global hdr)
-          ~finally:(fun () -> Reader.skip fd (Header.compute_zero_padding_length hdr))
-      | Error `Eof -> raise Header.End_of_stream
-
-    (** List the contents of a tar *)
-    let list ?level fd =
-      let level = Header.get_level level in
-      let global = ref None in
-      let list = ref [] in
-      try
-        while true do
-          match HR.read ~level ~global:!global fd with
-          | Ok (hdr, global') ->
-            global := global';
-            list := hdr :: !list;
-            Reader.skip fd (Int64.to_int hdr.Header.file_size);
-            Reader.skip fd (Header.compute_zero_padding_length hdr)
-          | Error `Eof -> raise Header.End_of_stream
-        done;
-        List.rev !list;
-      with
-      | End_of_file -> failwith "Unexpected end of file while reading stream"
-      | Header.End_of_stream -> List.rev !list
-
-    let copy_n ifd ofd n =
-      let buffer = Bytes.create 16384 in
-      let rec loop remaining =
-        if remaining = 0L then () else begin
-          let this = Int64.(to_int (min (of_int (Bytes.length buffer)) remaining)) in
-          let n = IO.input ifd buffer 0 this in
-          if n = 0 then raise End_of_file;
-          begin
-            try
-              IO.output ofd buffer 0 n
-            with Failure _ -> raise End_of_file
-          end;
-          loop (Int64.(sub remaining (of_int n)))
-        end in
-      loop n
-
-    (** [extract_gen dest] extract the contents of a tar.
-        Apply 'dest' on each header to get a handle to the file to write to *)
-    let extract_gen dest ifd =
-      let global = ref None in
-      try
-        while true do
-          match HR.read ~global:!global ifd with
-          | Ok (hdr, global') ->
-            global := global';
-            let size = hdr.Header.file_size in
-            let padding = Header.compute_zero_padding_length hdr in
-            let ofd = dest hdr in
-            copy_n ifd ofd size;
-            IO.close_out ofd;
-            Reader.skip ifd padding
-          | Error `Eof -> raise Header.End_of_stream
-        done
-      with
-      | End_of_file -> failwith "Unexpected end of file while reading stream"
-      | Header.End_of_stream -> ()
-
-    (** Create a tar on file descriptor fd from the stream of headers.  *)
-    let create_gen ?level files ofd =
-      let level = Header.get_level level in
-      let file (hdr, write) =
-        write_block ~level hdr write ofd;
-      in
-      Stream.iter file files;
-      (* Add two empty blocks *)
-      write_end ofd
-
-  end
+  let write_global_extended_header global fd =
+    write_extended ~link_indicator:Header.Link.GlobalExtendedHeader global fd
 end

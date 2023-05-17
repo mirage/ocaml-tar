@@ -21,12 +21,12 @@ module Tar_gz = Tar_gz.Make
           let ( >>= ) x f = f x
           let return x = x end)
   (struct type out_channel = Stdlib.out_channel
-          type 'a t = 'a
+          type 'a io = 'a
           let really_write oc cs =
             let str = Cstruct.to_string cs in
             output_string oc str end)
   (struct type in_channel = Stdlib.in_channel
-          type 'a t = 'a
+          type 'a io = 'a
           let really_read ic cs =
             let len = Cstruct.length cs in
             let buf = Bytes.create len in
@@ -104,8 +104,8 @@ let bytes_to_size ?(decimals = 2) ppf = function
 let list filename =
   let ic = open_in filename in
   let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
-  let rec go global () = match Tar_gz.get_next_header ~level:Tar.Header.Ustar ~global ic with
-    | (hdr, global) ->
+  let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
+    | Ok (hdr, global) ->
       Format.printf "%s (%s, %a)\n%!"
         hdr.Tar.Header.file_name
         (Tar.Header.Link.to_string hdr.link_indicator)
@@ -117,7 +117,7 @@ let list filename =
       let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
       Tar_gz.skip ic to_skip ;
       go global ()
-    | exception Tar.Header.End_of_stream -> () in
+    | Error `Eof -> () in
   go None ()
 
 let () = match Sys.argv with

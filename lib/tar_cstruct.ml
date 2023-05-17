@@ -1,5 +1,13 @@
+module Direct = struct
+  type 'a t = 'a
+  let return x = x
+  let ( >>= ) m f = f m
+end
+
 module Cstruct_io = struct
   (* Input from a single Cstruct.t value *)
+
+  type 'a io = 'a Direct.t
 
   type in_channel = {
     mutable pos : int;
@@ -12,16 +20,15 @@ module Cstruct_io = struct
   let check_available ch len =
     min (Cstruct.length ch.data - ch.pos) len
 
-  let really_input ic buf pos len =
+  let really_read ic buf =
+    let len = Cstruct.length buf in
     if check_available ic len <> len then raise End_of_file;
-    Cstruct.blit_to_bytes ic.data ic.pos buf pos len;
+    Cstruct.blit ic.data ic.pos buf 0 len;
     ic.pos <- ic.pos + len
 
-  let input ic buf pos len =
-    let available = check_available ic len in
-    Cstruct.blit_to_bytes ic.data ic.pos buf pos available;
-    ic.pos <- ic.pos + available;
-    available
+  let skip ic n =
+    if check_available ic n <> n then raise End_of_file;
+    ic.pos <- ic.pos + n
 
   (* Output to a list of Cstruct.t values *)
 
@@ -31,12 +38,8 @@ module Cstruct_io = struct
 
   let make_out_channel () = { data = [] }
 
-  let output oc buf pos len =
-    let elt = Cstruct.create len in
-    Cstruct.blit_from_bytes buf pos elt 0 len;
-    oc.data <- elt :: oc.data
-
-  let close_out (_ : out_channel) = ()
+  let really_write oc buf =
+    oc.data <- Cstruct.sub_copy buf 0 (Cstruct.length buf) :: oc.data
 
   let to_string oc =
     Cstruct.copyv (List.rev oc.data)
@@ -45,6 +48,7 @@ module Cstruct_io = struct
     Cstruct.concat (List.rev oc.data)
 end
 
-include Cstruct_io
+module HeaderReader = Tar.HeaderReader(Direct)(Cstruct_io)
+module HeaderWriter = Tar.HeaderWriter(Direct)(Cstruct_io)
 
-include Tar.Make(Cstruct_io)
+include Cstruct_io

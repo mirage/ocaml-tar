@@ -17,11 +17,13 @@
 
 open Lwt.Infix
 
-module Reader = struct
+module Io = struct
   type in_channel = Lwt_unix.file_descr
-  type 'a t = 'a Lwt.t
+  type 'a io = 'a Lwt.t
   let really_read fd = Lwt_cstruct.(complete (read fd))
   let skip (ifd: Lwt_unix.file_descr) (n: int) =
+    (* Here it would make sense to use [Lwt_unix.lseek] if we can detect if
+       [ifd] is seekable *)
     let buffer_size = 32768 in
     let buffer = Cstruct.create buffer_size in
     let rec loop (n: int) =
@@ -32,40 +34,24 @@ module Reader = struct
         really_read ifd block >>= fun () ->
         loop (n - amount) in
     loop n
-end
-let really_read = Reader.really_read
-module Writer = struct
+
   type out_channel = Lwt_unix.file_descr
-  type 'a t = 'a Lwt.t
   let really_write fd = Lwt_cstruct.(complete (write fd))
 end
-let really_write = Writer.really_write
 
-let copy_n ifd ofd n =
-  let block_size = 32768 in
-  let buffer = Cstruct.create block_size in
-  let rec loop remaining =
-    if remaining = 0L then Lwt.return_unit else begin
-      let this = Int64.(to_int (min (of_int block_size) remaining)) in
-      let block = Cstruct.sub buffer 0 this in
-      really_read ifd block >>= fun () ->
-      really_write ofd block >>= fun () ->
-      loop (Int64.(sub remaining (of_int this)))
-    end in
-  loop n
+include Io
+module HR = Tar.HeaderReader(Lwt)(Io)
+module HW = Tar.HeaderWriter(Lwt)(Io)
 
-module HR = Tar.HeaderReader(Lwt)(Reader)
-module HW = Tar.HeaderWriter(Lwt)(Writer)
-
-let get_next_header ?level ~global ic =
-  HR.read ?level ~global ic
+let get_next_header ~global ic =
+  HR.read ~global ic
   >>= function
   | Error `Eof -> Lwt.return None
   | Ok hdrs -> Lwt.return (Some hdrs)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
-  let level = match level with None -> Tar.Header.V7 | Some level -> level in
+  let level = match level with None -> !Tar.Header.compatibility_level | Some level -> level in
   Lwt_unix.LargeFile.stat file >>= fun stat ->
   Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
   Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->
@@ -82,89 +68,3 @@ let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
   let devminor    = if level = Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
   Lwt.return (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
     ~uname ~gname ~devmajor ~devminor file file_size)
-
-let write_block ?level ?global (header: Tar.Header.t) (body: Lwt_unix.file_descr -> unit Lwt.t) (fd : Lwt_unix.file_descr) =
-  HW.write ?level ?global header fd
-  >>= fun () ->
-  body fd >>= fun () ->
-  really_write fd (Tar.Header.zero_padding header)
-
-let write_end (fd: Lwt_unix.file_descr) =
-  really_write fd Tar.Header.zero_block >>= fun () ->
-  really_write fd Tar.Header.zero_block
-
-(** Utility functions for operating over whole tar archives *)
-module Archive = struct
-
-  let with_file name flags perms f =
-    Lwt_unix.openfile name flags perms >>= fun fd ->
-    Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
-
-  (** Read the next header, apply the function 'f' to the fd and the header. The function
-      should leave the fd positioned immediately after the datablock. Finally the function
-      skips past the zero padding to the next header *)
-  let with_next_file (fd: Lwt_unix.file_descr) ~(global: Tar.Header.Extended.t option)
-        (f: Lwt_unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a Lwt.t) =
-    get_next_header ~global fd >>= function
-    | Some (hdr, global) ->
-      f fd global hdr >>= fun result ->
-      Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
-      Lwt.return (Some result)
-    | None ->
-      Lwt.return None
-
-  (** List the contents of a tar *)
-  let list ?level fd =
-    let rec loop global acc = get_next_header ?level ~global fd >>= function
-      | None -> Lwt.return (List.rev acc)
-      | Some (hdr, global) ->
-        Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size) >>= fun () ->
-        Reader.skip fd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
-        loop global (hdr :: acc) in
-    loop None []
-
-  (** Extract the contents of a tar to directory 'dest' *)
-  let extract dest ifd =
-    let rec loop global () = get_next_header ~global ifd >>= function
-      | None -> Lwt.return_unit
-      | Some (hdr, global) ->
-        let filename = dest hdr.Tar.Header.file_name in
-        with_file filename [Unix.O_WRONLY; O_CLOEXEC] 0 @@ fun ofd ->
-        copy_n ifd ofd hdr.Tar.Header.file_size >>= fun () ->
-        Reader.skip ifd (Tar.Header.compute_zero_padding_length hdr) >>= fun () ->
-        loop global () in
-    loop None ()
-
-  let transform ?level f ifd ofd =
-    let rec loop global () = get_next_header ~global ifd >>= function
-      | None -> Lwt.return_unit
-      | Some (header', global') ->
-        let header = f header' in
-        let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
-        write_block ?level ?global:(if global <> global' then global' else None) header body ofd >>= fun () ->
-        Reader.skip ifd (Tar.Header.compute_zero_padding_length header') >>= fun () ->
-        loop global' () in
-    loop None () >>= fun () ->
-    write_end ofd
-
-  (** Create a tar on file descriptor fd from the filename list
-      'files' *)
-  let create files ofd =
-    let file filename =
-      Lwt_unix.stat filename >>= fun stat ->
-      if stat.Unix.st_kind <> Unix.S_REG then
-        (* Skipping, not a regular file. *)
-        Lwt.return_unit
-      else begin
-        header_of_file filename >>= fun hdr ->
-
-        write_block hdr (fun ofd ->
-            with_file filename [O_RDONLY; O_CLOEXEC] 0 @@ fun ifd ->
-            copy_n ifd ofd hdr.Tar.Header.file_size
-          ) ofd
-      end in
-    Lwt_list.iter_s file files >>= fun () ->
-    (* Add two empty blocks *)
-    write_end ofd
-
-end

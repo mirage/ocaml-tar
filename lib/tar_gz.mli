@@ -17,25 +17,17 @@
 module type READER = sig
   include Tar.READER
 
-  val read : in_channel -> Cstruct.t -> int t
+  val read : in_channel -> Cstruct.t -> int io
 end
 
 module Make
   (Async : Tar.ASYNC)
-  (Writer : Tar.WRITER with type 'a t = 'a Async.t)
-  (Reader : READER with type 'a t = 'a Async.t)
+  (Writer : Tar.WRITER with type 'a io = 'a Async.t)
+  (Reader : READER with type 'a io = 'a Async.t)
 : sig
   type in_channel
 
   val of_in_channel : internal:Cstruct.t -> Reader.in_channel -> in_channel
-
-  (** Returns the next header block or fails with {!Tar.Header.End_of_stream}
-      if two consecutive zero-filled blocks are discovered. Assumes stream is
-      positioned at the possible start of a header block.
-
-      @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-  val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option
-    -> in_channel -> (Tar.Header.t * Tar.Header.Extended.t option) Async.t
 
   val really_read : in_channel -> Cstruct.t -> unit Async.t
   (** [really_read fd buf] fills [buf] with data from [fd] or raises
@@ -48,8 +40,8 @@ module Make
   val of_out_channel : ?bits:int -> ?q:int -> level:int ->
     mtime:int32 -> Gz.os -> Writer.out_channel -> out_channel
 
-  val write_block : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t ->
-    Tar.Header.t -> out_channel -> (unit -> string option Async.t) -> unit Async.t
+  val write_block : ?level:Tar.Header.compatibility -> Tar.Header.t ->
+    out_channel -> (unit -> string option Async.t) -> unit Async.t
   (** [write_block hdr oc stream] writes [hdr], then {i deflate} the given
       [stream], then zero-pads so the stream is positionned for the next
       block.
@@ -72,4 +64,9 @@ module Make
 
   val write_end : out_channel -> unit Async.t
   (** [write_end oc] writes a stream terminator to [oc]. *)
+
+  module HeaderReader :
+    Tar.HEADERREADER with type in_channel = in_channel and type 'a io = 'a Async.t
+  module HeaderWriter :
+    Tar.HEADERWRITER with type out_channel = out_channel and type 'a io = 'a Async.t
 end

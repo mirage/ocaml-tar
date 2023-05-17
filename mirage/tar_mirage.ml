@@ -82,7 +82,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       mutable offset: int64;
       info: Mirage_block.info;
     }
-    type 'a t = 'a Lwt.t
+    type 'a io = 'a Lwt.t
     let really_read in_channel buffer =
       let len = Cstruct.length buffer in
       assert(len <= 512);
@@ -368,7 +368,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       mutable offset: int64;
       info: Mirage_block.info;
     }
-    type 'a t = 'a Lwt.t
+    type 'a io = 'a Lwt.t
     exception Read of BLOCK.error
     exception Write of BLOCK.write_error
     let really_write out_channel data =
