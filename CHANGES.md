@@ -1,3 +1,7 @@
+## v2.5.0 (2023-06-06)
+
+- File names and link names are used from PAX headers when parsing (reported by @gravicappa, fixed in #128 by @reynir)
+
 ## v2.4.0 (2023-03-30)
 
 - Switch to alcotest for tests (@MisterDA, review by @reynir, #121)
