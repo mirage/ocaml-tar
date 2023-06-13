@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Decode and encode tar format files from Unix"
 description: """
-tar is a simple library to read and write tar files with an emphasis on
+tar is a library to read and write tar files with an emphasis on
 streaming.  This library provides a Unix or Windows compatible interface.
 """
 maintainer: ["dave@recoil.org"]
