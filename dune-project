@@ -13,7 +13,9 @@
  "David Allsopp"
  "Antonin Décimo"
 )
-(maintainers "dave@recoil.org")
+(maintainers
+  "Reynir Björnsson <reynir@reynir.dk>"
+  "dave@recoil.org")
 (documentation "https://mirage.github.io/ocaml-tar/")
 
 (package

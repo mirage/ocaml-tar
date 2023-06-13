@@ -6,7 +6,7 @@ tar is a library to read and write tar files with an emphasis on
 streaming.  This library is functorised over external OS dependencies
 to facilitate embedding within MirageOS.
 """
-maintainer: ["dave@recoil.org"]
+maintainer: ["Reynir Björnsson <reynir@reynir.dk>" "dave@recoil.org"]
 authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp" "Antonin Décimo"]
 license: "ISC"
 tags: ["org:xapi-project" "org:mirage"]
