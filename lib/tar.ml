@@ -542,11 +542,13 @@ module Header = struct
              (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
              String.length magic >= 5 && (String.sub magic 0 5 = "ustar") in
         let prefix = if ustar then get_hdr_prefix c else "" in
-        let file_name =
-          let file_name = get_hdr_file_name c in
-          if file_name = "" then prefix
-          else if prefix = "" then file_name
-          else Filename.concat prefix file_name in
+        let file_name = match extended.Extended.path with
+          | Some path -> path
+          | None ->
+            let file_name = get_hdr_file_name c in
+            if file_name = "" then prefix
+            else if prefix = "" then file_name
+            else Filename.concat prefix file_name in
         let file_mode = get_hdr_file_mode c in
         let user_id = match extended.Extended.user_id with
           | None -> get_hdr_user_id c
@@ -570,7 +572,9 @@ module Header = struct
         let devmajor  = if ustar then get_hdr_devmajor c else 0 in
         let devminor  = if ustar then get_hdr_devminor c else 0 in
 
-        let link_name = get_hdr_link_name c in
+        let link_name = match extended.Extended.link_path with
+          | Some link_path -> link_path
+          | None -> get_hdr_link_name c in
         Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
            ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 

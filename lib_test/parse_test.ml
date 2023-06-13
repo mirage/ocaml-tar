@@ -134,6 +134,22 @@ let can_list_longlink_tar () =
       Alcotest.(check (list string)) "respects filenames" expected filenames
     ) ~finally:(fun () -> Unix.close fd)
 
+let can_list_long_pax_tar () =
+  let open Tar_unix in
+  let fd = Unix.openfile "lib_test/long-pax.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
+  Fun.protect
+    (fun () ->
+      let all = Archive.list fd in
+      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+      let expected = [
+        "t/";
+        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggname";
+        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggglink";
+      ] in
+      Alcotest.(check (list string)) "respects filenames" expected filenames
+    ) ~finally:(fun () -> Unix.close fd)
+
 let starts_with ~prefix s =
   let len_s = String.length s
   and len_pre = String.length prefix in
@@ -304,6 +320,7 @@ let () =
       "can_read_tar" >:: can_read_tar;
       "can write pax headers" >:: can_write_pax;
       "can read @Longlink" >:: can_list_longlink_tar;
+      "can read pax long names and links" >:: can_list_long_pax_tar;
       "can transform tars" >:: can_transform_tar;
     ]
   in
