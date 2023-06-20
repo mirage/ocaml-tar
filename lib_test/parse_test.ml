@@ -40,6 +40,8 @@ let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header =
   Alcotest.testable (fun f x -> Fmt.pf f "%a" (Fmt.option pp_header) x) ( = )
 
+let link = Alcotest.testable (Fmt.of_to_string Tar.Header.Link.to_string) ( = )
+
 let header () =
   (* check header marshalling and unmarshalling *)
   let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
@@ -149,6 +151,25 @@ let can_list_long_pax_tar () =
       ] in
       Alcotest.(check (list string)) "respects filenames" expected filenames
     ) ~finally:(fun () -> Unix.close fd)
+
+(* "pax-shenanigans.tar" is an archive with a regular file "placeholder" with a
+   pax header "path=clearly/a/directory/". The resulting header has normal link
+   indicator with file path "clearly/a/directory/". Normal files with file
+   names ending in slash should be treated as directories for backward
+   compatibility. In GNU tar and bsdtar this seems to be done even when the
+   file name ends in a slash due to pax headers.
+   If you find this test questionable and want to change the behavior I don't
+   disagree. If so, please add a test for the normal-as-directory backward
+   compatibilty without a pax header.
+   - Reynir
+*)
+let can_list_pax_implicit_dir () =
+  let fd = Unix.openfile "lib_test/pax-shenanigans.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
+  Fun.protect ~finally:(fun () -> Unix.close fd)
+    (fun () ->
+       let (hdr, _global) = Tar_unix.get_next_header ~global:None fd in
+       Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
+       Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
 
 let starts_with ~prefix s =
   let len_s = String.length s
@@ -321,6 +342,7 @@ let () =
       "can write pax headers" >:: can_write_pax;
       "can read @Longlink" >:: can_list_longlink_tar;
       "can read pax long names and links" >:: can_list_long_pax_tar;
+      "can read pax header with implicit directory" >:: can_list_pax_implicit_dir;
       "can transform tars" >:: can_transform_tar;
     ]
   in

@@ -104,10 +104,11 @@ let bytes_to_size ?(decimals = 2) ppf = function
 let list filename =
   let ic = open_in filename in
   let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
-  let rec go global () = match Tar_gz.get_next_header ~global ic with
+  let rec go global () = match Tar_gz.get_next_header ~level:Tar.Header.Ustar ~global ic with
     | (hdr, global) ->
-      Format.printf "%s (%a)\n%!"
+      Format.printf "%s (%s, %a)\n%!"
         hdr.Tar.Header.file_name
+        (Tar.Header.Link.to_string hdr.link_indicator)
         (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
       (* Alternatively:
            let padding = Tar.Header.compute_zero_padding_length hdr in

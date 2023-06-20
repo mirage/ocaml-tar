@@ -562,7 +562,17 @@ module Header = struct
         let mod_time = match extended.Extended.mod_time with
           | None -> get_hdr_mod_time c
           | Some x -> x in
-        let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
+        let link_indicator =
+          let link_indicator = get_hdr_link_indicator c in
+          (* For backward compatibility we treat normal files ending in slash
+             as directories. Because [Link.of_char] treats unrecognized link
+             indicator values as normal files we check directly *)
+          if String.length file_name > 0 && file_name.[String.length file_name - 1] = '/' &&
+             (link_indicator = '0' || link_indicator = '\000') then
+            Link.Directory
+          else
+            Link.of_char ~level link_indicator
+        in
         let uname = match extended.Extended.uname with
           | None -> if ustar then get_hdr_uname c else ""
           | Some x -> x in
