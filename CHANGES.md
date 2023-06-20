@@ -1,3 +1,7 @@
+## v2.5.1 (2023-06-20)
+
+- Treat headers with link indicator '0' or '\000' (`Normal`) as directories for backward compatibility (reported in #129, fix by @reynir)
+
 ## v2.5.0 (2023-06-06)
 
 - File names and link names are used from PAX headers when parsing (reported by @gravicappa, fixed in #128 by @reynir)
