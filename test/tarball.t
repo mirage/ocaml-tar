@@ -10,13 +10,13 @@ Tests decoding of various tar formats
   $ if tar --version | grep -q GNU; then
   >   tar -cz --format=gnu -f v-gnu.tar.gz archive/
   >   otar list v-gnu.tar.gz
-  > else printf "archive/ (0 byte)\narchive/foo (12.00 B)\n"; fi
+  > else printf "archive/ (Directory, 0 byte)\narchive/foo (Normal, 12.00 B)\n"; fi
   archive/ (Directory, 0 byte)
   archive/foo (Normal, 12.00 B)
   $ if tar --version | grep -q GNU; then
   >   tar -cz --format=oldgnu -f v-oldgnu.tar.gz archive/
   >   otar list v-oldgnu.tar.gz
-  > else printf "archive/ (0 byte)\narchive/foo (12.00 B)\n"; fi
+  > else printf "archive/ (Directory, 0 byte)\narchive/foo (Normal, 12.00 B)\n"; fi
   archive/ (Directory, 0 byte)
   archive/foo (Normal, 12.00 B)
   $ tar -cz --format=pax -f v-pax.tar.gz archive/
