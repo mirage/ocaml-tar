@@ -114,9 +114,6 @@ module Header : sig
   (** Pretty-print the header record. *)
   val to_detailed_string : t -> string
 
-  (** For debugging: pretty-print a string as hex. *)
-  val to_hex : string -> string
-
   (** Thrown when unmarshalling a header if the checksums don't match. *)
   exception Checksum_mismatch
 

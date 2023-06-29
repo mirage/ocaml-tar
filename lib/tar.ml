@@ -20,15 +20,6 @@ module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
       http://en.wikipedia.org/w/index.php?title=Tar_%28file_format%29&oldid=83554041 *)
 
-  (** For debugging: pretty-print a string as hex *)
-  let to_hex (x: string) : string =
-    let result = Bytes.make (String.length x * 3) ' ' in
-    for i = 0 to String.length x - 1 do
-      let byte = Printf.sprintf "%02x" (int_of_char x.[i]) in
-      Bytes.blit_string byte 0 result (i * 3) 2
-    done;
-    Bytes.unsafe_to_string result
-
   let trim_numerical s =
     String.(trim (map (function '\000' -> ' ' | x -> x) s))
 
@@ -38,7 +29,7 @@ module Header = struct
     try
       int_of_string tmp
     with Failure msg ->
-      failwith (Printf.sprintf "%s: failed to parse integer [%s] == %s" msg tmp (to_hex tmp))
+      failwith (Printf.sprintf "%s: failed to parse integer %S" msg tmp)
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
   let unmarshal_int64 (x: string) : int64 =
