@@ -25,6 +25,8 @@ val really_write: Unix.file_descr -> Cstruct.t -> unit
     or {!Stdlib.End_of_file}. *)
 
 val skip : Unix.file_descr -> int -> unit
+(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
+    should use [Unix.lseek fd n Unix.SEEK_CUR] instead. *)
 
 (** Return the header needed for a particular file on disk. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t

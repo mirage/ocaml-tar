@@ -40,14 +40,8 @@ module Io = struct
 end
 
 include Io
-module HR = Tar.HeaderReader(Lwt)(Io)
-module HW = Tar.HeaderWriter(Lwt)(Io)
-
-let get_next_header ~global ic =
-  HR.read ~global ic
-  >>= function
-  | Error `Eof -> Lwt.return None
-  | Ok hdrs -> Lwt.return (Some hdrs)
+module HeaderReader = Tar.HeaderReader(Lwt)(Io)
+module HeaderWriter = Tar.HeaderWriter(Lwt)(Io)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
