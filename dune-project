@@ -13,14 +13,16 @@
  "David Allsopp"
  "Antonin Décimo"
 )
-(maintainers "dave@recoil.org")
+(maintainers
+  "Reynir Björnsson <reynir@reynir.dk>"
+  "dave@recoil.org")
 (documentation "https://mirage.github.io/ocaml-tar/")
 
 (package
  (name tar)
  (synopsis "Decode and encode tar format files in pure OCaml")
  (description
-"\| tar is a simple library to read and write tar files with an emphasis on
+"\| tar is a library to read and write tar files with an emphasis on
 "\| streaming.
 "\|
 "\| This is pure OCaml code, no C bindings.
@@ -38,7 +40,7 @@
  (name tar-unix)
  (synopsis "Decode and encode tar format files from Unix")
  (description
-"\| tar is a simple library to read and write tar files with an emphasis on
+"\| tar is a library to read and write tar files with an emphasis on
 "\| streaming.  This library provides a Unix or Windows compatible interface.
  )
  (tags ("org:xapi-project" "org:mirage"))
@@ -55,7 +57,7 @@
  (name tar-mirage)
  (synopsis "Read and write tar format files via MirageOS interfaces")
  (description
-"\| tar is a simple library to read and write tar files with an emphasis on
+"\| tar is a library to read and write tar files with an emphasis on
 "\| streaming.  This library is functorised over external OS dependencies
 "\| to facilitate embedding within MirageOS.
  )
