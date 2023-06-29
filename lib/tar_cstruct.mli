@@ -19,6 +19,10 @@ val really_read : in_channel -> Cstruct.t -> unit
 (** [really_read ic buf] fills [buf] with data from [ic] or raises
     {!Stdlib.End_of_file} *)
 
+val read_zerocopy : in_channel -> int -> Cstruct.t
+(** [read_zerocopy ic len] updates the position and returns a sub cstruct of
+    [ic] or raises {!Stdlib.End_of_file} *)
+
 val skip : in_channel -> int -> unit
 
 val really_write : out_channel -> Cstruct.t -> unit

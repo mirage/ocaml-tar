@@ -20,6 +20,12 @@ module Cstruct_io = struct
   let check_available ch len =
     min (Cstruct.length ch.data - ch.pos) len
 
+  let read_zerocopy ic len =
+    if check_available ic len <> len then raise End_of_file;
+    let r = Cstruct.sub ic.data ic.pos len in
+    ic.pos <- ic.pos + len;
+    r
+
   let really_read ic buf =
     let len = Cstruct.length buf in
     if check_available ic len <> len then raise End_of_file;
