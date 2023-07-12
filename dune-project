@@ -78,3 +78,18 @@
   (tar-unix (and :with-test (= :version)))
  )
 )
+
+(package
+ (name tar-eio)
+ (synopsis "Decode and encode tar format files using Eio")
+ (description
+"\| tar is a library to read and write tar files with an emphasis on
+"\| streaming.  This library uses Eio to provide a portable tar library.
+ )
+ (tags ("org:xapi-project" "org:mirage"))
+ (depends
+  (ocaml (>= 4.08.0))
+  (eio (>= 0.10.0))
+  (tar (= :version))
+ )
+)
