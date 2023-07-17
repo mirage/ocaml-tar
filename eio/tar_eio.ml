@@ -22,23 +22,21 @@ module Monad = struct
   type 'a t = 'a
   let (>>=) a f = f a
   let return = Fun.id
-  let return_unit = ()
 end
 
 module Reader = struct
   type in_channel = Flow.source
-  type 'a t = 'a Monad.t
-  let really_read f b = Flow.read_exact f b |> Monad.return
+  type 'a t = 'a
+  let really_read f b = Flow.read_exact f b
   let skip f (n: int) =
-    let open Monad in
     let buffer_size = 32768 in
     let buffer = Cstruct.create buffer_size in
     let rec loop (n: int) =
-      if n <= 0 then Monad.return ()
+      if n <= 0 then ()
       else
         let amount = min n buffer_size in
         let block = Cstruct.sub buffer 0 amount in
-        really_read f block >>= fun () ->
+        really_read f block;
         loop (n - amount) in
     loop n
 end
@@ -46,21 +44,20 @@ let really_read = Reader.really_read
 
 module Writer = struct
   type out_channel = Flow.sink
-  type 'a t = 'a Monad.t
-  let really_write f b = Flow.write f [ b ] |> Monad.return
+  type 'a t = 'a
+  let really_write f b = Flow.write f [ b ]
 end
 let really_write = Writer.really_write
 
 let copy_n ifd ofd n =
-  let open Monad in
   let block_size = 32768 in
   let buffer = Cstruct.create block_size in
   let rec loop remaining =
-    if remaining = 0L then Monad.return_unit else begin
+    if remaining = 0L then () else begin
       let this = Int64.(to_int (min (of_int block_size) remaining)) in
       let block = Cstruct.sub buffer 0 this in
-      really_read ifd block >>= fun () ->
-      really_write ofd block >>= fun () ->
+      really_read ifd block;
+      really_write ofd block;
       loop (Int64.(sub remaining (of_int this)))
     end in
   loop n
@@ -70,8 +67,8 @@ module HW = Tar.HeaderWriter(Monad)(Writer)
 
 let get_next_header ?level ~global ic =
   match HR.read ?level ~global (ic :> Flow.source) with
-  | Error `Eof -> Monad.return None
-  | Ok hdrs -> Monad.return (Some hdrs)
+  | Error `Eof -> None
+  | Ok hdrs -> Some hdrs
 
 (* Eio needs a non-file-opening stat. *)
 let stat path =
@@ -95,8 +92,8 @@ let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
   let link_name   = "" in
   let devmajor    = if level = Ustar then stat.dev |> Int64.to_int else 0 in
   let devminor    = if level = Ustar then stat.rdev |> Int64.to_int else 0 in
-  Monad.return (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
-                  ?uname ?gname ~devmajor ~devminor (snd filepath) file_size)
+  Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+                  ?uname ?gname ~devmajor ~devminor (snd filepath) file_size
 
 let write_block ?level ?global (header: Tar.Header.t) (body: #Flow.sink -> unit) sink =
   HW.write ?level ?global header (sink :> Flow.sink);
@@ -127,7 +124,7 @@ module Archive = struct
   let list ?level fd =
     let rec loop global acc =
       match get_next_header ?level ~global (fd :> Flow.source) with
-      | None -> Monad.return (List.rev acc)
+      | None -> List.rev acc
       | Some (hdr, global) ->
         Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size);
         Reader.skip fd (Tar.Header.compute_zero_padding_length hdr);
@@ -138,7 +135,7 @@ module Archive = struct
   let extract dest ifd =
     let rec loop global () =
       match get_next_header ~global ifd with
-      | None -> Monad.return_unit
+      | None -> ()
       | Some (hdr, global) ->
         let filename = dest hdr.Tar.Header.file_name in
         Eio.Path.(with_open_out ~create:(`Exclusive 0) filename) @@ fun ofd ->
@@ -151,7 +148,7 @@ module Archive = struct
   let transform ?level f (ifd : #Flow.source) (ofd : #Flow.sink) =
     let rec loop global () =
       match get_next_header ~global ifd with
-      | None -> Monad.return_unit
+      | None -> ()
       | Some (header', global') ->
         let header = f header' in
         let body = fun _ -> copy_n ifd ofd header.Tar.Header.file_size in
@@ -169,7 +166,7 @@ module Archive = struct
       let stat = stat filename in
       if stat.kind <> `Regular_file then
         (* Skipping, not a regular file. *)
-        Monad.return_unit
+        ()
       else begin
         let hdr = header_of_file ?getpwuid ?getgrgid filename in
         write_block hdr (fun ofd ->
