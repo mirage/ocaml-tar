@@ -562,17 +562,7 @@ module Header = struct
         let mod_time = match extended.Extended.mod_time with
           | None -> get_hdr_mod_time c
           | Some x -> x in
-        let link_indicator =
-          let link_indicator = get_hdr_link_indicator c in
-          (* For backward compatibility we treat normal files ending in slash
-             as directories. Because [Link.of_char] treats unrecognized link
-             indicator values as normal files we check directly *)
-          if String.length file_name > 0 && file_name.[String.length file_name - 1] = '/' &&
-             (link_indicator = '0' || link_indicator = '\000') then
-            Link.Directory
-          else
-            Link.of_char ~level link_indicator
-        in
+        let link_indicator = Link.of_char ~level (get_hdr_link_indicator c) in
         let uname = match extended.Extended.uname with
           | None -> if ustar then get_hdr_uname c else ""
           | Some x -> x in
@@ -763,6 +753,21 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
           | None -> return (Error `Eof)
         end in
 
+      let true_link_indicator link_indicator file_name =
+        (* For backward compatibility we treat normal files ending in slash
+           as directories. Because [Link.of_char] treats unrecognized link
+           indicator values as normal files we check directly. This is not
+           completely correct as [Header.Link.of_char] turns unknown link
+           indicators into [Header.Link.Normal]. Ideally, it should only be
+           done for '0' and '\000'. *)
+        if String.length file_name > 0
+           && file_name.[String.length file_name - 1] = '/'
+           && link_indicator = Header.Link.Normal then
+            Header.Link.Directory
+          else
+            link_indicator
+        in
+
     let rec read_header global (file_name, link_name, hdr) : (Header.t * Header.Extended.t option, [`Eof]) result Async.t =
       let raw_link_indicator = Header.get_hdr_link_indicator buffer in
       if (raw_link_indicator = 'K' || raw_link_indicator = 'L') && level = Header.GNU then
@@ -783,7 +788,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) = 
       else begin
         let link_name = if link_name = "" then hdr.Header.link_name else link_name in
         let file_name = if file_name = "" then hdr.Header.file_name else file_name in
-        return (Ok ({hdr with Header.link_name; file_name }, global))
+        let link_indicator = true_link_indicator hdr.Header.link_indicator file_name in
+        return (Ok ({hdr with Header.link_name; file_name; link_indicator }, global))
       end in
 
     get_hdr global ()
