@@ -1,3 +1,9 @@
+## v2.6.0 (2023-09-07)
+
+- Add eio backend for tar in `tar-eio` (@patricoferris, review by @talex5, @reynir, #132)
+- Also apply backwards compatibility fix when GNU LongName is used.
+  The compatibility fix is unfortunately also applied for unknown-to-ocaml-tar link indicators (reported by @gravicappa in #129, @reynir, #133)
+
 ## v2.5.1 (2023-06-20)
 
 - Treat headers with link indicator '0' or '\000' (`Normal`) as directories for backward compatibility (reported in #129, fix by @reynir)
