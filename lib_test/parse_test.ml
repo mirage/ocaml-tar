@@ -171,6 +171,26 @@ let can_list_pax_implicit_dir () =
        Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
        Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
 
+(* Sample tar generated with commit 1583f71ea33b2836d3fb996ac7dc35d55abe2777:
+  [let buf =
+     let long_name = "some/long/name/for/a/directory/" in
+     let long_hdr = Tar.Header.make ~link_indicator:Tar.Header.Link.LongName "././@LongLink" Int64.(succ (of_int (String.length long_name))) in
+     let hdr = Tar.Header.make "some/long/name" 0L in
+     let buf = Cstruct.create ((3+2) * 512) in
+     let level = Tar.Header.GNU in
+     Tar.Header.marshal ~level buf long_hdr;
+     Cstruct.blit_from_string long_name 0 buf 512 (String.length long_name);
+     Tar.Header.marshal ~level (Cstruct.shift buf 1024) hdr;
+     buf] *)
+let can_list_longlink_implicit_dir () =
+  let fd = Unix.openfile "lib_test/long-implicit-dir.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
+  Fun.protect ~finally:(fun () -> Unix.close fd)
+    (fun () ->
+       let hdr = Tar_unix.get_next_header fd in
+       Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
+       Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name)
+
+
 let starts_with ~prefix s =
   let len_s = String.length s
   and len_pre = String.length prefix in
@@ -344,6 +364,7 @@ let () =
       "can read pax long names and links" >:: can_list_long_pax_tar;
       "can read pax header with implicit directory" >:: can_list_pax_implicit_dir;
       "can transform tars" >:: can_transform_tar;
+      "can read @LongLink with implicit directory" >:: can_list_longlink_implicit_dir;
     ]
   in
   let ( >:: ) desc f = Alcotest_lwt.test_case desc `Quick f in
