@@ -25,7 +25,7 @@ module Monad = struct
 end
 
 module Reader = struct
-  type in_channel = Flow.source
+  type in_channel = Flow.source_ty Resource.t
   type 'a t = 'a
   let really_read f b = Flow.read_exact f b
   let skip f (n: int) =
@@ -43,7 +43,7 @@ end
 let really_read = Reader.really_read
 
 module Writer = struct
-  type out_channel = Flow.sink
+  type out_channel = Flow.sink_ty Resource.t
   type 'a t = 'a
   let really_write f b = Flow.write f [ b ]
 end
@@ -66,7 +66,7 @@ module HR = Tar.HeaderReader(Monad)(Reader)
 module HW = Tar.HeaderWriter(Monad)(Writer)
 
 let get_next_header ?level ~global ic =
-  match HR.read ?level ~global (ic :> Flow.source) with
+  match HR.read ?level ~global (ic :> Eio.Flow.source_ty Eio.Flow.source) with
   | Error `Eof -> None
   | Ok hdrs -> Some hdrs
 
@@ -95,8 +95,8 @@ let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
   Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
                   ?uname ?gname ~devmajor ~devminor (snd filepath) file_size
 
-let write_block ?level ?global (header: Tar.Header.t) (body: #Flow.sink -> unit) sink =
-  HW.write ?level ?global header (sink :> Flow.sink);
+let write_block ?level ?global (header: Tar.Header.t) body sink =
+  HW.write ?level ?global header (sink :> Eio.Flow.sink_ty Eio.Flow.sink);
   body sink;
   really_write sink (Tar.Header.zero_padding header)
 
@@ -111,7 +111,7 @@ module Archive = struct
       should leave the fd positioned immediately after the datablock. Finally the function
       skips past the zero padding to the next header *)
   let with_next_file src ~(global: Tar.Header.Extended.t option)
-      (f: Eio.Flow.source -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) =
+      (f: _ -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) =
     match get_next_header ~global src with
     | Some (hdr, global) ->
       let result = f src global hdr in
@@ -123,7 +123,7 @@ module Archive = struct
   (** List the contents of a tar *)
   let list ?level fd =
     let rec loop global acc =
-      match get_next_header ?level ~global (fd :> Flow.source) with
+      match get_next_header ?level ~global fd with
       | None -> List.rev acc
       | Some (hdr, global) ->
         Reader.skip fd (Int64.to_int hdr.Tar.Header.file_size);
@@ -145,7 +145,7 @@ module Archive = struct
     in
     loop None ()
 
-  let transform ?level f (ifd : #Flow.source) (ofd : #Flow.sink) =
+  let transform ?level f ifd ofd =
     let rec loop global () =
       match get_next_header ~global ifd with
       | None -> ()
