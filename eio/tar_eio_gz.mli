@@ -1,35 +1,55 @@
-open Eio
-
 (** Read tar.gz files with eio *)
 
-type in_channel
+open Eio
 
-val of_in_channel : internal:Cstruct.t ->  Flow.source_ty Resource.t -> in_channel
+type source
 
-(** Returns the next header block or fails with {!Tar.Header.End_of_stream}
-    if two consecutive zero-filled blocks are discovered. Assumes stream is
+val of_source : 'a Flow.source -> source
+
+val get_next_header :
+  ?level:Tar.Header.compatibility ->
+  global:Tar.Header.Extended.t option ->
+  source ->
+  Tar.Header.t * Tar.Header.Extended.t option
+(** Returns the next header block or fails with {!Tar.Header.End_of_stream} if
+    two consecutive zero-filled blocks are discovered. Assumes stream is
     positioned at the possible start of a header block.
 
     @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option
-  -> in_channel -> (Tar.Header.t * Tar.Header.Extended.t option)
 
-val really_read : in_channel -> Cstruct.t -> unit
+val really_read : source -> Cstruct.t -> unit
 (** [really_read fd buf] fills [buf] with data from [fd] or raises
     {!Stdlib.End_of_file}. *)
 
-val skip : in_channel -> int -> unit
+val fold :
+  ?level:Tar.Header.compatibility ->
+  (Tar.Header.t -> 'a -> 'a) ->
+  source ->
+  'a ->
+  'a
 
-type out_channel
+val skip : source -> int -> unit
 
-val of_out_channel : ?bits:int -> ?q:int -> level:int ->
-  mtime:int32 -> Gz.os -> Flow.sink_ty Resource.t -> out_channel
+type sink
 
-val write_block : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended.t ->
-  Tar.Header.t -> out_channel -> (unit -> string option) -> unit
+val of_sink :
+  ?bits:int ->
+  ?q:int ->
+  level:int ->
+  mtime:int32 ->
+  Gz.os ->
+  'a Flow.sink ->
+  sink
+
+val write_block :
+  ?level:Tar.Header.compatibility ->
+  ?global:Tar.Header.Extended.t ->
+  Tar.Header.t ->
+  sink ->
+  (unit -> string option) ->
+  unit
 (** [write_block hdr oc stream] writes [hdr], then {i deflate} the given
-    [stream], then zero-pads so the stream is positionned for the next
-    block.
+    [stream], then zero-pads so the stream is positionned for the next block.
 
     A simple usage to write a file:
     {[
@@ -47,5 +67,5 @@ val write_block : ?level:Tar.Header.compatibility -> ?global:Tar.Header.Extended
         Unix.close fd
     ]} *)
 
-val write_end : out_channel -> unit
+val write_end : sink -> unit
 (** [write_end oc] writes a stream terminator to [oc]. *)
