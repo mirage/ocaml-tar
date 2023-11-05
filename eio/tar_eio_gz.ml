@@ -13,15 +13,14 @@ module Reader = struct
 
   let read = Flow.single_read
   let really_read f b = Flow.read_exact f b
+  let buffer_null = Cstruct.create 65536
 
   let skip f (n : int) =
-    let buffer_size = 32768 in
-    let buffer = Cstruct.create buffer_size in
     let rec loop (n : int) =
       if n <= 0 then ()
       else
-        let amount = min n buffer_size in
-        let block = Cstruct.sub buffer 0 amount in
+        let amount = min n (Cstruct.length buffer_null) in
+        let block = Cstruct.sub buffer_null 0 amount in
         really_read f block;
         loop (n - amount)
     in
