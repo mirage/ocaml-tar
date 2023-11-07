@@ -21,9 +21,12 @@ val really_read : source -> Cstruct.t -> unit
 (** [really_read fd buf] fills [buf] with data from [fd] or raises
     {!Stdlib.End_of_file}. *)
 
+type filter = [ `Skip | `Header | `Header_and_file ]
+
 val fold :
   ?level:Tar.Header.compatibility ->
-  (Tar.Header.t -> 'a -> 'a) ->
+  ?filter:(Tar.Header.t -> filter) ->
+  (Tar.Header.t -> Flow.source_ty Resource.t -> 'a -> 'a) ->
   source ->
   'a ->
   'a

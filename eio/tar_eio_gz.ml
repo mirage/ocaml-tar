@@ -8,23 +8,12 @@ module Monad = struct
 end
 
 module Reader = struct
-  type in_channel = Flow.source_ty Resource.t
+  type in_channel = Buf_read.t
   type 'a t = 'a
 
-  let read = Flow.single_read
-  let really_read f b = Flow.read_exact f b
-  let buffer_null = Cstruct.create 65536
-
-  let skip f (n : int) =
-    let rec loop (n : int) =
-      if n <= 0 then ()
-      else
-        let amount = min n (Cstruct.length buffer_null) in
-        let block = Cstruct.sub buffer_null 0 amount in
-        really_read f block;
-        loop (n - amount)
-    in
-    loop n
+  let read f = Flow.single_read (Buf_read.as_flow f)
+  let really_read f b = Flow.read_exact (Buf_read.as_flow f) b
+  let skip = Buf_read.consume
 end
 
 module Writer = struct
@@ -44,15 +33,31 @@ let of_sink ?bits ?q ~level ~mtime os f =
 
 let of_source f =
   of_in_channel ~internal:(Cstruct.create 65536)
-    (f :> Flow.source_ty Eio.Resource.t)
+    (Buf_read.of_flow ~max_size:max_int f)
 
-let fold ?level f source init =
+type filter = [ `Skip | `Header | `Header_and_file ]
+
+let fold ?level ?(filter = fun _ -> `Header) f source init =
   let rec aux global acc =
     match get_next_header ?level ~global source with
     | hdr, global ->
-        let acc = f hdr acc in
-        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
-        skip source to_skip;
+        let size = Int64.to_int hdr.file_size in
+        let padding = Tar.Header.compute_zero_padding_length hdr in
+        let acc =
+          match (filter hdr : filter) with
+          | `Skip ->
+              skip source (size + padding);
+              acc
+          | `Header ->
+              skip source (size + padding);
+              f hdr (Eio.Flow.string_source "") acc
+          | `Header_and_file ->
+              let buf = Cstruct.create size in
+              let src = Eio.Flow.cstruct_source [ buf ] in
+              really_read source buf;
+              skip source padding;
+              f hdr src acc
+        in
         aux global acc
     | exception Tar.Header.End_of_stream -> acc
   in
