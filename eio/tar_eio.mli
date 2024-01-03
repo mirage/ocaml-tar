@@ -39,4 +39,4 @@ val header_of_file :
     Tar.Header.t
 
 module HeaderReader : Tar.HEADERREADER with type in_channel = Eio.Flow.source and type 'a io = 'a
-module HeaderWriter : Tar.HEADERWRITER with type our_channel = Eio.Flow.sink and type 'a io = 'a
+module HeaderWriter : Tar.HEADERWRITER with type out_channel = Eio.Flow.sink and type 'a io = 'a
