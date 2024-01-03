@@ -1,6 +1,6 @@
 (library
  (name tar)
- (modules tar tar_cstruct)
+ (modules tar)
  (public_name tar)
  (wrapped false)
  (libraries cstruct))
