@@ -19,7 +19,7 @@
     {e %%VERSION%% - {{:%%PKG_HOMEPAGE%% }homepage}} *)
 
 (** The type of errors that may occur. *)
-type error = [`Eof | `Checksum_mismatch | `Corrupt_pax_header | `Zero_block]
+type error = [`Eof | `Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string]
 
 (** [pp_error ppf e] pretty prints the error [e] on the formatter [ppf]. *)
 val pp_error : Format.formatter -> [< error] -> unit
@@ -82,7 +82,7 @@ module Header : sig
     (** Unmarshal a pax Extended Header block. This header block may
         be preceded by [global] blocks which will override some
         fields. *)
-    val unmarshal : global:t option -> Cstruct.t -> t
+    val unmarshal : global:t option -> Cstruct.t -> (t, [> error ]) result
   end
 
   (** Represents a standard archive (note checksum not stored). *)
@@ -123,7 +123,7 @@ module Header : sig
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?extended:Extended.t -> Cstruct.t -> (t, [`Zero_block | `Checksum_mismatch]) result
+  val unmarshal : ?extended:Extended.t -> Cstruct.t -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
   val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
@@ -168,7 +168,7 @@ module type HEADERREADER = sig
       @param global Holds the current global pax extended header, if
         any. Needs to be given to the next call to [read]. *)
   val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [ `Eof | `Checksum_mismatch | `Corrupt_pax_header ]) result io
+    (Header.t * Header.Extended.t option, [ `Eof | `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]) result io
 end
 
 module type HEADERWRITER = sig
