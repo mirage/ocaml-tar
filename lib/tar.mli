@@ -126,7 +126,7 @@ module Header : sig
   val unmarshal : ?extended:Extended.t -> Cstruct.t -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
-  val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
+  val marshal : ?level:compatibility -> Cstruct.t -> t -> (unit, [> `Msg of string ]) result
 
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks. *)
@@ -174,8 +174,8 @@ end
 module type HEADERWRITER = sig
   type out_channel
   type 'a io
-  val write : ?level:Header.compatibility -> Header.t -> out_channel -> unit io
-  val write_global_extended_header : Header.Extended.t -> out_channel -> unit io
+  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
+  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
 end
 
 module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) :

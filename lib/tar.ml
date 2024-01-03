@@ -606,42 +606,54 @@ module Header = struct
   let marshal ?level c (x: t) =
     let level = get_level level in
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
-    if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
-      if level = Ustar then
-        if String.length x.file_name > 256 then failwith "file_name too long"
-        else let (prefix, file_name) =
-               let is_directory = if x.file_name.[String.length x.file_name - 1] = '/' then "/" else "" in
-               let rec split prefix file_name =
-                 if String.length file_name > sizeof_hdr_file_name then failwith "file_name can't be split"
-                 else if String.length prefix > sizeof_hdr_prefix then split (Filename.dirname prefix) (Filename.concat (Filename.basename prefix) file_name ^ is_directory)
-                 else (prefix, file_name) in
-               split (Filename.dirname x.file_name) (Filename.basename x.file_name ^ is_directory) in
-          set_hdr_file_name c file_name;
-          set_hdr_prefix c prefix
-      else failwith "file_name too long"
-    else set_hdr_file_name c x.file_name;
+    let* () =
+      if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
+        if level = Ustar then
+          if String.length x.file_name > 256 then
+            Error (`Msg "file_name too long")
+          else
+            let* (prefix, file_name) =
+              let is_directory = if x.file_name.[String.length x.file_name - 1] = '/' then "/" else "" in
+              let rec split prefix file_name =
+                if String.length file_name > sizeof_hdr_file_name then
+                  Error (`Msg "file_name can't be split")
+                else if String.length prefix > sizeof_hdr_prefix then
+                  split (Filename.dirname prefix) (Filename.concat (Filename.basename prefix) file_name ^ is_directory)
+                else Ok (prefix, file_name)
+              in
+              split (Filename.dirname x.file_name) (Filename.basename x.file_name ^ is_directory)
+            in
+            set_hdr_file_name c file_name;
+            set_hdr_prefix c prefix;
+            Ok ()
+        else Error (`Msg "file_name too long")
+      else (set_hdr_file_name c x.file_name; Ok ())
+    in
     (* This relies on the fact that the block was initialised to null characters *)
-    if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
-      if level = Ustar then begin
-        set_hdr_magic c "ustar";
-        set_hdr_version c "00";
-      end else begin
-        (* OLD GNU MAGIC: use "ustar " as magic, and another " " in the version *)
-        set_hdr_magic c "ustar ";
-        set_hdr_version c " ";
-      end;
-      set_hdr_uname c x.uname;
-      set_hdr_gname c x.gname;
-      if level = Ustar then begin
-        set_hdr_devmajor c x.devmajor;
-        set_hdr_devminor c x.devminor;
-      end
-    end else begin
-      if x.devmajor <> 0 then failwith "devmajor not supported in this format";
-      if x.devminor <> 0 then failwith "devminor not supported in this format";
-      if x.uname <> "" then failwith "uname not supported in this format";
-      if x.gname <> "" then failwith "gname not supported in this format";
-    end;
+    let* () =
+      if level = Ustar || (level = GNU && x.devmajor = 0 && x.devminor = 0) then begin
+        if level = Ustar then begin
+          set_hdr_magic c "ustar";
+          set_hdr_version c "00";
+        end else begin
+          (* OLD GNU MAGIC: use "ustar " as magic, and another " " in the version *)
+          set_hdr_magic c "ustar ";
+          set_hdr_version c " ";
+        end;
+        set_hdr_uname c x.uname;
+        set_hdr_gname c x.gname;
+        if level = Ustar then begin
+          set_hdr_devmajor c x.devmajor;
+          set_hdr_devminor c x.devminor;
+        end;
+        Ok ()
+      end else
+        if x.devmajor <> 0 then Error (`Msg "devmajor not supported in this format")
+        else if x.devminor <> 0 then Error (`Msg "devminor not supported in this format")
+        else if x.uname <> "" then Error (`Msg "uname not supported in this format")
+        else if x.gname <> "" then Error (`Msg "gname not supported in this format")
+        else Ok ()
+    in
     set_hdr_file_mode c x.file_mode;
     set_hdr_user_id c x.user_id;
     set_hdr_group_id c x.group_id;
@@ -649,11 +661,17 @@ module Header = struct
     set_hdr_mod_time c x.mod_time;
     set_hdr_link_indicator c (Link.to_char ~level x.link_indicator);
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
-    if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then failwith "link_name too long";
+    let* () =
+      if String.length x.link_name > sizeof_hdr_link_name && level <> GNU then
+        Error (`Msg "link_name too long")
+      else
+        Ok ()
+    in
     set_hdr_link_name c x.link_name;
     (* Finally, compute the checksum *)
     let chksum = checksum c in
-    set_hdr_chksum c chksum
+    set_hdr_chksum c chksum;
+    Ok ()
 
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks *)
@@ -700,8 +718,8 @@ end
 module type HEADERWRITER = sig
   type out_channel
   type 'a io
-  val write : ?level:Header.compatibility -> Header.t -> out_channel -> unit io
-  val write_global_extended_header : Header.Extended.t -> out_channel -> unit io
+  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
+  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
 end
 
 let longlink = "././@LongLink"
@@ -716,7 +734,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
   let ( let* ) x f =
     match x with
     | Ok x -> f x
-    | Error y -> return (Error y)
+    | Error _ as e -> return e
 
   let fix_link_indicator x =
     (* For backward compatibility we treat normal files ending in slash as
@@ -744,27 +762,21 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
     in
 
     let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof | `Checksum_mismatch | `Corrupt_pax_header ]) result t =
-      next_block global ()
-      >>= function
+      next_block global () >>= function
       | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
-        really_read ifd extra_header_buf
-        >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x)
-        >>= fun () ->
+        really_read ifd extra_header_buf >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         (* unmarshal merges the previous global (if any) with the
            discovered global (if any) and returns the new global. *)
         let* global = Header.Extended.unmarshal ~global extra_header_buf in
         get_hdr ~next_longname ~next_longlink (Some global) ()
       | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
-        really_read ifd extra_header_buf
-        >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x)
-        >>= fun () ->
+        really_read ifd extra_header_buf >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         let* extended = Header.Extended.unmarshal ~global extra_header_buf in
-        really_read ifd real_header_buf
-        >>= fun () ->
+        really_read ifd real_header_buf >>= fun () ->
         begin match Header.unmarshal ~extended real_header_buf with
           | Error _ ->
             return (Error `Corrupt_pax_header)
@@ -774,10 +786,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         end
       | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
-        really_read ifd extra_header_buf
-        >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x)
-        >>= fun () ->
+        really_read ifd extra_header_buf >>= fun () ->
+        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         let name = Cstruct.to_string ~len:(Cstruct.length extra_header_buf - 1) extra_header_buf in
         let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else next_longlink in
         let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else next_longname in
@@ -796,8 +806,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         return (Ok (x, global))
       | Error `Zero_block ->
         begin
-          next_block global ()
-          >>= function
+          next_block global () >>= function
           | Ok x -> return (Ok (x, global))
           | Error `Zero_block -> return (Error `Eof)
           | Error (`Checksum_mismatch | `Unmarshal _) as e -> return e
@@ -805,7 +814,6 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
       | Error (`Checksum_mismatch | `Unmarshal _) as e ->
         return e
     in
-
     get_hdr ~next_longname:None ~next_longlink:None global ()
 
 end
@@ -817,41 +825,48 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
   type out_channel = Writer.out_channel
   type 'a io = 'a Async.t
 
+  let ( let* ) x f =
+    match x with
+    | Ok x -> f x
+    | Error _ as e -> return e
+
   let write_unextended ?level header fd =
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
-    ( if level = Header.GNU then begin
-        ( if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
+    let* () =
+      if level = Header.GNU then begin
+        let* () =
+          if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink };
-            really_write fd buffer
-            >>= fun () ->
+            let* () = Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink } in
+            really_write fd buffer >>= fun () ->
             let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
-            really_write fd payload
-            >>= fun () ->
-            really_write fd (Header.zero_padding blank)
-          end else return () )
-        >>= fun () ->
-        ( if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+            really_write fd payload >>= fun () ->
+            really_write fd (Header.zero_padding blank) >>= fun () ->
+            return (Ok ())
+          end else return (Ok ())
+        in
+        let* () =
+          if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
             let file_size = String.length header.Header.file_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName };
-            really_write fd buffer
-            >>= fun () ->
+            let* () = Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName } in
+            really_write fd buffer >>= fun () ->
             let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
-            really_write fd payload
-            >>= fun () ->
-            really_write fd (Header.zero_padding blank)
-          end else return () )
-        >>= fun () ->
+            really_write fd payload >>= fun () ->
+            really_write fd (Header.zero_padding blank) >>= fun () ->
+            return (Ok ())
+          end else return (Ok ())
+        in
         Cstruct.memset buffer 0;
-        return ()
-      end else return () )
-    >>= fun () ->
-    Header.marshal ~level buffer header;
-    really_write fd buffer
+        return (Ok ())
+      end else return (Ok ())
+    in
+    let* () = Header.marshal ~level buffer header in
+    really_write fd buffer >>= fun () ->
+    return (Ok ())
 
   let write_extended ?level ~link_indicator hdr fd =
     let link_indicator_name = match link_indicator with
