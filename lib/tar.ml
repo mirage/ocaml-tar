@@ -731,7 +731,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
   type in_channel = Reader.in_channel
   type 'a io = 'a t
 
-  let ( let* ) x f =
+  (* This is not a bind, but more a lift and bind combined. *)
+  let ( let^* ) x f =
     match x with
     | Ok x -> f x
     | Error _ as e -> return e
@@ -769,13 +770,13 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         (* unmarshal merges the previous global (if any) with the
            discovered global (if any) and returns the new global. *)
-        let* global = Header.Extended.unmarshal ~global extra_header_buf in
+        let^* global = Header.Extended.unmarshal ~global extra_header_buf in
         get_hdr ~next_longname ~next_longlink (Some global) ()
       | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
-        let* extended = Header.Extended.unmarshal ~global extra_header_buf in
+        let^* extended = Header.Extended.unmarshal ~global extra_header_buf in
         really_read ifd real_header_buf >>= fun () ->
         begin match Header.unmarshal ~extended real_header_buf with
           | Error _ ->
