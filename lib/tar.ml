@@ -74,7 +74,7 @@ module Header = struct
   (** Unmarshal a pax Extended Header File time
       It can contain a <period> ( '.' ) for sub-second granularity, that we ignore.
       https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13_05 *)
-  let unmarshal_pax_time (x:string ) : int64 =
+  let unmarshal_pax_time (x:string) : int64 =
     match String.split_on_char '.' x with
     | [seconds] -> Int64.of_string seconds
     | [seconds; _subseconds] -> Int64.of_string seconds
@@ -632,10 +632,8 @@ module Header = struct
       to a whole number of blocks *)
   let compute_zero_padding_length (x: t) : int =
     (* round up to next whole number of block lengths *)
-    let length = Int64.of_int length in
-    let lenm1 = Int64.sub length Int64.one in
-    let next_block_length = (Int64.mul length (Int64.div (Int64.add x.file_size lenm1) length)) in
-    Int64.to_int (Int64.sub next_block_length x.file_size)
+    let last_block_size = Int64.to_int (Int64.rem x.file_size (Int64.of_int length)) in
+    if last_block_size = 0 then 0 else length - last_block_size
 
   (** Return the required zero-padding as a string *)
   let zero_padding (x: t) =
@@ -643,8 +641,7 @@ module Header = struct
     Cstruct.sub zero_block 0 zero_padding_len
 
   let to_sectors (x: t) =
-    let bytes = Int64.(add x.file_size (of_int (compute_zero_padding_length x))) in
-    Int64.div bytes 512L
+    Int64.(div (add (pred (of_int length)) x.file_size) (of_int length))
 end
 
 module type ASYNC = sig
