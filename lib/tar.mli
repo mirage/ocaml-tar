@@ -180,7 +180,7 @@ module type HEADERWRITER = sig
 end
 
 module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) :
-  HEADERREADER with type in_channel = Reader.in_channel and type 'a io = 'a Async.t 
+  HEADERREADER with type in_channel = Reader.in_channel and type 'a io = 'a Async.t
 
 module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) :
   HEADERWRITER with type out_channel = Writer.out_channel and type 'a io = 'a Async.t
