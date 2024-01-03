@@ -16,15 +16,15 @@
 
 (** I/O for tar-formatted data *)
 
-val really_read: Eio.Flow.source -> Cstruct.t -> unit Lwt.t
+val really_read: Eio.Flow.source -> Cstruct.t -> unit
 (** [really_read fd buf] fills [buf] with data from [fd] or fails
     with {!Stdlib.End_of_file}. *)
 
-val really_write: Eio.Flow.sink -> Cstruct.t -> unit Lwt.t
+val really_write: Eio.Flow.sink -> Cstruct.t -> unit
 (** [really_write fd buf] writes the full contents of [buf] to
     [fd] or fails with {!Stdlib.End_of_file}. *)
 
-val skip : Eio.Flow.source -> int -> unit Lwt.t
+val skip : Eio.Flow.source -> int -> unit
 (** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
     should use [Lwt_unix.lseek fd n Lwt_unix.SEEK_CUR] instead. *)
 
