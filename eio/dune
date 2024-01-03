@@ -1,4 +1,11 @@
 (library
  (name tar_eio)
  (public_name tar-eio)
+ (modules tar_eio)
  (libraries tar eio))
+
+(library
+ (name tar_eio_gz)
+ (public_name tar-eio.gz)
+ (modules tar_eio_gz)
+ (libraries tar.gz tar_eio))
