@@ -63,10 +63,13 @@ let header () =
   Cstruct.blit_from_string txt 0 c 0 (String.length txt);
   let c' = Cstruct.create Tar.Header.length in
   for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
-  Tar.Header.marshal c' h;
-  Alcotest.(check cstruct) "marshalled headers" c c';
-  Alcotest.(check (result header error)) "unmarshalled headers" (Ok h) (Tar.Header.unmarshal c');
-  Alcotest.(check int) "zero padding length" 302 (Tar.Header.compute_zero_padding_length h)
+  match Tar.Header.marshal c' h with
+  | Ok () ->
+    Alcotest.(check cstruct) "marshalled headers" c c';
+    Alcotest.(check (result header error)) "unmarshalled headers" (Ok h) (Tar.Header.unmarshal c');
+    Alcotest.(check int) "zero padding length" 302 (Tar.Header.compute_zero_padding_length h)
+  | Error `Msg msg ->
+    Alcotest.failf "error marshalling: %s" msg
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
 
@@ -120,9 +123,12 @@ let can_write_pax () =
   Fun.protect
     (fun () ->
       let hdr = Tar.Header.make ~user_id "test" 0L in
-      Tar_unix.HeaderWriter.write hdr fd;
-      Tar_unix.really_write fd Tar.Header.zero_block;
-      Tar_unix.really_write fd Tar.Header.zero_block;
+      match Tar_unix.HeaderWriter.write hdr fd with
+      | Ok () ->
+        Tar_unix.really_write fd Tar.Header.zero_block;
+        Tar_unix.really_write fd Tar.Header.zero_block;
+      | Error `Msg msg ->
+        Alcotest.failf "error writing header %s" msg
     ) ~finally:(fun () -> Unix.close fd);
   (* Read it back and verify the header was read *)
   let fd = Unix.openfile filename [ O_RDONLY; O_CLOEXEC ] 0 in

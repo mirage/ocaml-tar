@@ -41,7 +41,7 @@ module Make
     mtime:int32 -> Gz.os -> Writer.out_channel -> out_channel
 
   val write_block : ?level:Tar.Header.compatibility -> Tar.Header.t ->
-    out_channel -> (unit -> string option Async.t) -> unit Async.t
+    out_channel -> (unit -> string option Async.t) -> (unit, [> `Msg of string ]) result Async.t
   (** [write_block hdr oc stream] writes [hdr], then {i deflate} the given
       [stream], then zero-pads so the stream is positionned for the next
       block.
@@ -58,7 +58,9 @@ module Make
         let add_file oc filename =
           let fd = Unix.openfile filename Unix.[ O_RDONLY ] 0o644 in
           let hdr = Tar.Header.make ... in
-          write_block hdr oc (stream_of_fd fd) ;
+          (match write_block hdr oc (stream_of_fd fd) with
+           | Ok () -> ()
+           | Error `Msg msg -> print_endline ("error: " ^ msg));
           Unix.close fd
       ]} *)
 

@@ -823,50 +823,62 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
   open Writer
 
   type out_channel = Writer.out_channel
-  type 'a io = 'a Async.t
-
-  let ( let* ) x f =
-    match x with
-    | Ok x -> f x
-    | Error _ as e -> return e
+  type 'a io = 'a t
 
   let write_unextended ?level header fd =
     let level = Header.get_level level in
     let buffer = Cstruct.create Header.length in
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
-    let* () =
-      if level = Header.GNU then begin
-        let* () =
+    (if level = Header.GNU then begin
+        begin
           if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            let* () = Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink } in
-            really_write fd buffer >>= fun () ->
-            let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
-            really_write fd payload >>= fun () ->
-            really_write fd (Header.zero_padding blank) >>= fun () ->
+            match
+              Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink }
+            with
+            | Error _ as e -> return e
+            | Ok () ->
+              really_write fd buffer >>= fun () ->
+              let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
+              really_write fd payload >>= fun () ->
+              really_write fd (Header.zero_padding blank) >>= fun () ->
+              return (Ok ())
+          end else
             return (Ok ())
-          end else return (Ok ())
-        in
-        let* () =
-          if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
-            let file_size = String.length header.Header.file_name + 1 in
-            let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            let* () = Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName } in
-            really_write fd buffer >>= fun () ->
-            let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
-            really_write fd payload >>= fun () ->
-            really_write fd (Header.zero_padding blank) >>= fun () ->
-            return (Ok ())
-          end else return (Ok ())
-        in
-        Cstruct.memset buffer 0;
+        end >>= function
+        | Error _ as e -> return e
+        | Ok () ->
+          begin
+            if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
+              let file_size = String.length header.Header.file_name + 1 in
+              let blank = {blank with Header.file_size = Int64.of_int file_size} in
+              match
+                Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName }
+              with
+              | Error _ as e -> return e
+              | Ok () ->
+                really_write fd buffer >>= fun () ->
+                let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
+                really_write fd payload >>= fun () ->
+                really_write fd (Header.zero_padding blank) >>= fun () ->
+                return (Ok ())
+            end else
+              return (Ok ())
+          end >>= function
+          | Error _ as e -> return e
+          | Ok () ->
+            Cstruct.memset buffer 0;
+          return (Ok ())
+      end else
+       return (Ok ())) >>= function
+    | Error _ as e -> return e
+    | Ok () ->
+      match Header.marshal ~level buffer header with
+      | Error _  as e -> return e
+      | Ok () ->
+        really_write fd buffer >>= fun () ->
         return (Ok ())
-      end else return (Ok ())
-    in
-    let* () = Header.marshal ~level buffer header in
-    really_write fd buffer >>= fun () ->
-    return (Ok ())
 
   let write_extended ?level ~link_indicator hdr fd =
     let link_indicator_name = match link_indicator with
@@ -877,19 +889,21 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
     let pax_payload = Header.Extended.marshal hdr in
     let pax = Header.make ~link_indicator link_indicator_name
                 (Int64.of_int @@ Cstruct.length pax_payload) in
-    write_unextended ?level pax fd
-    >>= fun () ->
-    really_write fd pax_payload
-    >>= fun () ->
-    really_write fd (Header.zero_padding pax)
+    write_unextended ?level pax fd >>= function
+    | Error _ as e -> return e
+    | Ok () ->
+      really_write fd pax_payload >>= fun () ->
+      really_write fd (Header.zero_padding pax) >>= fun () ->
+      return (Ok ())
 
   let write ?level header fd =
     ( match header.Header.extended with
-      | None -> return ()
+      | None -> return (Ok ())
       | Some e ->
         write_extended ?level ~link_indicator:Header.Link.PerFileExtendedHeader e fd )
-    >>= fun () ->
-    write_unextended ?level header fd
+    >>= function
+    | Error _ as e -> return e
+    | Ok () -> write_unextended ?level header fd
 
   let write_global_extended_header global fd =
     write_extended ~link_indicator:Header.Link.GlobalExtendedHeader global fd

@@ -140,29 +140,32 @@ module Make
     { Gz_writer.gz; ic_buffer; oc_buffer; out_channel; }
 
   let write_block ?level hdr ({ Gz_writer.ic_buffer= buf; oc_buffer; out_channel; _ } as state) block =
-    HeaderWriter.write ?level hdr state >>= fun () ->
-    (* XXX(dinosaure): we can refactor this code with [Gz_writer.really_write]
-       but this loop saves and uses [ic_buffer]/[buf] to avoid extra
-       allocations on the case between [string] and [Cstruct.t]. *)
-    let rec deflate (str, off, len) gz = match Gz.Def.encode gz with
-      | `Await gz ->
-        if len = 0
-        then block () >>= function
-        | None -> state.gz <- gz ; Async.return ()
-        | Some str -> deflate (str, 0, String.length str) gz
-        else ( let len' = min len (Cstruct.length buf) in
-               Cstruct.blit_from_string str off buf 0 len' ;
-               let { Cstruct.buffer; off= cs_off; len= _; } = buf in
-               deflate (str, off + len', len - len')
-                 (Gz.Def.src gz buffer cs_off len') )
-     | `Flush gz ->
-       let max = Cstruct.length oc_buffer - Gz.Def.dst_rem gz in
-       Writer.really_write out_channel (Cstruct.sub oc_buffer 0 max) >>= fun () ->
-       let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
-       deflate (str, off, len) (Gz.Def.dst gz buffer cs_off cs_len)
-     | `End _gz -> assert false in
-   deflate ("", 0, 0) state.gz >>= fun () ->
-   Gz_writer.really_write state (Tar.Header.zero_padding hdr)
+    HeaderWriter.write ?level hdr state >>= function
+    | Error _ as e -> return e
+    | Ok () ->
+      (* XXX(dinosaure): we can refactor this codec with [Gz_writer.really_write]
+         but this loop saves and uses [ic_buffer]/[buf] to avoid extra
+         allocations on the case between [string] and [Cstruct.t]. *)
+      let rec deflate (str, off, len) gz = match Gz.Def.encode gz with
+        | `Await gz ->
+          if len = 0
+          then block () >>= function
+            | None -> state.gz <- gz ; Async.return ()
+            | Some str -> deflate (str, 0, String.length str) gz
+          else ( let len' = min len (Cstruct.length buf) in
+                 Cstruct.blit_from_string str off buf 0 len' ;
+                 let { Cstruct.buffer; off= cs_off; len= _; } = buf in
+                 deflate (str, off + len', len - len')
+                   (Gz.Def.src gz buffer cs_off len') )
+        | `Flush gz ->
+          let max = Cstruct.length oc_buffer - Gz.Def.dst_rem gz in
+          Writer.really_write out_channel (Cstruct.sub oc_buffer 0 max) >>= fun () ->
+          let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
+          deflate (str, off, len) (Gz.Def.dst gz buffer cs_off cs_len)
+        | `End _gz -> assert false in
+      deflate ("", 0, 0) state.gz >>= fun () ->
+      Gz_writer.really_write state (Tar.Header.zero_padding hdr) >>= fun () ->
+      return (Ok ())
 
  let write_end ({ Gz_writer.oc_buffer; out_channel; _ } as state) =
    Gz_writer.really_write state Tar.Header.zero_block >>= fun () ->

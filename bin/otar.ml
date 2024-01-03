@@ -61,8 +61,10 @@ let create_tarball directory oc =
   let mtime = Unix.gettimeofday () in
   let out_channel = Tar_gz.of_out_channel ~level:4 ~mtime:(Int32.of_float mtime) os oc in
   let hdr = Tar.Header.make ~file_mode:0o755
-    ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
-  Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) ;
+      ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
+  (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) with
+   | Ok () -> ()
+   | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
   Array.iter begin fun filename ->
   let fd        = Unix.openfile (directory / filename) Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
   let stat      = Unix.LargeFile.lstat (directory / filename) in
@@ -76,7 +78,9 @@ let create_tarball directory oc =
     let hdr = Tar.Header.make
         ~file_mode ~mod_time ~user_id ~group_id
         (directory / filename) stat.Unix.LargeFile.st_size in
-    Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream ;
+    (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream with
+     | Ok () -> ()
+     | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
     Unix.close fd ;
   | _ ->
     Format.eprintf "Skipping non-regular file %s\n" (Filename.concat directory filename)
