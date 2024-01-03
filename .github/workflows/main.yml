@@ -30,11 +30,14 @@ jobs:
           opam-repositories: |
             opam-repository-mingw: https://github.com/ocaml-opam/opam-repository-mingw.git#sunset
             default: https://github.com/ocaml/opam-repository.git
+          opam-local-packages: |
+            *.opam
+            !tar-eio.opam
 
       - run: |
           opam depext conf-pkg-config
-          opam install . --deps-only --with-test
+          opam install --deps-only --with-test tar tar-unix tar-mirage
 
-      - run: opam exec -- dune build
+      - run: opam exec -- dune build -p tar,tar-unix,tar-mirage
 
-      - run: opam exec -- dune runtest
+      - run: opam exec -- dune runtest -p tar,tar-unix,tar-mirage
