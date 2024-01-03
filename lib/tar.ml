@@ -664,7 +664,7 @@ module type HEADERREADER = sig
   type in_channel
   type 'a io
   val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [` Eof ]) result io
+    (Header.t * Header.Extended.t option, [ `Eof ]) result io
 end
 
 module type HEADERWRITER = sig
