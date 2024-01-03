@@ -117,7 +117,11 @@ let list filename =
       let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
       Tar_gz.skip ic to_skip ;
       go global ()
-    | Error `Eof -> () in
+    | Error `Eof -> ()
+    | Error e ->
+      Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
+      exit 2
+  in
   go None ()
 
 let () = match Sys.argv with

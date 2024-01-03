@@ -15,6 +15,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+type error = [`Eof | `Checksum_mismatch | `Corrupt_pax_header | `Zero_block]
+
+let pp_error ppf = function
+  | `Eof -> Format.fprintf ppf "end of file"
+  | `Checksum_mismatch -> Format.fprintf ppf "checksum mismatch"
+  | `Corrupt_pax_header -> Format.fprintf ppf "corrupt PAX header"
+  | `Zero_block -> Format.fprintf ppf "zero block"
+
 (** Process and create tar file headers *)
 module Header = struct
   (** Map of field name -> (start offset, length) taken from wikipedia:
@@ -500,9 +508,6 @@ module Header = struct
                   "link_name",      x.link_name ] in
     "{\n\t" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
-  (** Thrown when unmarshalling a header if the checksums don't match *)
-  exception Checksum_mismatch
-
   (** From an already-marshalled block, compute what the checksum should be *)
   let checksum (x: Cstruct.t) : int64 =
     (* Sum of all the byte values of the header with the checksum field taken
@@ -523,11 +528,12 @@ module Header = struct
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal ?(extended = Extended.make ()) (c: Cstruct.t) : t option =
-    if allzeroes c then None
+  let unmarshal ?(extended = Extended.make ()) (c: Cstruct.t)
+    : (t, [>`Zero_block | `Checksum_mismatch]) result =
+    if allzeroes c then Error `Zero_block
     else
       let chksum = get_hdr_chksum c in
-      if checksum c <> chksum then raise Checksum_mismatch
+      if checksum c <> chksum then Error `Checksum_mismatch
       else let ustar =
              let magic = get_hdr_magic c in
              (* GNU tar and Posix differ in interpretation of the character following ustar. For Posix, it should be '\0' but GNU tar uses ' ' *)
@@ -566,7 +572,7 @@ module Header = struct
         let link_name = match extended.Extended.link_path with
           | Some link_path -> link_path
           | None -> get_hdr_link_name c in
-        Some (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
+        Ok (make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
            ~link_name ~uname ~gname ~devmajor ~devminor file_name file_size)
 
   (** Marshal a header block, computing and inserting the checksum *)
@@ -664,7 +670,7 @@ module type HEADERREADER = sig
   type in_channel
   type 'a io
   val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [ `Eof ]) result io
+    (Header.t * Header.Extended.t option, [ `Eof | `Checksum_mismatch | `Corrupt_pax_header ]) result io
 end
 
 module type HEADERWRITER = sig
@@ -697,7 +703,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
     else
       x
 
-  let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
+  let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof | `Checksum_mismatch | `Corrupt_pax_header ]) result t =
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
     let real_header_buf = Cstruct.create Header.length in
@@ -705,15 +711,13 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
     let next_block global () =
       really_read ifd buffer
       >>= fun () ->
-      match Header.unmarshal ?extended:global buffer with
-      | None -> return None
-      | Some hdr -> return (Some hdr)
+      return (Header.unmarshal ?extended:global buffer)
     in
 
-    let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof ]) result t =
+    let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof | `Checksum_mismatch | `Corrupt_pax_header ]) result t =
       next_block global ()
       >>= function
-      | Some x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
+      | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
@@ -723,7 +727,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
            discovered global (if any) and returns the new global. *)
         let global = Header.Extended.unmarshal ~global extra_header_buf in
         get_hdr ~next_longname ~next_longlink (Some global) ()
-      | Some x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
+      | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
@@ -733,14 +737,14 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         really_read ifd real_header_buf
         >>= fun () ->
         begin match Header.unmarshal ~extended real_header_buf with
-          | None ->
+          | Error _ ->
             (* FIXME: Corrupt pax headers *)
-            return (Error `Eof)
-          | Some x ->
+            return (Error `Corrupt_pax_header)
+          | Ok x ->
             let x = fix_link_indicator x in
             return (Ok (x, global))
         end
-      | Some ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
+      | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf
         >>= fun () ->
@@ -750,7 +754,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else next_longlink in
         let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else next_longname in
         get_hdr ~next_longname ~next_longlink global ()
-      | Some x ->
+      | Ok x ->
         (* XXX: unclear how/if pax headers should interact with gnu extensions *)
         let x = match next_longname with
           | None -> x
@@ -762,13 +766,16 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         in
         let x = fix_link_indicator x in
         return (Ok (x, global))
-      | None ->
+      | Error `Zero_block ->
         begin
           next_block global ()
           >>= function
-          | Some x -> return (Ok (x, global))
-          | None -> return (Error `Eof)
+          | Ok x -> return (Ok (x, global))
+          | Error `Zero_block -> return (Error `Eof)
+          | Error `Checksum_mismatch as e -> return e
         end
+      | Error `Checksum_mismatch as e ->
+        return e
     in
 
     get_hdr ~next_longname:None ~next_longlink:None global ()

@@ -41,17 +41,17 @@ let list fd =
       loop global (hdr :: acc)
     | Error `Eof ->
       List.rev acc
+    | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
   in
   let r = loop None [] in
   List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
   r
 
-let cstruct = Alcotest.testable
-                (fun f x -> Fmt.pf f "%a" Cstruct.hexdump_pp x)
-                Cstruct.equal
+let cstruct = Alcotest.testable Cstruct.hexdump_pp Cstruct.equal
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
-let header =
-  Alcotest.testable (fun f x -> Fmt.pf f "%a" (Fmt.option pp_header) x) ( = )
+let header = Alcotest.testable pp_header ( = )
+
+let error = Alcotest.testable Tar.pp_error ( = )
 
 let link = Alcotest.testable (Fmt.of_to_string Tar.Header.Link.to_string) ( = )
 
@@ -65,7 +65,7 @@ let header () =
   for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
   Tar.Header.marshal c' h;
   Alcotest.(check cstruct) "marshalled headers" c c';
-  Alcotest.(check header) "unmarshalled headers" (Some h) (Tar.Header.unmarshal c');
+  Alcotest.(check (result header error)) "unmarshalled headers" (Ok h) (Tar.Header.unmarshal c');
   Alcotest.(check int) "zero padding length" 302 (Tar.Header.compute_zero_padding_length h)
 
 let set_difference a b = List.filter (fun a -> not(List.mem a b)) a
@@ -180,7 +180,7 @@ let can_list_pax_implicit_dir () =
   Fun.protect ~finally:(fun () -> Unix.close fd)
     (fun () ->
        match Tar_unix.HeaderReader.read ~global:None fd with
-       | Error `Eof -> Alcotest.fail "unexpected end of file"
+       | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
        | Ok (hdr, _global) ->
          Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
          Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
@@ -204,8 +204,7 @@ let can_list_longlink_implicit_dir () =
        | Ok (hdr, _global) ->
          Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
          Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
-       | Error `Eof ->
-         Alcotest.fail "reached end of file")
+       | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e)
 
 
 let starts_with ~prefix s =

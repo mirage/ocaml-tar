@@ -90,7 +90,7 @@ let use_global_extended_headers _test_ctxt =
        Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
-    | Error `Eof -> failwith "Couldn't read header" );
+    | Error _ -> failwith "Couldn't read header" );
   ( match HR.read ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g0) global';
@@ -98,7 +98,7 @@ let use_global_extended_headers _test_ctxt =
        Alcotest.(check int) "expected user" 2000 hdr.Tar.Header.user_id;
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
-    | Error `Eof -> failwith "Couldn't read header" );
+    | Error _ -> failwith "Couldn't read header" );
   ( match HR.read ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g0) global';
@@ -106,7 +106,7 @@ let use_global_extended_headers _test_ctxt =
        Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
-    | Error `Eof -> failwith "Couldn't read header" );
+    | Error _ -> failwith "Couldn't read header" );
   ( match HR.read ~global:!global cin with
     | Ok (hdr, global') ->
        Alcotest.check header "expected global header" (Some g1) global';
@@ -114,10 +114,10 @@ let use_global_extended_headers _test_ctxt =
        Alcotest.(check int) "expected user" 3000 hdr.Tar.Header.user_id;
        let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
        Reader.skip cin to_skip;
-    | Error `Eof -> failwith "Couldn't read header" );
+    | Error _ -> failwith "Couldn't read header" );
   ( match HR.read ~global:!global cin with
-    | Ok _ -> failwith "Should have found EOF"
-    | Error `Eof -> () );
+    | Error `Eof -> () 
+    | _ -> failwith "Should have found EOF");
   ()
 
 let () =
