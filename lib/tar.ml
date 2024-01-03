@@ -686,6 +686,20 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
   type in_channel = Reader.in_channel
   type 'a io = 'a Async.t
 
+  let fix_link_indicator x =
+    (* For backward compatibility we treat normal files ending in slash as
+       directories. Because [Link.of_char] treats unrecognized link indicator
+       values as normal files we check directly. This is not completely correct
+       as [Header.Link.of_char] turns unknown link indicators into
+       [Header.Link.Normal]. Ideally, it should only be done for '0' and
+       '\000'. *)
+    if String.length x.Header.file_name > 0
+    && x.file_name.[String.length x.file_name - 1] = '/'
+    && x.link_indicator = Header.Link.Normal then
+      { x with link_indicator = Header.Link.Directory }
+    else
+      x
+
   let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof ]) result t =
     (* We might need to read 2 headers at once if we encounter a Pax header *)
     let buffer = Cstruct.create Header.length in
@@ -725,7 +739,9 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
           | None ->
             (* FIXME: Corrupt pax headers *)
             return (Error `Eof)
-          | Some x -> return (Ok (x, global))
+          | Some x ->
+            let x = fix_link_indicator x in
+            return (Ok (x, global))
         end
       | Some ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
         let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
@@ -747,20 +763,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
           | None -> x
           | Some link_name -> { x with link_name }
         in
-        let x = 
-          (* For backward compatibility we treat normal files ending in slash
-             as directories. Because [Link.of_char] treats unrecognized link
-             indicator values as normal files we check directly. This is not
-             completely correct as [Header.Link.of_char] turns unknown link
-             indicators into [Header.Link.Normal]. Ideally, it should only be
-             done for '0' and '\000'. *)
-          if String.length x.file_name > 0
-          && x.file_name.[String.length x.file_name - 1] = '/'
-          && x.link_indicator = Header.Link.Normal then
-            { x with link_indicator = Header.Link.Directory }
-          else
-            x
-        in
+        let x = fix_link_indicator x in
         return (Ok (x, global))
       | None ->
         begin

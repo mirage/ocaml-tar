@@ -200,9 +200,12 @@ let can_list_longlink_implicit_dir () =
   let fd = Unix.openfile "lib_test/long-implicit-dir.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
   Fun.protect ~finally:(fun () -> Unix.close fd)
     (fun () ->
-       let (hdr, _global) = Tar_unix.get_next_header ~global:None fd in
-       Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
-       Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name)
+       match Tar_unix.HeaderReader.read ~global:None fd with
+       | Ok (hdr, _global) ->
+         Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
+         Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
+       | Error `Eof ->
+         Alcotest.fail "reached end of file")
 
 
 let starts_with ~prefix s =
