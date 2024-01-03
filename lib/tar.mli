@@ -117,9 +117,6 @@ module Header : sig
   (** Thrown when unmarshalling a header if the checksums don't match. *)
   exception Checksum_mismatch
 
-  (** Thrown if we detect the end of the tar (at least two zero blocks in sequence). *)
-  exception End_of_stream
-
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
@@ -162,14 +159,13 @@ module type HEADERREADER = sig
   type in_channel
   type 'a io
 
-  (** Returns the next header block or throws {!Header.End_of_stream} if two consecutive
+  (** Returns the next header block or error [`Eof] if two consecutive
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block.
       @param global Holds the current global pax extended header, if
-        any. Needs to be given to the next call to [read].
-      @raise Header.End_of_stream if the stream unexpectedly fails. *)
+        any. Needs to be given to the next call to [read]. *)
   val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [` Eof ]) result io
+    (Header.t * Header.Extended.t option, [ `Eof ]) result io
 end
 
 module type HEADERWRITER = sig

@@ -622,9 +622,6 @@ module Header = struct
     let chksum = checksum c in
     set_hdr_chksum c chksum
 
-  (** Thrown if we detect the end of the tar (at least two zero blocks in sequence) *)
-  exception End_of_stream
-
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks *)
   let compute_zero_padding_length (x: t) : int =
