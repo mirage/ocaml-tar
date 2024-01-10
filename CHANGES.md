@@ -11,6 +11,13 @@
 - Add module types `Tar.HEADERREADER` and `Tar.HEADERWRITER` describing the
   output of `Tar.HeaderReader` and `Tar.HeaderWriter` respectively.
 - Types `Tar.READER.t` and `Tar.WRITER.t` are renamed to `io`.
+- Add `write_global` function for writing a global PAX extended header.
+- Rework IO-specific modules (tar-unix etc.) harmonizing them.
+- Avoid exceptions in tar and use result instead. The exceptions
+  `End_of_stream` and `Checksum_mismatch` are removed.
+- Remove the `Tar_cstruct` module as it was unused.
+- Remove debug printers.
+- Finally remove the unused camlp-streams dependency.
 
 ## v2.5.1 (2023-06-20)
 
