@@ -258,7 +258,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     let rec loop ~global map =
       HR.read ~global in_channel >>= function
       | Error `Eof -> Lwt.return map
-      | Error e ->
+      | Error `Fatal e ->
         Format.kasprintf failwith "Error reading archive: %a" Tar.pp_error e
       | Ok (tar, global) ->
         let filename = trim_slash tar.Tar.Header.file_name in

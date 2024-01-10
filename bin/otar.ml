@@ -122,7 +122,7 @@ let list filename =
       Tar_gz.skip ic to_skip ;
       go global ()
     | Error `Eof -> ()
-    | Error e ->
+    | Error `Fatal e ->
       Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
       exit 2
   in

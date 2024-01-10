@@ -41,7 +41,7 @@ let list fd =
       loop global (hdr :: acc)
     | Error `Eof ->
       List.rev acc
-    | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+    | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
   in
   let r = loop None [] in
   List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
@@ -186,7 +186,8 @@ let can_list_pax_implicit_dir () =
   Fun.protect ~finally:(fun () -> Unix.close fd)
     (fun () ->
        match Tar_unix.HeaderReader.read ~global:None fd with
-       | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+       | Error `Eof -> Alcotest.fail "unexpected end of file"
        | Ok (hdr, _global) ->
          Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
          Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
@@ -210,7 +211,8 @@ let can_list_longlink_implicit_dir () =
        | Ok (hdr, _global) ->
          Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
          Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
-       | Error e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e)
+       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+       | Error `Eof -> Alcotest.fail "unexpected end of file")
 
 
 let starts_with ~prefix s =
