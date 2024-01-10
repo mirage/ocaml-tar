@@ -12,6 +12,8 @@
  "Thomas Gazagnaire"
  "David Allsopp"
  "Antonin Décimo"
+ "Reynir Björnsson"
+ "Hannes Mehnert"
 )
 (maintainers
   "Reynir Björnsson <reynir@reynir.dk>"
