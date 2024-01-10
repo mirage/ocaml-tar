@@ -16,12 +16,17 @@
 
 (** I/O for tar-formatted data *)
 
-(** Returns the next header block or None if two consecutive
-    zero-filled blocks are discovered. Assumes stream is positioned at the
-    possible start of a header block.
-    @raise End_of_file if the stream unexpectedly fails. *)
-val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option -> Eio.Flow.source ->
-                      (Tar.Header.t * Tar.Header.Extended.t option) option
+val really_read: Eio.Flow.source -> Cstruct.t -> unit
+(** [really_read fd buf] fills [buf] with data from [fd] or fails
+    with {!Stdlib.End_of_file}. *)
+
+val really_write: Eio.Flow.sink -> Cstruct.t -> unit
+(** [really_write fd buf] writes the full contents of [buf] to
+    [fd] or fails with {!Stdlib.End_of_file}. *)
+
+val skip : Eio.Flow.source -> int -> unit
+(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
+    should use [Lwt_unix.lseek fd n Lwt_unix.SEEK_CUR] instead. *)
 
 (** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
     functions that should take the uid and gid respectively and return the passwd and group entry
@@ -33,37 +38,5 @@ val header_of_file :
     Eio.Fs.dir Eio.Path.t ->
     Tar.Header.t
 
-module Archive : sig
-  (** Utility functions for operating over whole tar archives *)
-
-  (** Read the next header, apply the function 'f' to the source and the header. The function
-      should leave the source positioned immediately after the datablock. Finally the function
-      skips past the zero padding to the next header. *)
-  val with_next_file : Eio.Flow.source -> global:Tar.Header.Extended.t option ->
-                       (Eio.Flow.source -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a) -> 'a option
-
-  (** List the contents of a tar to stdout. *)
-  val list : ?level:Tar.Header.compatibility -> #Eio.Flow.source -> Tar.Header.t list
-
-  (** [extract dest] extract the contents of a tar.
-     Apply [dest] on each source filename to change the destination
-     filename. It only supports extracting regular files from the
-     top-level of the archive. *)
-  val extract : (string -> Eio.Fs.dir Eio.Path.t) -> Eio.Flow.source -> unit
-
-  (** [transform f src sink] applies [f] to the header of each
-     file in the tar inputted in [src], and writes the resulting
-     headers to [sink] preserving the content and structure of the
-     archive. *)
-  val transform : ?level:Tar.Header.compatibility -> (Tar.Header.t -> Tar.Header.t) -> #Eio.Flow.source -> #Eio.Flow.sink -> unit
-
-  (** Create a tar in the sink from a list of file paths. It only supports regular files.
-
-      See {! header_of_file} for the meaning of [getpwuid] and [getgrgid]. *)
-  val create :
-    ?getpwuid:(int64 -> string) ->
-    ?getgrgid:(int64 -> string) ->
-    Eio.Fs.dir Eio.Path.t list ->
-    #Eio.Flow.sink ->
-    unit
-end
+module HeaderReader : Tar.HEADERREADER with type in_channel = Eio.Flow.source and type 'a io = 'a
+module HeaderWriter : Tar.HEADERWRITER with type out_channel = Eio.Flow.sink and type 'a io = 'a

@@ -2,6 +2,22 @@
 
 - `tar`: support pax Global Extended Headers. This adds state to tar parsing.
   (#119, #120, @MisterDA)
+- Support GNU LongLink and LongName. Prior, `Tar.HeaderWriter` and
+  `Tar.HeaderReader` supported both, but `Tar.Header.Link` only had `LongLink`
+  and (de)serialized to (from) GNU LongName.
+- Compatibility level when reading / parsing is removed. Only GNU
+  LongLink/LongName extensions were affected by the compatibility level when
+  reading.
+- Add module types `Tar.HEADERREADER` and `Tar.HEADERWRITER` describing the
+  output of `Tar.HeaderReader` and `Tar.HeaderWriter` respectively.
+- Types `Tar.READER.t` and `Tar.WRITER.t` are renamed to `io`.
+- Add `write_global` function for writing a global PAX extended header.
+- Rework IO-specific modules (tar-unix etc.) harmonizing them.
+- Avoid exceptions in tar and use result instead. The exceptions
+  `End_of_stream` and `Checksum_mismatch` are removed.
+- Remove the `Tar_cstruct` module as it was unused.
+- Remove debug printers.
+- Finally remove the unused camlp-streams dependency.
 
 ## v2.5.1 (2023-06-20)
 

@@ -21,12 +21,12 @@ module Tar_gz = Tar_gz.Make
           let ( >>= ) x f = f x
           let return x = x end)
   (struct type out_channel = Stdlib.out_channel
-          type 'a t = 'a
+          type 'a io = 'a
           let really_write oc cs =
             let str = Cstruct.to_string cs in
             output_string oc str end)
   (struct type in_channel = Stdlib.in_channel
-          type 'a t = 'a
+          type 'a io = 'a
           let really_read ic cs =
             let len = Cstruct.length cs in
             let buf = Bytes.create len in
@@ -61,8 +61,10 @@ let create_tarball directory oc =
   let mtime = Unix.gettimeofday () in
   let out_channel = Tar_gz.of_out_channel ~level:4 ~mtime:(Int32.of_float mtime) os oc in
   let hdr = Tar.Header.make ~file_mode:0o755
-    ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
-  Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) ;
+      ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
+  (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) with
+   | Ok () -> ()
+   | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
   Array.iter begin fun filename ->
   let fd        = Unix.openfile (directory / filename) Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
   let stat      = Unix.LargeFile.lstat (directory / filename) in
@@ -76,7 +78,9 @@ let create_tarball directory oc =
     let hdr = Tar.Header.make
         ~file_mode ~mod_time ~user_id ~group_id
         (directory / filename) stat.Unix.LargeFile.st_size in
-    Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream ;
+    (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream with
+     | Ok () -> ()
+     | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
     Unix.close fd ;
   | _ ->
     Format.eprintf "Skipping non-regular file %s\n" (Filename.concat directory filename)
@@ -104,8 +108,8 @@ let bytes_to_size ?(decimals = 2) ppf = function
 let list filename =
   let ic = open_in filename in
   let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
-  let rec go global () = match Tar_gz.get_next_header ~level:Tar.Header.Ustar ~global ic with
-    | (hdr, global) ->
+  let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
+    | Ok (hdr, global) ->
       Format.printf "%s (%s, %a)\n%!"
         hdr.Tar.Header.file_name
         (Tar.Header.Link.to_string hdr.link_indicator)
@@ -117,7 +121,11 @@ let list filename =
       let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
       Tar_gz.skip ic to_skip ;
       go global ()
-    | exception Tar.Header.End_of_stream -> () in
+    | Error `Eof -> ()
+    | Error `Fatal e ->
+      Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
+      exit 2
+  in
   go None ()
 
 let () = match Sys.argv with

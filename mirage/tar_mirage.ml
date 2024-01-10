@@ -82,7 +82,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
       mutable offset: int64;
       info: Mirage_block.info;
     }
-    type 'a t = 'a Lwt.t
+    type 'a io = 'a Lwt.t
     let really_read in_channel buffer =
       let len = Cstruct.length buffer in
       assert(len <= 512);
@@ -258,6 +258,8 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     let rec loop ~global map =
       HR.read ~global in_channel >>= function
       | Error `Eof -> Lwt.return map
+      | Error `Fatal e ->
+        Format.kasprintf failwith "Error reading archive: %a" Tar.pp_error e
       | Ok (tar, global) ->
         let filename = trim_slash tar.Tar.Header.file_name in
         let map =
@@ -289,7 +291,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
   include Make_KV_RO(BLOCK)
 
-  type write_error = [ `Block of BLOCK.error | `Block_write of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only ]
+  type write_error = [ `Block of BLOCK.error | `Block_write of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only | `Write_header of string ]
 
   let pp_write_error ppf = function
    | `Block e -> Fmt.pf ppf "read error while writing: %a" BLOCK.pp_error e
@@ -368,7 +370,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       mutable offset: int64;
       info: Mirage_block.info;
     }
-    type 'a t = 'a Lwt.t
+    type 'a io = 'a Lwt.t
     exception Read of BLOCK.error
     exception Write of BLOCK.write_error
     let really_write out_channel data =
@@ -395,7 +397,9 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
        header(s) taking up exactly 512 bytes. With [GNU] level extra blocks
        may be used for long names. *)
     Lwt.catch
-      (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= fun () -> Ok ())
+      (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= function
+         | Ok () -> Ok ()
+         | Error `Msg msg -> Error (`Write_header msg))
       (function
         | Writer.Read e -> Lwt.return (Error (`Block e))
         | Writer.Write e -> Lwt.return (Error (`Block_write e))

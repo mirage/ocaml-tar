@@ -12,6 +12,8 @@
  "Thomas Gazagnaire"
  "David Allsopp"
  "Antonin Décimo"
+ "Reynir Björnsson"
+ "Hannes Mehnert"
 )
 (maintainers
   "Reynir Björnsson <reynir@reynir.dk>"
@@ -29,7 +31,6 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  camlp-streams
   (ocaml (>= 4.08.0))
   (cstruct (>= 6.0.0))
   (decompress (>= 1.5.1))

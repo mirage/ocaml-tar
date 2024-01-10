@@ -24,41 +24,12 @@ val really_write: Lwt_unix.file_descr -> Cstruct.t -> unit Lwt.t
 (** [really_write fd buf] writes the full contents of [buf] to
     [fd] or fails with {!Stdlib.End_of_file}. *)
 
-(** Returns the next header block or None if two consecutive
-    zero-filled blocks are discovered. Assumes stream is positioned at the
-    possible start of a header block.
-    @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-val get_next_header : ?level:Tar.Header.compatibility -> global:Tar.Header.Extended.t option -> Lwt_unix.file_descr ->
-                      (Tar.Header.t * Tar.Header.Extended.t option) option Lwt.t
+val skip : Lwt_unix.file_descr -> int -> unit Lwt.t
+(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
+    should use [Lwt_unix.lseek fd n Lwt_unix.SEEK_CUR] instead. *)
 
 (** Return the header needed for a particular file on disk. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t Lwt.t
 
-module Archive : sig
-  (** Utility functions for operating over whole tar archives *)
-
-  (** Read the next header, apply the function 'f' to the fd and the header. The function
-      should leave the fd positioned immediately after the datablock. Finally the function
-      skips past the zero padding to the next header. *)
-  val with_next_file : Lwt_unix.file_descr -> global:Tar.Header.Extended.t option ->
-                       (Lwt_unix.file_descr -> Tar.Header.Extended.t option -> Tar.Header.t -> 'a Lwt.t) -> 'a option Lwt.t
-
-  (** List the contents of a tar to stdout. *)
-  val list : ?level:Tar.Header.compatibility -> Lwt_unix.file_descr -> Tar.Header.t list Lwt.t
-
-  (** [extract dest] extract the contents of a tar.
-     Apply [dest] on each source filename to change the destination
-     filename. It only supports extracting regular files from the
-     top-level of the archive. *)
-  val extract : (string -> string) -> Lwt_unix.file_descr -> unit Lwt.t
-
-  (** [transform f in_fd out_fd] applies [f] to the header of each
-     file in the tar inputted in [in_fd], and writes the resulting
-     headers to [out_fd] preserving the content and structure of the
-     archive. *)
-  val transform : ?level:Tar.Header.compatibility -> (Tar.Header.t -> Tar.Header.t) -> Lwt_unix.file_descr -> Lwt_unix.file_descr -> unit Lwt.t
-
-  (** Create a tar on file descriptor fd from a list of filenames. It
-     only supports regular files. *)
-  val create : string list -> Lwt_unix.file_descr -> unit Lwt.t
-end
+module HeaderReader : Tar.HEADERREADER with type in_channel = Lwt_unix.file_descr and type 'a io = 'a Lwt.t
+module HeaderWriter : Tar.HEADERWRITER with type out_channel = Lwt_unix.file_descr and type 'a io = 'a Lwt.t

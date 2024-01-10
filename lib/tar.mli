@@ -18,6 +18,12 @@
 
     {e %%VERSION%% - {{:%%PKG_HOMEPAGE%% }homepage}} *)
 
+(** The type of errors that may occur. *)
+type error = [`Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string]
+
+(** [pp_error ppf e] pretty prints the error [e] on the formatter [ppf]. *)
+val pp_error : Format.formatter -> [< error] -> unit
+
 module Header : sig
   (** Process and create tar file headers. *)
 
@@ -45,7 +51,8 @@ module Header : sig
       | FIFO (** a FIFO node *)
       | GlobalExtendedHeader (** a PaxExtension global header *)
       | PerFileExtendedHeader (** a PaxExtension per-file header *)
-      | LongLink (** a LongLink i.e. a very long filename *)
+      | LongLink (** a GNU LongLink i.e. a very long link name *)
+      | LongName (** a GNU LongName i.e. a very long filename *)
     val to_string: t -> string
   end
 
@@ -75,7 +82,7 @@ module Header : sig
     (** Unmarshal a pax Extended Header block. This header block may
         be preceded by [global] blocks which will override some
         fields. *)
-    val unmarshal : global:t option -> Cstruct.t -> t
+    val unmarshal : global:t option -> Cstruct.t -> (t, [> error ]) result
   end
 
   (** Represents a standard archive (note checksum not stored). *)
@@ -113,22 +120,13 @@ module Header : sig
   (** Pretty-print the header record. *)
   val to_detailed_string : t -> string
 
-  (** For debugging: pretty-print a string as hex. *)
-  val to_hex : string -> string
-
-  (** Thrown when unmarshalling a header if the checksums don't match. *)
-  exception Checksum_mismatch
-
-  (** Thrown if we detect the end of the tar (at least two zero blocks in sequence). *)
-  exception End_of_stream
-
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?level:compatibility -> ?extended:Extended.t -> Cstruct.t -> t option
+  val unmarshal : ?extended:Extended.t -> Cstruct.t -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
-  val marshal : ?level:compatibility -> Cstruct.t -> t -> unit
+  val marshal : ?level:compatibility -> Cstruct.t -> t -> (unit, [> `Msg of string ]) result
 
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks. *)
@@ -149,92 +147,39 @@ end
 
 module type READER = sig
   type in_channel
-  type 'a t
-  val really_read: in_channel -> Cstruct.t -> unit t
-  val skip: in_channel -> int -> unit t
+  type 'a io
+  val really_read: in_channel -> Cstruct.t -> unit io
+  val skip: in_channel -> int -> unit io
 end
 
 module type WRITER = sig
   type out_channel
-  type 'a t
-  val really_write: out_channel -> Cstruct.t -> unit t
+  type 'a io
+  val really_write: out_channel -> Cstruct.t -> unit io
 end
 
-module HeaderReader(Async: ASYNC)(Reader: READER with type 'a t = 'a Async.t) :
- sig
-  (** Returns the next header block or throws {!Header.End_of_stream} if two consecutive
+module type HEADERREADER = sig
+  type in_channel
+  type 'a io
+
+  (** Returns the next header block or error [`Eof] if two consecutive
       zero-filled blocks are discovered. Assumes stream is positioned at the
       possible start of a header block.
       @param global Holds the current global pax extended header, if
-        any. Needs to be given to the next call to [read].
-      @raise Header.End_of_stream if the stream unexpectedly fails. *)
-  val read : ?level:Header.compatibility -> global:Header.Extended.t option -> Reader.in_channel -> (Header.t * Header.Extended.t option, [`Eof]) result Async.t
+        any. Needs to be given to the next call to [read]. *)
+  val read : global:Header.Extended.t option -> in_channel ->
+    (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result io
 end
 
-module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a t = 'a Async.t) : sig
-  val write : ?level:Header.compatibility -> ?global:Header.Extended.t -> Header.t -> Writer.out_channel -> unit Async.t
-end
-
-module type IO = sig
-  type in_channel
+module type HEADERWRITER = sig
   type out_channel
-
-  val really_input : in_channel -> bytes -> int -> int -> unit
-  val input : in_channel -> bytes -> int -> int -> int
-  val output : out_channel -> bytes -> int -> int -> unit
-  val close_out : out_channel -> unit
+  type 'a io
+  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
+  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
 end
 
-module Make (IO : IO) : sig
-  val really_read: IO.in_channel -> Cstruct.t -> unit
-  (** [really_read fd buf] fills [buf] with data from [fd] or raises
-      {!Stdlib.End_of_file}. *)
+module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) :
+  HEADERREADER with type in_channel = Reader.in_channel and type 'a io = 'a Async.t
 
-  val really_write: IO.out_channel -> Cstruct.t -> unit
-  (** [really_write fd buf] writes the full contents of [buf] to [fd]
-      or raises {!Stdlib.End_of_file}. *)
-
-  (** Returns the next header block or fails with [`Eof] if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block.
-      @raise Stdlib.End_of_file if the stream unexpectedly fails. *)
-  val get_next_header : ?level:Header.compatibility -> global:Header.Extended.t option -> IO.in_channel -> Header.t * Header.Extended.t option
-
-  val write_block: ?level:Header.compatibility -> ?global:Header.Extended.t -> Header.t -> (IO.out_channel -> unit) -> IO.out_channel -> unit
-    [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]
-  (** Write [hdr], then call [write_body fd] to write the body,
-      then zero-pads so the stream is positioned for the next block. *)
-
-  val write_end: IO.out_channel -> unit
-    [@@ocaml.deprecated "Deprecated: use Tar.HeaderWriter"]
-  (** Writes a stream terminator to [fd]. *)
-
-  module Archive : sig
-    (** Utility functions for operating over whole tar archives. *)
-
-    (** Read the next header, apply the function [f] to the fd, the global pax extended
-        header (if any), and the current header. The function should leave the fd positioned
-        immediately after the datablock. Finally the function skips past the zero padding to
-        the next header *)
-    val with_next_file : IO.in_channel -> global:Header.Extended.t option ->
-                         (IO.in_channel -> Header.Extended.t option -> Header.t -> 'a) -> 'a
-
-    (** List the contents of a tar. *)
-    val list : ?level:Header.compatibility -> IO.in_channel -> Header.t list
-
-    (** [extract_gen dest] extract the contents of a tar.
-        Apply [dest] on each header to get a handle to the file to write to. *)
-    val extract_gen : (Header.t -> IO.out_channel) -> IO.in_channel -> unit
-
-    (** Create a tar on file descriptor fd from the stream of headers. *)
-    val create_gen : ?level:Header.compatibility -> (Header.t * (IO.out_channel -> unit)) Stream.t -> IO.out_channel -> unit
-
-    (** [copy_n ifd odf n] copies exactly [n] bytes from [ifd] to [ofd]. *)
-    val copy_n : IO.in_channel -> IO.out_channel -> int64 -> unit
-      [@@ocaml.deprecated "Deprecated: use your own helper function"]
-
-    (** [skip fd n] reads and throws away [n] bytes from [fd]. *)
-    val skip : IO.in_channel -> int -> unit
-      [@@ocaml.deprecated "Deprecated: use your own helper function"]
-  end
-end
+module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) :
+  HEADERWRITER with type out_channel = Writer.out_channel and type 'a io = 'a Async.t

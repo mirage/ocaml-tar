@@ -6,7 +6,14 @@ tar is a library to read and write tar files with an emphasis on
 streaming.  This library uses Eio to provide a portable tar library.
 """
 maintainer: ["Reynir Björnsson <reynir@reynir.dk>" "dave@recoil.org"]
-authors: ["Dave Scott" "Thomas Gazagnaire" "David Allsopp" "Antonin Décimo"]
+authors: [
+  "Dave Scott"
+  "Thomas Gazagnaire"
+  "David Allsopp"
+  "Antonin Décimo"
+  "Reynir Björnsson"
+  "Hannes Mehnert"
+]
 license: "ISC"
 tags: ["org:xapi-project" "org:mirage"]
 homepage: "https://github.com/mirage/ocaml-tar"
