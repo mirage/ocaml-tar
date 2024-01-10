@@ -20,23 +20,31 @@ open Lwt.Infix
 module Io = struct
   type in_channel = Lwt_unix.file_descr
   type 'a io = 'a Lwt.t
-  let really_read fd = Lwt_cstruct.(complete (read fd))
-  let skip (ifd: Lwt_unix.file_descr) (n: int) =
-    (* Here it would make sense to use [Lwt_unix.lseek] if we can detect if
-       [ifd] is seekable *)
-    let buffer_size = 32768 in
-    let buffer = Cstruct.create buffer_size in
-    let rec loop (n: int) =
-      if n <= 0 then Lwt.return_unit
+  let really_read fd buf =
+    let len = Bytes.length buf in
+    let rec loop idx =
+      if idx = len then
+        Lwt.return_unit
       else
-        let amount = min n buffer_size in
-        let block = Cstruct.sub buffer 0 amount in
-        really_read ifd block >>= fun () ->
-        loop (n - amount) in
-    loop n
+        Lwt_unix.read fd buf idx (len - idx) >>= fun n ->
+        loop (n + idx)
+    in
+    loop 0
+  let skip (ifd: Lwt_unix.file_descr) (n: int) =
+    Lwt_unix.(lseek ifd n SEEK_CUR) >|= ignore
 
   type out_channel = Lwt_unix.file_descr
-  let really_write fd = Lwt_cstruct.(complete (write fd))
+  let really_write fd buf =
+    let buf = Bytes.unsafe_of_string buf in
+    let len = Bytes.length buf in
+    let rec loop idx =
+      if idx = len then
+        Lwt.return_unit
+      else
+        Lwt_unix.write fd buf idx (len - idx) >>= fun n ->
+        loop (idx + n)
+    in
+    loop 0
 end
 
 include Io

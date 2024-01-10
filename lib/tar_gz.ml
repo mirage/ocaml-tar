@@ -17,7 +17,7 @@
 module type READER = sig
   include Tar.READER
 
-  val read : in_channel -> Cstruct.t -> int io
+  val read : in_channel -> bytes -> int io
 end
 
 module Make
@@ -30,8 +30,8 @@ module Make
   module Gz_writer = struct
     type out_channel =
       { mutable gz : Gz.Def.encoder
-      ; ic_buffer : Cstruct.t
-      ; oc_buffer : Cstruct.t
+      ; ic_buffer : bytes
+      ; oc_buffer : string
       ; out_channel : Writer.out_channel }
 
     type 'a io = 'a Async.t
@@ -41,8 +41,8 @@ module Make
         match Gz.Def.encode gz with
         | `Await gz -> state.gz <- gz ; Async.return ()
         | `Flush gz ->
-          let max = Cstruct.length oc_buffer - Gz.Def.dst_rem gz in
-          Writer.really_write out_channel (Cstruct.sub oc_buffer 0 max) >>= fun () ->
+          let max = String.length oc_buffer - Gz.Def.dst_rem gz in
+          Writer.really_write out_channel (String.sub oc_buffer 0 max) >>= fun () ->
           let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
           until_await (Gz.Def.dst gz buffer cs_off cs_len)
         | `End _gz -> assert false in

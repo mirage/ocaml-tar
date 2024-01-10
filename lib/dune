@@ -2,8 +2,7 @@
  (name tar)
  (modules tar)
  (public_name tar)
- (wrapped false)
- (libraries cstruct))
+ (wrapped false))
 
 (library
  (name tar_gz)
