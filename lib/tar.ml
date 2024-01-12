@@ -401,7 +401,8 @@ module Header = struct
          - the <length> is the number of octets of the record, including \n
         *)
       let find start char =
-        try Some (String.index_from c start char) with Not_found -> None
+        try Ok (String.index_from c start char)
+        with Not_found -> Error (`Unmarshal "Failed to decode pax extended header record")
       in
       let slen = String.length c in
       let rec loop idx =
@@ -409,22 +410,17 @@ module Header = struct
         then Ok []
         else begin
           (* Find the space, then decode the length *)
-          match find idx ' ' with
-          | None -> Error (`Unmarshal "Failed to decode pax extended header record")
-          | Some i ->
-            let* length =
-              try Ok (int_of_string (String.sub c idx (i - idx))) with
-                Failure _ -> Error (`Unmarshal "Failed to decode pax extended header record")
-            in
-            begin match find i '=' with
-            | None -> Error (`Unmarshal "Failed to decode pax extended header record")
-            | Some j ->
-              let keyword = String.sub c (i + 1) (j - i - 1)
-              and v = String.sub c (j + 1) (length - j - i - 1)
-              in
-              let* rem = loop (idx + length) in
-              Ok ((keyword, v) :: rem)
-            end
+          let* i = find idx ' ' in
+          let* length =
+            try Ok (int_of_string (String.sub c idx (i - idx))) with
+              Failure _ -> Error (`Unmarshal "Failed to decode pax extended header record")
+          in
+          let* j = find i '=' in
+          let keyword = String.sub c (i + 1) (j - i - 1)
+          and v = String.sub c (j + 1) (length - j - i - 1)
+          in
+          let* rem = loop (idx + length) in
+          Ok ((keyword, v) :: rem)
         end
       in
       let* pairs = loop 0 in
