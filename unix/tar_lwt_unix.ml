@@ -35,13 +35,12 @@ module Io = struct
 
   type out_channel = Lwt_unix.file_descr
   let really_write fd buf =
-    let buf = Bytes.unsafe_of_string buf in
-    let len = Bytes.length buf in
+    let len = String.length buf in
     let rec loop idx =
       if idx = len then
         Lwt.return_unit
       else
-        Lwt_unix.write fd buf idx (len - idx) >>= fun n ->
+        Lwt_unix.write_string fd buf idx (len - idx) >>= fun n ->
         loop (idx + n)
     in
     loop 0

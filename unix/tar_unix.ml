@@ -45,10 +45,9 @@ module Driver = struct
     ignore (Unix.lseek fd n Unix.SEEK_CUR)
 
   let really_write fd buf =
-    let buf = Bytes.unsafe_of_string buf in
     let offset = ref 0 in
-    while !offset < Bytes.length buf do
-      offset := !offset + with_restart Unix.write fd buf !offset (Bytes.length buf - !offset)
+    while !offset < String.length buf do
+      offset := !offset + with_restart Unix.write_substring fd buf !offset (String.length buf - !offset)
     done
 end
 
