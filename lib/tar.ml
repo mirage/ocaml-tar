@@ -54,8 +54,8 @@ module Header = struct
     let len = Option.value ~default:(String.length x - off) len in
     try
       let first_0 = String.index_from x off '\000' in
-      if first_0 < len then
-        Ok (String.sub x off first_0)
+      if first_0 - off < len then
+        Ok (String.sub x off (first_0 - off))
       else
         raise Not_found
     with Not_found ->
