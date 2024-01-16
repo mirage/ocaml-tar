@@ -18,7 +18,9 @@ module Reader = struct
   type 'a io = 'a
   let really_read ic buf =
     really_input ic buf 0 (Bytes.length buf)
-  let skip ic len = seek_in ic len
+  let skip ic len =
+    let cur = pos_in ic in
+    seek_in ic (cur + len)
   let read ic buf =
     let max = Bytes.length buf in
     input ic buf 0 max
@@ -95,7 +97,8 @@ let use_global_extended_headers _test_ctxt =
                   Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
                   let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
                   Reader.skip cin to_skip;
-                | Error _ -> failwith "Couldn't read header" );
+                | Error `Eof -> failwith "Couldn't read header, end of file"
+                | Error (`Fatal err) -> Fmt.failwith "Couldn't read header: %a" Tar.pp_error err );
               ( match HR.read ~global:!global cin with
                 | Ok (hdr, global') ->
                   Alcotest.check header "expected global header" (Some g0) global';
