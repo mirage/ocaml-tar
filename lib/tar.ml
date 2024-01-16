@@ -405,9 +405,9 @@ module Header = struct
         with Not_found -> Error (`Unmarshal "Failed to decode pax extended header record")
       in
       let slen = String.length c in
-      let rec loop idx =
-        if idx = slen - 1
-        then Ok []
+      let rec loop acc idx =
+        if idx >= slen
+        then Ok (List.rev acc)
         else begin
           (* Find the space, then decode the length *)
           let* i = find idx ' ' in
@@ -416,14 +416,12 @@ module Header = struct
               Failure _ -> Error (`Unmarshal "Failed to decode pax extended header record")
           in
           let* j = find i '=' in
-          let keyword = String.sub c (i + 1) (j - i - 1)
-          and v = String.sub c (j + 1) (length - j - i - 1)
-          in
-          let* rem = loop (idx + length) in
-          Ok ((keyword, v) :: rem)
+          let keyword = String.sub c (i + 1) (j - i - 1) in
+          let v = String.sub c (j + 1) (length - (j - idx) - 2) in
+          loop ((keyword, v) :: acc) (idx + length)
         end
       in
-      let* pairs = loop 0 in
+      let* pairs = loop [] 0 in
       let option name f =
         if List.mem_assoc name pairs then
           let* v = f (List.assoc name pairs) in
