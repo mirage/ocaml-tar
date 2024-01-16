@@ -27,7 +27,7 @@ module Make
 : sig
   type in_channel
 
-  val of_in_channel : internal:bytes -> Reader.in_channel -> in_channel
+  val of_in_channel : internal:De.bigstring -> Reader.in_channel -> in_channel
 
   val really_read : in_channel -> bytes -> unit Async.t
   (** [really_read fd buf] fills [buf] with data from [fd] or raises

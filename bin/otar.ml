@@ -101,7 +101,7 @@ let bytes_to_size ?(decimals = 2) ppf = function
 
 let list filename =
   let ic = open_in filename in
-  let ic = Tar_gz.of_in_channel ~internal:(Bytes.create 0x1000) ic in
+  let ic = Tar_gz.of_in_channel ~internal:(De.bigstring_create 0x1000) ic in
   let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
     | Ok (hdr, global) ->
       Format.printf "%s (%s, %a)\n%!"

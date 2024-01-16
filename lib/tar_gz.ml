@@ -20,6 +20,56 @@ module type READER = sig
   val read : in_channel -> bytes -> int io
 end
 
+external ba_get_int32_ne : De.bigstring -> int -> int32 = "%caml_bigstring_get32"
+external ba_set_int32_ne : De.bigstring -> int -> int32 -> unit = "%caml_bigstring_set32"
+
+let bigstring_to_string ?(off= 0) ?len ba =
+  let len = match len with
+    | Some len -> len
+    | None -> De.bigstring_length ba - off in
+  let res = Bytes.create len in
+  let len0 = len land 3 in
+  let len1 = len asr 2 in
+  for i = 0 to len1 - 1 do
+    let i = i * 4 in
+    let v = ba_get_int32_ne ba i in
+    Bytes.set_int32_ne res i v
+  done;
+  for i = 0 to len0 - 1 do
+    let i = (len1 * 4) + i in
+    let v = Bigarray.Array1.get ba i in
+    Bytes.set res i v
+  done;
+  Bytes.unsafe_to_string res
+
+let bigstring_blit_string src ~src_off dst ~dst_off ~len =
+  let len0 = len land 3 in
+  let len1 = len asr 2 in
+  for i = 0 to len1 - 1 do
+    let i = i * 4 in
+    let v = String.get_int32_ne src (src_off + i) in
+    ba_set_int32_ne dst (dst_off + i) v
+  done;
+  for i = 0 to len0 - 1 do
+    let i = (len1 * 4) + i in
+    let v = String.get src (src_off + i) in
+    Bigarray.Array1.set dst (dst_off + i) v
+  done
+
+let bigstring_blit_bytes src ~src_off dst ~dst_off ~len =
+  let len0 = len land 3 in
+  let len1 = len asr 2 in
+  for i = 0 to len1 - 1 do
+    let i = i * 4 in
+    let v = ba_get_int32_ne src (src_off + i) in
+    Bytes.set_int32_ne dst (dst_off + i) v
+  done;
+  for i = 0 to len0 - 1 do
+    let i = (len1 * 4) + i in
+    let v = Bigarray.Array1.get src (src_off + i) in
+    Bytes.set dst (dst_off + i) v
+  done
+
 module Make
   (Async : Tar.ASYNC)
   (Writer : Tar.WRITER with type 'a io = 'a Async.t)
@@ -30,83 +80,86 @@ module Make
   module Gz_writer = struct
     type out_channel =
       { mutable gz : Gz.Def.encoder
-      ; ic_buffer : bytes
-      ; oc_buffer : string
+      ; ic_buffer : De.bigstring
+      ; oc_buffer : De.bigstring
       ; out_channel : Writer.out_channel }
 
     type 'a io = 'a Async.t
 
-    let really_write ({ gz; oc_buffer; out_channel; _ } as state) cs =
+    let really_write ({ gz; ic_buffer; oc_buffer; out_channel; _ } as state) str =
       let rec until_await gz =
         match Gz.Def.encode gz with
-        | `Await gz -> state.gz <- gz ; Async.return ()
+        | `Await gz -> Async.return gz
         | `Flush gz ->
-          let max = String.length oc_buffer - Gz.Def.dst_rem gz in
-          Writer.really_write out_channel (String.sub oc_buffer 0 max) >>= fun () ->
-          let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
-          until_await (Gz.Def.dst gz buffer cs_off cs_len)
-        | `End _gz -> assert false in
-      if Cstruct.length cs = 0
-      then Async.return ()
-      else ( let { Cstruct.buffer; off; len; } = cs in
-             let gz = Gz.Def.src gz buffer off len in
-             until_await gz )
+          let len = De.bigstring_length oc_buffer - Gz.Def.dst_rem gz in
+          let str = bigstring_to_string oc_buffer ~off:0 ~len in
+          Writer.really_write out_channel str >>= fun () ->
+          until_await (Gz.Def.dst gz oc_buffer 0 (De.bigstring_length oc_buffer))
+        | `End _gz -> assert false
+      and go gz (str, str_off, str_len) =
+        if str_len = 0
+        then ( state.gz <- gz ; Async.return () )
+        else ( let len = min str_len (De.bigstring_length ic_buffer) in
+               bigstring_blit_string str ~src_off:0 ic_buffer ~dst_off:0 ~len;
+               let gz = Gz.Def.src gz ic_buffer 0 len in
+               until_await gz >>= fun gz ->
+               go gz (str, str_off + len, str_len - len) ) in
+      go gz (str, 0, String.length str)
   end
 
   module Gz_reader = struct
     type in_channel =
       { mutable gz : Gz.Inf.decoder
-      ; ic_buffer : Cstruct.t
-      ; oc_buffer : Cstruct.t
+      ; ic_buffer : De.bigstring
+      ; oc_buffer : De.bigstring
+      ; tp_buffer : bytes
       ; in_channel : Reader.in_channel
       ; mutable pos : int }
 
     type 'a io = 'a Async.t
 
     let really_read
-      : in_channel -> Cstruct.t -> unit io
-      = fun ({ ic_buffer; oc_buffer; in_channel; _ } as state) res ->
-        let rec until_full_or_end gz res =
+      : in_channel -> bytes -> unit io
+      = fun ({ ic_buffer; oc_buffer; in_channel; tp_buffer; _ } as state) res ->
+        let rec until_full_or_end gz (res, res_off, res_len) =
           match Gz.Inf.decode gz with
           | `Flush gz ->
-            let max = Cstruct.length oc_buffer - Gz.Inf.dst_rem gz in
-            let len = min (Cstruct.length res) max in
-            Cstruct.blit oc_buffer 0 res 0 len ;
+            let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
+            let len = min res_len max in
+            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len; 
             if len < max
             then ( state.pos <- len
                  ; state.gz <- gz
                  ; Async.return () )
-            else until_full_or_end (Gz.Inf.flush gz) (Cstruct.shift res len)
+            else until_full_or_end (Gz.Inf.flush gz) (res, res_off + len, res_len - len)
           | `End gz ->
-            let max = Cstruct.length oc_buffer - Gz.Inf.dst_rem gz in
-            let len = min (Cstruct.length res) max in
-            Cstruct.blit oc_buffer 0 res 0 len ;
-            if Cstruct.length res > len
+            let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
+            let len = min res_len max in
+            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len; 
+            if res_len > len
             then raise End_of_file
             else ( state.pos <- len
                  ; state.gz <- gz
                  ; Async.return () )
           | `Await gz ->
-            Reader.read in_channel ic_buffer >>= fun len ->
-            let { Cstruct.buffer; off; len= _; } = ic_buffer in
-            let gz = Gz.Inf.src gz buffer off len in
-            until_full_or_end gz res
+            Reader.read in_channel tp_buffer >>= fun len ->
+            bigstring_blit_string (Bytes.unsafe_to_string tp_buffer) ~src_off:0 ic_buffer ~dst_off:0 ~len;
+            let gz = Gz.Inf.src gz ic_buffer 0 len in
+            until_full_or_end gz (res, res_off, res_len)
           | `Malformed err -> failwith ("gzip: " ^ err) in
-        let max = (Cstruct.length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
-        let len = min (Cstruct.length res) max in
-        Cstruct.blit oc_buffer state.pos res 0 len ;
-
+        let max = (De.bigstring_length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
+        let len = min (Bytes.length res) max in
+        bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len; 
         if len < max
         then ( state.pos <- state.pos + len
              ; Async.return () )
-        else ( let res = Cstruct.shift res len in
-               until_full_or_end (Gz.Inf.flush state.gz) res )
+        else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
 
     let skip
       : in_channel -> int -> unit io
       = fun state len ->
-        let oc_buffer = Cstruct.create len in
-        really_read state oc_buffer
+        let res = Bytes.create len in
+        really_read state res
   end
 
   module HeaderWriter = Tar.HeaderWriter (Async) (Gz_writer)
@@ -115,11 +168,10 @@ module Make
   type in_channel = Gz_reader.in_channel
 
   let of_in_channel ~internal:oc_buffer in_channel =
-    let { Cstruct.buffer; off; len; } = oc_buffer in
-    let o = Bigarray.Array1.sub buffer off len in
-    { Gz_reader.gz= Gz.Inf.decoder `Manual ~o
+    { Gz_reader.gz= Gz.Inf.decoder `Manual ~o:oc_buffer
     ; oc_buffer
-    ; ic_buffer= Cstruct.create 0x1000
+    ; ic_buffer= De.bigstring_create 0x1000
+    ; tp_buffer= Bytes.create 0x1000
     ; in_channel
     ; pos= 0 }
 
@@ -129,14 +181,13 @@ module Make
   type out_channel = Gz_writer.out_channel
 
   let of_out_channel ?bits:(w_bits= 15) ?q:(q_len= 0x1000) ~level ~mtime os out_channel =
-    let ic_buffer = Cstruct.create (4 * 4 * 1024) in
-    let oc_buffer = Cstruct.create 4096 in
+    let ic_buffer = De.bigstring_create (4 * 4 * 1024) in
+    let oc_buffer = De.bigstring_create 4096 in
     let gz =
       let w = De.Lz77.make_window ~bits:w_bits in
       let q = De.Queue.create q_len in
       Gz.Def.encoder `Manual `Manual ~mtime os ~q ~w ~level in
-    let { Cstruct.buffer; off; len; } = oc_buffer in
-    let gz = Gz.Def.dst gz buffer off len in
+    let gz = Gz.Def.dst gz oc_buffer 0 (De.bigstring_length oc_buffer) in
     { Gz_writer.gz; ic_buffer; oc_buffer; out_channel; }
 
   let write_block ?level hdr ({ Gz_writer.ic_buffer= buf; oc_buffer; out_channel; _ } as state) block =
@@ -145,23 +196,22 @@ module Make
     | Ok () ->
       (* XXX(dinosaure): we can refactor this codec with [Gz_writer.really_write]
          but this loop saves and uses [ic_buffer]/[buf] to avoid extra
-         allocations on the case between [string] and [Cstruct.t]. *)
+         allocations on the case between [string] and [bigstring]. *)
       let rec deflate (str, off, len) gz = match Gz.Def.encode gz with
         | `Await gz ->
           if len = 0
           then block () >>= function
             | None -> state.gz <- gz ; Async.return ()
             | Some str -> deflate (str, 0, String.length str) gz
-          else ( let len' = min len (Cstruct.length buf) in
-                 Cstruct.blit_from_string str off buf 0 len' ;
-                 let { Cstruct.buffer; off= cs_off; len= _; } = buf in
+          else ( let len' = min len (De.bigstring_length buf) in
+                 bigstring_blit_string str ~src_off:off buf ~dst_off:0 ~len:len';
                  deflate (str, off + len', len - len')
-                   (Gz.Def.src gz buffer cs_off len') )
+                   (Gz.Def.src gz buf 0 len') )
         | `Flush gz ->
-          let max = Cstruct.length oc_buffer - Gz.Def.dst_rem gz in
-          Writer.really_write out_channel (Cstruct.sub oc_buffer 0 max) >>= fun () ->
-          let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
-          deflate (str, off, len) (Gz.Def.dst gz buffer cs_off cs_len)
+          let len = De.bigstring_length oc_buffer - Gz.Def.dst_rem gz in
+          let out = bigstring_to_string oc_buffer ~len in
+          Writer.really_write out_channel out >>= fun () ->
+          deflate (str, off, len) (Gz.Def.dst gz oc_buffer 0 (De.bigstring_length oc_buffer))
         | `End _gz -> assert false in
       deflate ("", 0, 0) state.gz >>= fun () ->
       Gz_writer.really_write state (Tar.Header.zero_padding hdr) >>= fun () ->
@@ -173,12 +223,11 @@ module Make
    let rec until_end gz = match Gz.Def.encode gz with
      | `Await _gz -> assert false
      | `Flush gz | `End gz as flush_or_end ->
-       let max = Cstruct.length oc_buffer - Gz.Def.dst_rem gz in
-       Writer.really_write out_channel (Cstruct.sub oc_buffer 0 max) >>= fun () ->
+       let max = De.bigstring_length oc_buffer - Gz.Def.dst_rem gz in
+       Writer.really_write out_channel (bigstring_to_string oc_buffer ~len:max) >>= fun () ->
        match flush_or_end with
        | `Flush gz ->
-         let { Cstruct.buffer; off= cs_off; len= cs_len; } = oc_buffer in
-         until_end (Gz.Def.dst gz buffer cs_off cs_len)
+         until_end (Gz.Def.dst gz oc_buffer 0 (De.bigstring_length oc_buffer))
        | `End _gz -> Async.return () in
    until_end (Gz.Def.src state.gz De.bigstring_empty 0 0)
 end
