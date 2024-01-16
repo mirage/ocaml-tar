@@ -729,8 +729,8 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
 
   let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
     (* We might need to read 2 headers at once if we encounter a Pax header *)
-    let buffer = Bytes.create Header.length in
-    let real_header_buf = Bytes.create Header.length in
+    let buffer = Bytes.make Header.length '\000' in
+    let real_header_buf = Bytes.make Header.length '\000' in
 
     let next_block global () =
       really_read ifd buffer >>= fun () ->
@@ -740,7 +740,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
     let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
       next_block global () >>= function
       | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
-        let extra_header_buf = Bytes.create (Int64.to_int x.Header.file_size) in
+        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         (* unmarshal merges the previous global (if any) with the
@@ -752,7 +752,7 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         in
         get_hdr ~next_longname ~next_longlink (Some global) ()
       | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
-        let extra_header_buf = Bytes.create (Int64.to_int x.Header.file_size) in
+        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         let^* extended =
@@ -817,7 +817,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
           if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            let buffer = Bytes.create Header.length in
+            let buffer = Bytes.make Header.length '\000' in
             match
               Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink }
             with
@@ -837,7 +837,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
             if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
               let file_size = String.length header.Header.file_name + 1 in
               let blank = {blank with Header.file_size = Int64.of_int file_size} in
-              let buffer = Bytes.create Header.length in
+              let buffer = Bytes.make Header.length '\000' in
               match
                 Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName }
               with
@@ -857,7 +857,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
        return (Ok ())) >>= function
     | Error _ as e -> return e
     | Ok () ->
-      let buffer = Bytes.create Header.length in
+      let buffer = Bytes.make Header.length '\000' in
       match Header.marshal ~level buffer header with
       | Error _  as e -> return e
       | Ok () ->
