@@ -26,9 +26,6 @@ module Tar_gz = Tar_gz.Make
             output_string oc str end)
   (struct type in_channel = Stdlib.in_channel
           type 'a io = 'a
-          let really_read ic buf =
-            really_input ic buf 0 (Bytes.length buf)
-          let skip ic len = seek_in ic len
           let read ic buf =
             input ic buf 0 (Bytes.length buf)
         end)

@@ -15,8 +15,8 @@
  *)
 
 module type READER = sig
-  include Tar.READER
-
+  type in_channel
+  type 'a io
   val read : in_channel -> bytes -> int io
 end
 
