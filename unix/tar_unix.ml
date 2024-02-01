@@ -56,7 +56,7 @@ module HeaderWriter = Tar.HeaderWriter(Direct)(Driver)
 
 include Driver
 
-  (** Return the header needed for a particular file on disk *)
+(** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t =
   let level = Tar.Header.compatibility level in
   let stat = Unix.LargeFile.lstat file in

@@ -31,8 +31,57 @@ module Unix = struct
     if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
 
-let list fd =
-  let rec loop global acc =
+let rec with_restart op fd buf off len =
+  try op fd buf off len with
+    Unix.Unix_error (Unix.EINTR,_,_) ->
+    with_restart op fd buf off len
+
+let really_read fd buf =
+  let len = Bytes.length buf in
+  let rec loop offset =
+    if offset < len then
+      let n = with_restart Unix.read fd buf offset (len - offset) in
+      if n = 0 then raise End_of_file;
+      loop (offset + n)
+  in
+  loop 0
+
+let run_reader fd =
+  let rec loop ?b t acc =
+    let data = match b with
+      | None ->
+        let b = Bytes.create Tar.Header.length in
+        really_read fd b;
+        Bytes.unsafe_to_string b
+      | Some s -> s
+    in
+    match Tar.decode t data with
+    | Ok (t, Some `Header hdr, _global) ->
+      print_endline hdr.Tar.Header.file_name;
+      ignore (Unix.lseek fd
+                (Int64.to_int hdr.Tar.Header.file_size + Tar.Header.compute_zero_padding_length hdr)
+                Unix.SEEK_CUR);
+      loop t (hdr :: acc)
+    | Ok (t, Some `Skip n, _global) ->
+      ignore (Unix.lseek fd n Unix.SEEK_CUR);
+      loop t acc
+    | Ok (t, Some `Read n, _global) ->
+      let b = Bytes.create n in
+      really_read fd b;
+      let b = Bytes.unsafe_to_string b in
+      loop ~b t acc
+    | Ok (t, None, _global) ->
+      loop t acc
+    | Error `Eof -> List.rev acc
+    | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+  in
+  let t = Tar.decode_state () in
+  let r = loop t [] in
+  List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
+  r
+
+let list fd = run_reader fd
+(*  let rec loop global acc =
     match Tar_unix.HeaderReader.read ~global fd with
     | Ok (hdr, global) ->
       print_endline hdr.Tar.Header.file_name;
@@ -45,7 +94,7 @@ let list fd =
   in
   let r = loop None [] in
   List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
-  r
+    r*)
 
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )

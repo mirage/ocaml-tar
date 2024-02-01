@@ -139,6 +139,21 @@ module Header : sig
   val to_sectors: t -> int64
 end
 
+type decode_state
+
+val decode_state : ?global:Header.Extended.t -> unit -> decode_state
+
+val decode : decode_state -> string ->
+  (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
+   [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ])
+    result
+
+val encode_header : ?level:Header.compatibility ->
+  Header.t -> (string list, [> `Msg of string ]) result
+
+val encode_global_extended_header : Header.Extended.t -> (string list, [> `Msg of string ]) result
+
+
 module type ASYNC = sig
   type 'a t
   val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
