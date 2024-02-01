@@ -47,7 +47,8 @@ let bigstring_blit_string src ~src_off dst ~dst_off ~len =
   let len1 = len asr 2 in
   for i = 0 to len1 - 1 do
     let i = i * 4 in
-    let v = String.get_int32_ne src (src_off + i) in
+    (* TODO: use String.get_int32_ne when ocaml-tar requires OCaml >= 4.13 *)
+    let v = Bytes.get_int32_ne (Bytes.unsafe_of_string src) (src_off + i) in
     ba_set_int32_ne dst (dst_off + i) v
   done;
   for i = 0 to len0 - 1 do

@@ -31,7 +31,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.13.0))
+  (ocaml (>= 4.08.0))
   (decompress (>= 1.5.1))
  )
 )
@@ -45,7 +45,7 @@
  )
  (tags ("org:xapi-project" "org:mirage"))
  (depends
-  (ocaml (>= 4.13.0))
+  (ocaml (>= 4.08.0))
   lwt
   (tar (= :version))
  )
@@ -62,7 +62,7 @@
  (tags ("org:xapi-project" "org:mirage"))
  (conflicts (result (< 1.5)))
  (depends
-  (ocaml (>= 4.13.0))
+  (ocaml (>= 4.08.0))
   (cstruct (>= 6.0.0))
   (lwt (>= 5.6.0))
   (mirage-block (>= 2.0.0))

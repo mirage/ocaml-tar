@@ -23,7 +23,7 @@ doc: "https://mirage.github.io/ocaml-tar/"
 bug-reports: "https://github.com/mirage/ocaml-tar/issues"
 depends: [
   "dune" {>= "2.9"}
-  "ocaml" {>= "4.13.0"}
+  "ocaml" {>= "4.08.0"}
   "decompress" {>= "1.5.1"}
   "odoc" {with-doc}
 ]
