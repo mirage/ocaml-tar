@@ -126,7 +126,7 @@ module Make
           | `Flush gz ->
             let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
             let len = min res_len max in
-            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len; 
+            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
             if len < max
             then ( state.pos <- len
                  ; state.gz <- gz
@@ -135,7 +135,7 @@ module Make
           | `End gz ->
             let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
             let len = min res_len max in
-            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len; 
+            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
             if res_len > len
             then raise End_of_file
             else ( state.pos <- len
@@ -149,17 +149,15 @@ module Make
           | `Malformed err -> failwith ("gzip: " ^ err) in
         let max = (De.bigstring_length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
         let len = min (Bytes.length res) max in
-        bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len; 
+        bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len;
         if len < max
         then ( state.pos <- state.pos + len
              ; Async.return () )
         else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
 
-    let skip
-      : in_channel -> int -> unit io
-      = fun state len ->
-        let res = Bytes.create len in
-        really_read state res
+    let skip : in_channel -> int -> unit io = fun state len ->
+      let res = Bytes.create len in
+      really_read state res
   end
 
   module HeaderWriter = Tar.HeaderWriter (Async) (Gz_writer)
