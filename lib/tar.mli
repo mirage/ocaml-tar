@@ -139,62 +139,34 @@ module Header : sig
   val to_sectors: t -> int64
 end
 
+(** {1 Decoding and encoding of a whole archive} *)
+
+(** The type of the decode state. *)
 type decode_state
 
+(** [decode_state ~global ()] constructs a decode_state. *)
 val decode_state : ?global:Header.Extended.t -> unit -> decode_state
 
+(** [decode t data] decodes [data] taking the current state [t] into account.
+    It may result on success in a new state, optionally some action that should
+    be done ([`Read] or [`Skip]), or a decoded [`Header]. Possibly a new global
+    PAX header is provided as well.
+
+    If no [`Read] or [`Skip] is returned, the new state should be used with
+    [decode] with the next [Header.length] sized string, which will lead to
+    further decoding until [`Eof] (or an error) occurs. *)
 val decode : decode_state -> string ->
   (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
    [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ])
     result
 
+(** [encode_header ~level hdr] encodes the header with the provided [level]
+    (defaults to [V7]) into a list of strings to be written to the disk.
+    Once a header is written, the payload (padded to multiples of
+    [Header.length]) should follow. *)
 val encode_header : ?level:Header.compatibility ->
   Header.t -> (string list, [> `Msg of string ]) result
 
+(** [encode_global_extended_header hdr] encodes the global extended header as
+    a list of strings. *)
 val encode_global_extended_header : Header.Extended.t -> (string list, [> `Msg of string ]) result
-
-
-module type ASYNC = sig
-  type 'a t
-  val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
-  val return: 'a -> 'a t
-end
-
-module type READER = sig
-  type in_channel
-  type 'a io
-  val really_read: in_channel -> bytes -> unit io
-  val skip: in_channel -> int -> unit io
-end
-
-module type WRITER = sig
-  type out_channel
-  type 'a io
-  val really_write: out_channel -> string -> unit io
-end
-
-module type HEADERREADER = sig
-  type in_channel
-  type 'a io
-
-  (** Returns the next header block or error [`Eof] if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block.
-      @param global Holds the current global pax extended header, if
-        any. Needs to be given to the next call to [read]. *)
-  val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result io
-end
-
-module type HEADERWRITER = sig
-  type out_channel
-  type 'a io
-  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
-  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
-end
-
-module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) :
-  HEADERREADER with type in_channel = Reader.in_channel and type 'a io = 'a Async.t
-
-module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) :
-  HEADERWRITER with type out_channel = Writer.out_channel and type 'a io = 'a Async.t
