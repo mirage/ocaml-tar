@@ -32,36 +32,22 @@ module Driver = struct
       with_restart op fd buf off len
 
   let really_read fd buf =
-    (* Change code once this is merged:
-       https://github.com/mirage/ocaml-cstruct/pull/302 *)
-    let b = Bytes.create (min 4096 (Cstruct.length buf)) in
+    let len = Bytes.length buf in
     let rec loop offset =
-      let len = min (Bytes.length b) (Cstruct.length buf - offset) in
-      if len > 0 then
-        let n = with_restart Unix.read fd b 0 len in
+      if offset < len then
+        let n = with_restart Unix.read fd buf offset (len - offset) in
         if n = 0 then raise End_of_file;
-        Cstruct.blit_from_bytes b 0 buf offset n;
         loop (offset + n)
     in
     loop 0
 
   let skip fd n =
-    (* Here it would make sense to use [Lwt_unix.lseek] if we can detect if
-       [ifd] is seekable *)
-    let b = Bytes.create (min 4096 n) in
-    let rem = ref n in
-    while !rem > 0 do
-      let len = min (Bytes.length b) !rem in
-      rem := !rem - with_restart Unix.read fd b 0 len
-    done
+    ignore (Unix.lseek fd n Unix.SEEK_CUR)
 
   let really_write fd buf =
-    (* FIXME: This is not very good :(
-       also: https://github.com/mirage/ocaml-cstruct/pull/302 *)
-    let b = Cstruct.to_bytes buf in
     let offset = ref 0 in
-    while !offset < Bytes.length b do
-      offset := !offset + with_restart Unix.write fd b 0 (Bytes.length b)
+    while !offset < String.length buf do
+      offset := !offset + with_restart Unix.write_substring fd buf !offset (String.length buf - !offset)
     done
 end
 

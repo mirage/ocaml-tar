@@ -16,11 +16,11 @@
 
 (** Lwt_unix I/O for tar-formatted data *)
 
-val really_read: Lwt_unix.file_descr -> Cstruct.t -> unit Lwt.t
+val really_read: Lwt_unix.file_descr -> bytes -> unit Lwt.t
 (** [really_read fd buf] fills [buf] with data from [fd] or fails
     with {!Stdlib.End_of_file}. *)
 
-val really_write: Lwt_unix.file_descr -> Cstruct.t -> unit Lwt.t
+val really_write: Lwt_unix.file_descr -> string -> unit Lwt.t
 (** [really_write fd buf] writes the full contents of [buf] to
     [fd] or fails with {!Stdlib.End_of_file}. *)
 

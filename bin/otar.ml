@@ -22,22 +22,13 @@ module Tar_gz = Tar_gz.Make
           let return x = x end)
   (struct type out_channel = Stdlib.out_channel
           type 'a io = 'a
-          let really_write oc cs =
-            let str = Cstruct.to_string cs in
+          let really_write oc str =
             output_string oc str end)
   (struct type in_channel = Stdlib.in_channel
           type 'a io = 'a
-          let really_read ic cs =
-            let len = Cstruct.length cs in
-            let buf = Bytes.create len in
-            really_input ic buf 0 len ;
-            Cstruct.blit_from_bytes buf 0 cs 0 len
-          let skip ic len = really_read ic (Cstruct.create len)
-          let read ic cs =
-            let max = Cstruct.length cs in
-            let buf = Bytes.create max in
-            let len = input ic buf 0 max in
-            Cstruct.blit_from_bytes buf 0 cs 0 len ; len end)
+          let read ic buf =
+            input ic buf 0 (Bytes.length buf)
+        end)
 
 
 let ( / ) = Filename.concat
@@ -107,7 +98,7 @@ let bytes_to_size ?(decimals = 2) ppf = function
 
 let list filename =
   let ic = open_in filename in
-  let ic = Tar_gz.of_in_channel ~internal:(Cstruct.create 0x1000) ic in
+  let ic = Tar_gz.of_in_channel ~internal:(De.bigstring_create 0x1000) ic in
   let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
     | Ok (hdr, global) ->
       Format.printf "%s (%s, %a)\n%!"

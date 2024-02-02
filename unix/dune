@@ -1,5 +1,5 @@
 (library
  (name tar_unix)
  (public_name tar-unix)
- (libraries tar lwt cstruct-lwt)
+ (libraries tar lwt lwt.unix)
  (wrapped false))

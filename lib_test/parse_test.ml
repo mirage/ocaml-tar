@@ -47,7 +47,6 @@ let list fd =
   List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
   r
 
-let cstruct = Alcotest.testable Cstruct.hexdump_pp Cstruct.equal
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )
 
@@ -59,14 +58,14 @@ let header () =
   (* check header marshalling and unmarshalling *)
   let h = Tar.Header.make ~file_mode:5 ~user_id:1001 ~group_id:1002 ~mod_time:55L ~link_name:"" "hello" 1234L in
   let txt = "hello\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\0000000005\0000001751\0000001752\00000000002322\00000000000067\0000005534\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000" in
-  let c = Cstruct.create (String.length txt) in
-  Cstruct.blit_from_string txt 0 c 0 (String.length txt);
-  let c' = Cstruct.create Tar.Header.length in
-  for i = 0 to Tar.Header.length - 1 do Cstruct.set_uint8 c' i 0 done;
+  let c = Bytes.create (String.length txt) in
+  Bytes.blit_string txt 0 c 0 (String.length txt);
+  let c' = Bytes.create Tar.Header.length in
+  for i = 0 to Tar.Header.length - 1 do Bytes.set c' i '\000' done;
   match Tar.Header.marshal c' h with
   | Ok () ->
-    Alcotest.(check cstruct) "marshalled headers" c c';
-    Alcotest.(check (result header error)) "unmarshalled headers" (Ok h) (Tar.Header.unmarshal c');
+    Alcotest.(check bytes) "marshalled headers" c c';
+    Alcotest.(check (result header error)) "unmarshalled headers" (Ok h) (Tar.Header.unmarshal (Bytes.unsafe_to_string c'));
     Alcotest.(check int) "zero padding length" 302 (Tar.Header.compute_zero_padding_length h)
   | Error `Msg msg ->
     Alcotest.failf "error marshalling: %s" msg

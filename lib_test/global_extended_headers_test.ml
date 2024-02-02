@@ -3,8 +3,7 @@ let level = Tar.Header.Ustar
 module Writer = struct
   type out_channel = Stdlib.out_channel
   type 'a io = 'a
-  let really_write oc cs =
-    let str = Cstruct.to_string cs in
+  let really_write oc str =
     output_string oc str
 end
 
@@ -17,17 +16,14 @@ module HW = Tar.HeaderWriter
 module Reader = struct
   type in_channel = Stdlib.in_channel
   type 'a io = 'a
-  let really_read ic cs =
-    let len = Cstruct.length cs in
-    let buf = Bytes.create len in
-    really_input ic buf 0 len ;
-    Cstruct.blit_from_bytes buf 0 cs 0 len
-  let skip ic len = really_read ic (Cstruct.create len)
-  let read ic cs =
-    let max = Cstruct.length cs in
-    let buf = Bytes.create max in
-    let len = input ic buf 0 max in
-    Cstruct.blit_from_bytes buf 0 cs 0 len ; len
+  let really_read ic buf =
+    really_input ic buf 0 (Bytes.length buf)
+  let skip ic len =
+    let cur = pos_in ic in
+    seek_in ic (cur + len)
+  let read ic buf =
+    let max = Bytes.length buf in
+    input ic buf 0 max
 end
 
 module HR = Tar.HeaderReader
@@ -47,7 +43,6 @@ let make_file =
   let hdr = Tar.Header.make name 0L in
   hdr, fun cout ->
        Tar.Header.zero_padding hdr
-       |> Cstruct.to_string
        |> output_string cout
 
 (* Tests that global and per-file extended headers correctly override
@@ -102,7 +97,8 @@ let use_global_extended_headers _test_ctxt =
                   Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
                   let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
                   Reader.skip cin to_skip;
-                | Error _ -> failwith "Couldn't read header" );
+                | Error `Eof -> failwith "Couldn't read header, end of file"
+                | Error (`Fatal err) -> Fmt.failwith "Couldn't read header: %a" Tar.pp_error err );
               ( match HR.read ~global:!global cin with
                 | Ok (hdr, global') ->
                   Alcotest.check header "expected global header" (Some g0) global';

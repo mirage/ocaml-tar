@@ -84,7 +84,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     }
     type 'a io = 'a Lwt.t
     let really_read in_channel buffer =
-      let len = Cstruct.length buffer in
+      let len = Bytes.length buffer in
       assert(len <= 512);
       (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
       let sector_size = in_channel.info.Mirage_block.sector_size in
@@ -102,7 +102,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
         let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int sector_size)))) in
         in_channel.offset <- Int64.(add in_channel.offset (of_int len));
-        Cstruct.blit tmp offset buffer 0 len;
+        Cstruct.blit_to_bytes tmp offset buffer 0 len;
         Lwt.return_unit
     let skip in_channel n =
       in_channel.offset <- Int64.(add in_channel.offset (of_int n));
@@ -156,8 +156,9 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         let buf = Cstruct.create (to_int (mul n_sectors sector_size)) in
         (* XXX: this is to work around limitations in some block implementations *)
         let tmps =
+          let sec_size_int = to_int sector_size in
           List.init (to_int n_sectors)
-            (fun sec -> Cstruct.sub buf (sec * to_int sector_size) (to_int sector_size))
+            (fun sec -> Cstruct.sub buf (sec * sec_size_int) sec_size_int)
         in
         read t start_sector tmps >|= function
         | Error _ as e -> e
@@ -373,9 +374,13 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
     type 'a io = 'a Lwt.t
     exception Read of BLOCK.error
     exception Write of BLOCK.write_error
-    let really_write out_channel data =
-      assert (Cstruct.length data <= 512);
-      let data = Cstruct.(append data (create (512 - length data))) in
+    let really_write out_channel str =
+      assert (String.length str <= Tar.Header.length);
+      let data =
+        let cs = Cstruct.create Tar.Header.length in
+        Cstruct.blit_from_string str 0 cs 0 (String.length str);
+        cs
+      in
       let sector_size = out_channel.info.sector_size in
       let sector = Int64.(div out_channel.offset (of_int sector_size)) in
       let block = Cstruct.create sector_size in

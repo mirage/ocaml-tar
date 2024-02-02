@@ -34,28 +34,32 @@ module Header = struct
     String.(trim (map (function '\000' -> ' ' | x -> x) s))
 
   (** Unmarshal an integer field (stored as 0-padded octal) *)
-  let unmarshal_int x =
-    let tmp = "0o0" ^ (trim_numerical x) in
+  let unmarshal_int ~off ~len x =
+    let tmp = "0o0" ^ (trim_numerical (String.sub x off len)) in
     try
       Ok (int_of_string tmp)
     with Failure msg ->
       Error (`Unmarshal (Printf.sprintf "%s: failed to parse integer %S" msg tmp))
 
   (** Unmarshal an int64 field (stored as 0-padded octal) *)
-  let unmarshal_int64 x =
-    let tmp = "0o0" ^ (trim_numerical x) in
+  let unmarshal_int64 ~off ~len x =
+    let tmp = "0o0" ^ (trim_numerical (String.sub x off len)) in
     try
       Ok (Int64.of_string tmp)
     with Failure msg ->
       Error (`Unmarshal (Printf.sprintf "%s: failed to parse int64 %S" msg tmp))
 
   (** Unmarshal a string *)
-  let unmarshal_string x =
+  let unmarshal_string ?(off = 0) ?len x =
+    let len = Option.value ~default:(String.length x - off) len in
     try
-      let first_0 = String.index x '\000' in
-      Ok (String.sub x 0 first_0)
+      let first_0 = String.index_from x off '\000' in
+      if first_0 - off < len then
+        Ok (String.sub x off (first_0 - off))
+      else
+        raise Not_found
     with Not_found ->
-      Ok x
+      Ok (String.sub x off len)
 
   (** Marshal an integer field of size 'n' *)
   let marshal_int x n =
@@ -136,113 +140,98 @@ module Header = struct
   let sizeof_hdr_prefix = 155
 
   let get_hdr_file_name buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_file_name_off ~len:sizeof_hdr_file_name buf)
+    unmarshal_string ~off:hdr_file_name_off ~len:sizeof_hdr_file_name buf
   let set_hdr_file_name buf v =
     let v = marshal_string v sizeof_hdr_file_name in
-    Cstruct.blit_from_string v 0 buf hdr_file_name_off sizeof_hdr_file_name
+    Bytes.blit_string v 0 buf hdr_file_name_off sizeof_hdr_file_name
 
   let get_hdr_file_mode buf =
-    unmarshal_int
-      (Cstruct.to_string ~off:hdr_file_mode_off ~len:sizeof_hdr_file_mode buf)
+    unmarshal_int ~off:hdr_file_mode_off ~len:sizeof_hdr_file_mode buf
   let set_hdr_file_mode buf v =
     let v = marshal_int v sizeof_hdr_file_mode in
-    Cstruct.blit_from_string v 0 buf hdr_file_mode_off sizeof_hdr_file_mode
+    Bytes.blit_string v 0 buf hdr_file_mode_off sizeof_hdr_file_mode
 
   let get_hdr_user_id buf =
-    unmarshal_int
-      (Cstruct.to_string ~off:hdr_user_id_off ~len:sizeof_hdr_user_id buf)
+    unmarshal_int ~off:hdr_user_id_off ~len:sizeof_hdr_user_id buf
   let set_hdr_user_id buf v =
     let v = marshal_int v sizeof_hdr_user_id in
-    Cstruct.blit_from_string v 0 buf hdr_user_id_off sizeof_hdr_user_id
+    Bytes.blit_string v 0 buf hdr_user_id_off sizeof_hdr_user_id
 
   let get_hdr_group_id buf =
-    unmarshal_int
-      (Cstruct.to_string ~off:hdr_group_id_off ~len:sizeof_hdr_group_id buf)
+    unmarshal_int ~off:hdr_group_id_off ~len:sizeof_hdr_group_id buf
   let set_hdr_group_id buf v =
     let v = marshal_int v sizeof_hdr_group_id in
-    Cstruct.blit_from_string v 0 buf hdr_group_id_off sizeof_hdr_group_id
+    Bytes.blit_string v 0 buf hdr_group_id_off sizeof_hdr_group_id
 
   let get_hdr_file_size buf =
-    unmarshal_int64
-      (Cstruct.to_string ~off:hdr_file_size_off ~len:sizeof_hdr_file_size buf)
+    unmarshal_int64 ~off:hdr_file_size_off ~len:sizeof_hdr_file_size buf
   let set_hdr_file_size buf v =
     let v = marshal_int64 v sizeof_hdr_file_size in
-    Cstruct.blit_from_string v 0 buf hdr_file_size_off sizeof_hdr_file_size
+    Bytes.blit_string v 0 buf hdr_file_size_off sizeof_hdr_file_size
 
   let get_hdr_mod_time buf =
-    unmarshal_int64
-      (Cstruct.to_string ~off:hdr_mod_time_off ~len:sizeof_hdr_mod_time buf)
+    unmarshal_int64 ~off:hdr_mod_time_off ~len:sizeof_hdr_mod_time buf
   let set_hdr_mod_time buf v =
     let v = marshal_int64 v sizeof_hdr_mod_time in
-    Cstruct.blit_from_string v 0 buf hdr_mod_time_off sizeof_hdr_mod_time
+    Bytes.blit_string v 0 buf hdr_mod_time_off sizeof_hdr_mod_time
 
   let get_hdr_chksum buf =
-    unmarshal_int64
-      (Cstruct.to_string ~off:hdr_chksum_off ~len:sizeof_hdr_chksum buf)
+    unmarshal_int64 ~off:hdr_chksum_off ~len:sizeof_hdr_chksum buf
   let set_hdr_chksum buf v =
     let v = marshal_int64 v sizeof_hdr_chksum in
-    Cstruct.blit_from_string v 0 buf hdr_chksum_off sizeof_hdr_chksum
+    Bytes.blit_string v 0 buf hdr_chksum_off sizeof_hdr_chksum
 
-  let get_hdr_link_indicator buf = Cstruct.get_char buf hdr_link_indicator_off
+  let get_hdr_link_indicator buf = String.get buf hdr_link_indicator_off
   let set_hdr_link_indicator buf v =
-    Cstruct.set_char buf hdr_link_indicator_off v
+    Bytes.set buf hdr_link_indicator_off v
 
   let get_hdr_link_name buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_link_name_off ~len:sizeof_hdr_link_name buf)
+    unmarshal_string ~off:hdr_link_name_off ~len:sizeof_hdr_link_name buf
   let set_hdr_link_name buf v =
     let v = marshal_string v sizeof_hdr_link_name in
-    Cstruct.blit_from_string v 0 buf hdr_link_name_off sizeof_hdr_link_name
+    Bytes.blit_string v 0 buf hdr_link_name_off sizeof_hdr_link_name
 
   let get_hdr_magic buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_magic_off ~len:sizeof_hdr_magic buf)
+    unmarshal_string ~off:hdr_magic_off ~len:sizeof_hdr_magic buf
   let set_hdr_magic buf v =
     let v = marshal_string v sizeof_hdr_magic in
-    Cstruct.blit_from_string v 0 buf hdr_magic_off sizeof_hdr_magic
+    Bytes.blit_string v 0 buf hdr_magic_off sizeof_hdr_magic
 
   let _get_hdr_version buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_version_off ~len:sizeof_hdr_version buf)
+    unmarshal_string ~off:hdr_version_off ~len:sizeof_hdr_version buf
   let set_hdr_version buf v =
     let v = marshal_string v sizeof_hdr_version in
-    Cstruct.blit_from_string v 0 buf hdr_version_off sizeof_hdr_version
+    Bytes.blit_string v 0 buf hdr_version_off sizeof_hdr_version
 
   let get_hdr_uname buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_uname_off ~len:sizeof_hdr_uname buf)
+    unmarshal_string ~off:hdr_uname_off ~len:sizeof_hdr_uname buf
   let set_hdr_uname buf v =
     let v = marshal_string v sizeof_hdr_uname in
-    Cstruct.blit_from_string v 0 buf hdr_uname_off sizeof_hdr_uname
+    Bytes.blit_string v 0 buf hdr_uname_off sizeof_hdr_uname
 
   let get_hdr_gname buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_gname_off ~len:sizeof_hdr_gname buf)
+    unmarshal_string ~off:hdr_gname_off ~len:sizeof_hdr_gname buf
   let set_hdr_gname buf v =
     let v = marshal_string v sizeof_hdr_gname in
-    Cstruct.blit_from_string v 0 buf hdr_gname_off sizeof_hdr_gname
+    Bytes.blit_string v 0 buf hdr_gname_off sizeof_hdr_gname
 
   let get_hdr_devmajor buf =
-    unmarshal_int
-      (Cstruct.to_string ~off:hdr_devmajor_off ~len:sizeof_hdr_devmajor buf)
+    unmarshal_int ~off:hdr_devmajor_off ~len:sizeof_hdr_devmajor buf
   let set_hdr_devmajor buf v =
     let v = marshal_int v sizeof_hdr_devmajor in
-    Cstruct.blit_from_string v 0 buf hdr_devmajor_off sizeof_hdr_devmajor
+    Bytes.blit_string v 0 buf hdr_devmajor_off sizeof_hdr_devmajor
 
   let get_hdr_devminor buf =
-    unmarshal_int
-      (Cstruct.to_string ~off:hdr_devminor_off ~len:sizeof_hdr_devminor buf)
+    unmarshal_int ~off:hdr_devminor_off ~len:sizeof_hdr_devminor buf
   let set_hdr_devminor buf v =
     let v = marshal_int v sizeof_hdr_devminor in
-    Cstruct.blit_from_string v 0 buf hdr_devminor_off sizeof_hdr_devminor
+    Bytes.blit_string v 0 buf hdr_devminor_off sizeof_hdr_devminor
 
   let get_hdr_prefix buf =
-    unmarshal_string
-      (Cstruct.to_string ~off:hdr_prefix_off ~len:sizeof_hdr_prefix buf)
+    unmarshal_string ~off:hdr_prefix_off ~len:sizeof_hdr_prefix buf
   let set_hdr_prefix buf v =
     let v = marshal_string v sizeof_hdr_prefix in
-    Cstruct.blit_from_string v 0 buf hdr_prefix_off sizeof_hdr_prefix
+    Bytes.blit_string v 0 buf hdr_prefix_off sizeof_hdr_prefix
 
   type compatibility =
     | OldGNU
@@ -367,11 +356,10 @@ module Header = struct
       @ (match t.file_size      with None -> [] | Some x -> [ "size", Int64.to_string x ])
       @ (match t.user_id        with None -> [] | Some x -> [ "uid", string_of_int x ])
       @ (match t.uname          with None -> [] | Some x -> [ "uname", x ]) in
-      let txt = String.concat "" (List.map (fun (k, v) ->
-        let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
-        Printf.sprintf "%08d %s=%s\n" length k v
-      ) pairs) in
-      Cstruct.of_string txt
+      String.concat "" (List.map (fun (k, v) ->
+          let length = 8 + 1 + (String.length k) + 1 + (String.length v) + 1 in
+          Printf.sprintf "%08d %s=%s\n" length k v
+        ) pairs)
 
     let merge global extended =
       match global with
@@ -412,41 +400,30 @@ module Header = struct
          - the <keyword> cannot contain an equals sign
          - the <length> is the number of octets of the record, including \n
         *)
-      let find buffer char =
-        let rec loop i =
-          if i = Cstruct.length buffer
-          then None
-          else if Cstruct.get_char buffer i = char
-          then Some i
-          else loop (i + 1)
-        in
-        loop 0
+      let find start char =
+        try Ok (String.index_from c start char)
+        with Not_found -> Error (`Unmarshal "Failed to decode pax extended header record")
       in
-      let rec loop remaining =
-        if Cstruct.length remaining = 0
-        then Ok []
+      let slen = String.length c in
+      let rec loop acc idx =
+        if idx >= slen
+        then Ok (List.rev acc)
         else begin
           (* Find the space, then decode the length *)
-          match find remaining ' ' with
-          | None -> Error (`Unmarshal "Failed to decode pax extended header record")
-          | Some i ->
-            let length = int_of_string @@ Cstruct.to_string @@ Cstruct.sub remaining 0 i in
-            let record = Cstruct.sub remaining 0 length in
-            let remaining = Cstruct.shift remaining length in
-            begin match find record '=' with
-            | None -> Error (`Unmarshal "Failed to decode pax extended header record")
-            | Some j ->
-              let keyword = Cstruct.to_string @@ Cstruct.sub record (i + 1) (j - i - 1) in
-              let v = Cstruct.to_string @@ Cstruct.sub record (j + 1) (Cstruct.length record - j - 2) in
-              let* rem = loop remaining in
-              Ok ((keyword, v) :: rem)
-            end
+          let* i = find idx ' ' in
+          let* length =
+            try Ok (int_of_string (String.sub c idx (i - idx))) with
+              Failure _ -> Error (`Unmarshal "Failed to decode pax extended header record")
+          in
+          let* j = find i '=' in
+          let keyword = String.sub c (i + 1) (j - i - 1) in
+          let v = String.sub c (j + 1) (length - (j - idx) - 2) in
+          loop ((keyword, v) :: acc) (idx + length)
         end
       in
-      let* pairs = loop c in
+      let* pairs = loop [] 0 in
       let option name f =
-        if List.mem_assoc name pairs
-        then 
+        if List.mem_assoc name pairs then
           let* v = f (List.assoc name pairs) in
           Ok (Some v)
         else
@@ -519,7 +496,7 @@ module Header = struct
   let length = 512
 
   (** A blank header block (two of these in series mark the end of the tar) *)
-  let zero_block = Cstruct.create length
+  let zero_block = String.make length '\000'
 
   (** Pretty-print the header record *)
   let to_detailed_string (x: t) =
@@ -534,29 +511,29 @@ module Header = struct
     "{\n\t" ^ (String.concat "\n\t" (List.map (fun (k, v) -> k ^ ": " ^ v) table)) ^ "}"
 
   (** From an already-marshalled block, compute what the checksum should be *)
-  let checksum (x: Cstruct.t) : int64 =
+  let checksum x : int64 =
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
     let result = ref 0 in
     let in_checksum_range i =
       i >= hdr_chksum_off && i < hdr_chksum_off + sizeof_hdr_chksum
     in
-    for i = 0 to Cstruct.length x - 1 do
+    for i = 0 to String.length x - 1 do
       let v =
         if in_checksum_range i then
           int_of_char ' '
         else
-          Cstruct.get_uint8 x i
+          int_of_char (String.get x i)
       in
       result := !result + v
     done;
     Int64.of_int !result
 
   (** Unmarshal a header block, returning None if it's all zeroes *)
-  let unmarshal ?(extended = Extended.make ()) (c: Cstruct.t)
+  let unmarshal ?(extended = Extended.make ()) c
     : (t, [>`Zero_block | `Checksum_mismatch]) result =
-    if Cstruct.length c <> length then Error (`Unmarshal "buffer is not of block size")
-    else if Cstruct.equal zero_block c then Error `Zero_block
+    if String.length c <> length then Error (`Unmarshal "buffer is not of block size")
+    else if String.equal zero_block c then Error `Zero_block
     else
       let* chksum = get_hdr_chksum c in
       if checksum c <> chksum then Error `Checksum_mismatch
@@ -668,7 +645,7 @@ module Header = struct
     in
     set_hdr_link_name c x.link_name;
     (* Finally, compute the checksum *)
-    let chksum = checksum c in
+    let chksum = checksum (Bytes.unsafe_to_string c) in
     set_hdr_chksum c chksum;
     Ok ()
 
@@ -682,7 +659,7 @@ module Header = struct
   (** Return the required zero-padding as a string *)
   let zero_padding (x: t) =
     let zero_padding_len = compute_zero_padding_length x in
-    Cstruct.sub zero_block 0 zero_padding_len
+    String.sub zero_block 0 zero_padding_len
 
   let to_sectors (x: t) =
     Int64.(div (add (pred (of_int length)) x.file_size) (of_int length))
@@ -697,14 +674,14 @@ end
 module type READER = sig
   type in_channel
   type 'a io
-  val really_read: in_channel -> Cstruct.t -> unit io
+  val really_read: in_channel -> bytes -> unit io
   val skip: in_channel -> int -> unit io
 end
 
 module type WRITER = sig
   type out_channel
   type 'a io
-  val really_write: out_channel -> Cstruct.t -> unit io
+  val really_write: out_channel -> string -> unit io
 end
 
 module type HEADERREADER = sig
@@ -752,18 +729,18 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
 
   let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
     (* We might need to read 2 headers at once if we encounter a Pax header *)
-    let buffer = Cstruct.create Header.length in
-    let real_header_buf = Cstruct.create Header.length in
+    let buffer = Bytes.make Header.length '\000' in
+    let real_header_buf = Bytes.make Header.length '\000' in
 
     let next_block global () =
       really_read ifd buffer >>= fun () ->
-      return (Header.unmarshal ?extended:global buffer)
+      return (Header.unmarshal ?extended:global (Bytes.unsafe_to_string buffer))
     in
 
     let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
       next_block global () >>= function
       | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
-        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         (* unmarshal merges the previous global (if any) with the
@@ -771,31 +748,31 @@ module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) =
         let^* global =
           Result.map_error
             (fun e -> `Fatal e)
-            (Header.Extended.unmarshal ~global extra_header_buf)
+            (Header.Extended.unmarshal ~global (Bytes.unsafe_to_string extra_header_buf))
         in
         get_hdr ~next_longname ~next_longlink (Some global) ()
       | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
-        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
         let^* extended =
           Result.map_error
             (fun e -> `Fatal e)
-            (Header.Extended.unmarshal ~global extra_header_buf)
+            (Header.Extended.unmarshal ~global (Bytes.unsafe_to_string extra_header_buf))
         in
         really_read ifd real_header_buf >>= fun () ->
         let^* x =
           Result.map_error
             (fun _ -> `Fatal `Corrupt_pax_header)
-            (Header.unmarshal ~extended real_header_buf)
+            (Header.unmarshal ~extended (Bytes.unsafe_to_string real_header_buf))
         in
         let x = fix_link_indicator x in
         return (Ok (x, global))
       | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
-        let extra_header_buf = Cstruct.create (Int64.to_int x.Header.file_size) in
+        let extra_header_buf = Bytes.create (Int64.to_int x.Header.file_size) in
         really_read ifd extra_header_buf >>= fun () ->
         skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
-        let name = Cstruct.to_string ~len:(Cstruct.length extra_header_buf - 1) extra_header_buf in
+        let name = String.sub (Bytes.unsafe_to_string extra_header_buf) 0 (Bytes.length extra_header_buf - 1) in
         let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else next_longlink in
         let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else next_longname in
         get_hdr ~next_longname ~next_longlink global ()
@@ -834,20 +811,20 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
 
   let write_unextended ?level header fd =
     let level = Header.get_level level in
-    let buffer = Cstruct.create Header.length in
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
     (if level = Header.GNU then begin
         begin
           if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
             let file_size = String.length header.Header.link_name + 1 in
             let blank = {blank with Header.file_size = Int64.of_int file_size} in
+            let buffer = Bytes.make Header.length '\000' in
             match
               Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink }
             with
             | Error _ as e -> return e
             | Ok () ->
-              really_write fd buffer >>= fun () ->
-              let payload = Cstruct.of_string (header.Header.link_name ^ "\000") in
+              really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
+              let payload = header.Header.link_name ^ "\000" in
               really_write fd payload >>= fun () ->
               really_write fd (Header.zero_padding blank) >>= fun () ->
               return (Ok ())
@@ -860,13 +837,14 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
             if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
               let file_size = String.length header.Header.file_name + 1 in
               let blank = {blank with Header.file_size = Int64.of_int file_size} in
+              let buffer = Bytes.make Header.length '\000' in
               match
                 Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName }
               with
               | Error _ as e -> return e
               | Ok () ->
-                really_write fd buffer >>= fun () ->
-                let payload = Cstruct.of_string (header.Header.file_name ^ "\000") in
+                really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
+                let payload = header.Header.file_name ^ "\000" in
                 really_write fd payload >>= fun () ->
                 really_write fd (Header.zero_padding blank) >>= fun () ->
                 return (Ok ())
@@ -874,17 +852,16 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
               return (Ok ())
           end >>= function
           | Error _ as e -> return e
-          | Ok () ->
-            Cstruct.memset buffer 0;
-          return (Ok ())
+          | Ok () -> return (Ok ())
       end else
        return (Ok ())) >>= function
     | Error _ as e -> return e
     | Ok () ->
+      let buffer = Bytes.make Header.length '\000' in
       match Header.marshal ~level buffer header with
       | Error _  as e -> return e
       | Ok () ->
-        really_write fd buffer >>= fun () ->
+        really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
         return (Ok ())
 
   let write_extended ?level ~link_indicator hdr fd =
@@ -895,7 +872,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
     in
     let pax_payload = Header.Extended.marshal hdr in
     let pax = Header.make ~link_indicator link_indicator_name
-                (Int64.of_int @@ Cstruct.length pax_payload) in
+                (Int64.of_int @@ String.length pax_payload) in
     write_unextended ?level pax fd >>= function
     | Error _ as e -> return e
     | Ok () ->

@@ -82,7 +82,7 @@ module Header : sig
     (** Unmarshal a pax Extended Header block. This header block may
         be preceded by [global] blocks which will override some
         fields. *)
-    val unmarshal : global:t option -> Cstruct.t -> (t, [> error ]) result
+    val unmarshal : global:t option -> string -> (t, [> error ]) result
   end
 
   (** Represents a standard archive (note checksum not stored). *)
@@ -115,7 +115,7 @@ module Header : sig
   val length : int
 
   (** A blank header block (two of these in series mark the end of the tar). *)
-  val zero_block : Cstruct.t
+  val zero_block : string
 
   (** Pretty-print the header record. *)
   val to_detailed_string : t -> string
@@ -123,17 +123,17 @@ module Header : sig
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?extended:Extended.t -> Cstruct.t -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
+  val unmarshal : ?extended:Extended.t -> string -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
-  val marshal : ?level:compatibility -> Cstruct.t -> t -> (unit, [> `Msg of string ]) result
+  val marshal : ?level:compatibility -> bytes -> t -> (unit, [> `Msg of string ]) result
 
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks. *)
   val compute_zero_padding_length : t -> int
 
   (** Return the required zero-padding as a string. *)
-  val zero_padding : t -> Cstruct.t
+  val zero_padding : t -> string
 
   (** [to_sectors t] is the number of sectors occupied by the data. *)
   val to_sectors: t -> int64
@@ -148,14 +148,14 @@ end
 module type READER = sig
   type in_channel
   type 'a io
-  val really_read: in_channel -> Cstruct.t -> unit io
+  val really_read: in_channel -> bytes -> unit io
   val skip: in_channel -> int -> unit io
 end
 
 module type WRITER = sig
   type out_channel
   type 'a io
-  val really_write: out_channel -> Cstruct.t -> unit io
+  val really_write: out_channel -> string -> unit io
 end
 
 module type HEADERREADER = sig

@@ -15,9 +15,9 @@
  *)
 
 module type READER = sig
-  include Tar.READER
-
-  val read : in_channel -> Cstruct.t -> int io
+  type in_channel
+  type 'a io
+  val read : in_channel -> bytes -> int io
 end
 
 module Make
@@ -27,9 +27,9 @@ module Make
 : sig
   type in_channel
 
-  val of_in_channel : internal:Cstruct.t -> Reader.in_channel -> in_channel
+  val of_in_channel : internal:De.bigstring -> Reader.in_channel -> in_channel
 
-  val really_read : in_channel -> Cstruct.t -> unit Async.t
+  val really_read : in_channel -> bytes -> unit Async.t
   (** [really_read fd buf] fills [buf] with data from [fd] or raises
       {!Stdlib.End_of_file}. *)
 

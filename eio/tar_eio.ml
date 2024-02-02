@@ -27,7 +27,11 @@ end
 module Io = struct
   type in_channel = Flow.source
   type 'a io = 'a
-  let really_read f b = Flow.read_exact f b
+  let really_read f b =
+    let len = Bytes.length b in
+    let cs = Cstruct.create len in
+    Flow.read_exact f cs;
+    Cstruct.blit_to_bytes cs 0 b 0 len
   let skip f (n: int) =
     let buffer_size = 32768 in
     let buffer = Cstruct.create buffer_size in
@@ -36,15 +40,18 @@ module Io = struct
       else
         let amount = min n buffer_size in
         let block = Cstruct.sub buffer 0 amount in
-        really_read f block;
+        Flow.read_exact f block;
         loop (n - amount) in
     loop n
 
   type out_channel = Flow.sink
-  let really_write f b = Flow.write f [ b ]
+  let really_write f str = Flow.write f [ Cstruct.of_string str ]
 end
 
-include Io
+let really_read = Flow.read_exact
+let skip = Io.skip
+let really_write f b = Flow.write f [ b ]
+
 module HeaderReader = Tar.HeaderReader(Monad)(Io)
 module HeaderWriter = Tar.HeaderWriter(Monad)(Io)
 
