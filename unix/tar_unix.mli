@@ -16,20 +16,18 @@
 
 (** Unix I/O for tar-formatted data. *)
 
-val really_read: Unix.file_descr -> bytes -> unit
-(** [really_read fd buf] fills [buf] with data from [fd] or raises
-   {!Stdlib.End_of_file}. *)
-
-val really_write: Unix.file_descr -> string -> unit
-(** [really_write fd buf] writes the full contents of [buf] to [fd]
-    or {!Stdlib.End_of_file}. *)
-
-val skip : Unix.file_descr -> int -> unit
-(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
-    should use [Unix.lseek fd n Unix.SEEK_CUR] instead. *)
-
 (** Return the header needed for a particular file on disk. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t
 
-module HeaderReader : Tar.HEADERREADER with type in_channel = Unix.file_descr and type 'a io = 'a
-module HeaderWriter : Tar.HEADERWRITER with type out_channel = Unix.file_descr and type 'a io = 'a
+(** Fold over a tar archive. *)
+val fold_tar :
+  ((Tar.Header.t * Tar.Header.Extended.t option,
+    [
+      | `Eof
+      | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+      | `Unix of Unix.error
+    ]) result -> 'a -> 'a) ->
+  Unix.file_descr ->
+  'a -> 'a
+
+val append_file : ?header:Tar.Header.t -> string ->
