@@ -28,15 +28,23 @@ val fold :
     ]) result -> 'a -> 'a) ->
   string -> 'a -> 'a
 
-(** [extract ~src ~dst] extracts the tar archive [src] into the directory [dst].
-    If [dst] does not exist, it is created. *)
-val extract : src:string -> dst:string ->
+(** [extract ~filter ~src ~dst] extracts the tar archive [src] into the
+    directory [dst]. If [dst] does not exist, it is created. If [filter] is
+    provided (defaults to [fun _ -> true]), any file where [filter hdr] returns
+    [false], is skipped. *)
+val extract :
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> dst:string ->
   (unit, [ `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
          | `Unix of Unix.error ]) result
 
-(** [create ~level ~src ~dst] creates a tar archive at [dst]. It uses [src], a
-    filename or directory name, as input. *)
-val create : ?level:Tar.Header.compatibility -> src:string -> dst:string ->
+(** [create ~level ~filter ~src ~dst] creates a tar archive at [dst]. It uses
+    [src], a filename or directory name, as input. If [filter] is provided
+    (defaults to [fun _ -> true]), any file where [filter hdr] returns [false]
+    is skipped. *)
+val create : ?level:Tar.Header.compatibility ->
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> dst:string ->
   (unit, [ `Msg of string | `Unix of Unix.error ]) result
 
 (** [header_of_file ~level filename] returns the tar header of [filename]. *)
