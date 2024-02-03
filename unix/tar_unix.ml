@@ -58,7 +58,7 @@ include Driver
 
   (** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t =
-  let level = match level with None -> !Tar.Header.compatibility_level | Some level -> level in
+  let level = Tar.Header.compatibility level in
   let stat = Unix.LargeFile.lstat file in
   let file_mode = stat.Unix.LargeFile.st_perm in
   let user_id = stat.Unix.LargeFile.st_uid in

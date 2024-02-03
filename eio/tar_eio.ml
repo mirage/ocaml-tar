@@ -62,7 +62,7 @@ let stat path =
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
-  let level = match level with None -> !Tar.Header.compatibility_level | Some level -> level in
+  let level = Tar.Header.compatibility level in
   let stat = stat filepath in
   let pwent = Option.map (fun f -> f stat.uid) getpwuid in
   let grent = Option.map (fun f -> f stat.gid) getgrgid in

@@ -240,11 +240,7 @@ module Header = struct
     | Ustar
     | Posix
 
-  let compatibility_level = ref V7
-
-  let get_level = function
-    | None -> !compatibility_level
-    | Some level -> level
+  let compatibility = Option.value ~default:V7
 
   module Link = struct
     type t =
@@ -262,7 +258,7 @@ module Header = struct
 
     (* Strictly speaking, v7 supports Normal (as \0) and Hard only *)
     let to_char ?level =
-      let level = get_level level in function
+      let level = compatibility level in function
         | Normal                -> if level = V7 then '\000' else '0'
         | Hard                  -> '1'
         | Symbolic              -> '2'
@@ -580,7 +576,7 @@ module Header = struct
 
   (** Marshal a header block, computing and inserting the checksum *)
   let marshal ?level c (x: t) =
-    let level = get_level level in
+    let level = compatibility level in
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
     let* () =
       if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
@@ -810,7 +806,7 @@ module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) =
   type 'a io = 'a t
 
   let write_unextended ?level header fd =
-    let level = Header.get_level level in
+    let level = Header.compatibility level in
     let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
     (if level = Header.GNU then begin
         begin
