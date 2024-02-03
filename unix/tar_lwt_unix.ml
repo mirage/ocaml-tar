@@ -52,7 +52,7 @@ module HeaderWriter = Tar.HeaderWriter(Lwt)(Io)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level (file: string) : Tar.Header.t Lwt.t =
-  let level = match level with None -> !Tar.Header.compatibility_level | Some level -> level in
+  let level = Tar.Header.compatibility level in
   Lwt_unix.LargeFile.stat file >>= fun stat ->
   Lwt_unix.getpwuid stat.Lwt_unix.LargeFile.st_uid >>= fun pwent ->
   Lwt_unix.getgrgid stat.Lwt_unix.LargeFile.st_gid >>= fun grent ->

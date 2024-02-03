@@ -36,8 +36,8 @@ module Header : sig
     | Ustar (** POSIX.1-1988 *)
     | Posix (** POSIX.1-2001 *)
 
-  (** Default compatibility if [?level] is omitted. Defaults to {!V7}. *)
-  val compatibility_level : compatibility ref
+  (** Return the compatibility level, defaults to {!V7}. *)
+  val compatibility : compatibility option -> compatibility
 
   module Link : sig
     (** Determines the type of the file. *)
