@@ -169,4 +169,4 @@ val encode_header : ?level:Header.compatibility ->
 
 (** [encode_global_extended_header hdr] encodes the global extended header as
     a list of strings. *)
-val encode_global_extended_header : Header.Extended.t -> (string list, [> `Msg of string ]) result
+val encode_global_extended_header : ?level:Header.compatibility -> Header.Extended.t -> (string list, [> `Msg of string ]) result

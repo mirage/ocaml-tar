@@ -813,5 +813,5 @@ let encode_header ?level header =
   let* rest = encode_unextended_header ?level header in
   Ok (extended @ rest)
 
-let encode_global_extended_header global =
-  encode_extended_header `Global global
+let encode_global_extended_header ?level global =
+  encode_extended_header ?level `Global global
