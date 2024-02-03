@@ -769,7 +769,7 @@ let encode_long level link_indicator payload =
   Ok [ Bytes.unsafe_to_string buffer ; payload ; Header.zero_padding blank ]
 
 let encode_unextended_header ?level header =
-  let level = Header.get_level level in
+  let level = Header.compatibility level in
   let* pre =
     if level = Header.GNU then
       let* longlink =
