@@ -16,13 +16,11 @@
 
 (** Unix I/O for tar-formatted data. *)
 
-(* TODO provide a type error and a pretty-printer *)
-
 type decode_error = [
-  | `Fatal of int * [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
-  | `Unix of int * Unix.error * string * string
-  | `Unexpected_end_of_file of int
-  | `Msg of int * string
+  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Unix of Unix.error * string * string
+  | `Unexpected_end_of_file
+  | `Msg of string
 ]
 
 val pp_decode_error : Format.formatter -> decode_error -> unit
@@ -31,8 +29,8 @@ val pp_decode_error : Format.formatter -> decode_error -> unit
     for each [hdr : Tar.Header.t]. It should forward the position in the file
     descriptor by [hdr.Tar.Header.file_size]. *)
 val fold :
-  (Unix.file_descr -> ?global:Tar.Header.Extended.t -> Tar.Header.t ->
-   'a -> ('a, [ `Msg of string ]) result) ->
+  (Unix.file_descr -> ?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
+   ('a, decode_error) result) ->
   string -> 'a -> ('a, decode_error) result
 
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
@@ -52,24 +50,24 @@ val create : ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
-  (unit, [ `Msg of string | `Unix of (int * Unix.error * string * string) ]) result
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
 
 (** [header_of_file ~level filename] returns the tar header of [filename]. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string ->
-  (Tar.Header.t, [ `Unix of (int * Unix.error * string * string) ]) result
+  (Tar.Header.t, [ `Unix of (Unix.error * string * string) ]) result
 
 (** [append_file ~level ~header filename fd] appends the contents of [filename]
     to the tar archive [fd]. If [header] is not provided, {header_of_file} is
     used for constructing a header. *)
 val append_file : ?level:Tar.Header.compatibility -> ?header:Tar.Header.t ->
   string -> Unix.file_descr ->
-  (unit, [ `Msg of string | `Unix of (int * Unix.error * string * string) ]) result
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
 
 (** [write_global_extended_header ~level hdr fd] writes the extended header [hdr] to
     [fd]. *)
 val write_global_extended_header : ?level:Tar.Header.compatibility ->
   Tar.Header.Extended.t -> Unix.file_descr ->
-  (unit, [ `Msg of string | `Unix of (int * Unix.error * string * string) ]) result
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
 
 (** [write_end fd] writes the tar end marker to [fd]. *)
 val write_end : Unix.file_descr -> (unit, [ `Msg of string ]) result
