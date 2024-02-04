@@ -170,13 +170,18 @@ let can_write_pax () =
   let fd = Unix.openfile filename [ O_CREAT; O_WRONLY; O_CLOEXEC ] 0o0644 in
   Fun.protect
     (fun () ->
-      let hdr = Tar.Header.make ~user_id "test" 0L in
-      match Tar_unix.HeaderWriter.write hdr fd with
+      let header = Tar.Header.make ~user_id "test" 0L in
+      match Tar_unix.write_header header fd with
       | Ok () ->
-        Tar_unix.really_write fd Tar.Header.zero_block;
-        Tar_unix.really_write fd Tar.Header.zero_block;
+        (match Tar_unix.write_end fd with
+         | Ok () -> ()
+         | Error `Msg msg ->
+           Alcotest.failf "error writing end %s" msg)
       | Error `Msg msg ->
         Alcotest.failf "error writing header %s" msg
+      | Error `Unix (e, f, a) ->
+        Alcotest.failf "error writing header - unix error %s %s %s"
+          (Unix.error_message e) f a
     ) ~finally:(fun () -> Unix.close fd);
   (* Read it back and verify the header was read *)
   let fd = Unix.openfile filename [ O_RDONLY; O_CLOEXEC ] 0 in
@@ -261,7 +266,6 @@ let can_list_longlink_implicit_dir () =
          Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
        | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
        | Error `Eof -> Alcotest.fail "unexpected end of file")
-
 
 let starts_with ~prefix s =
   let len_s = String.length s

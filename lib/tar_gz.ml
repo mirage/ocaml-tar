@@ -1,4 +1,4 @@
-(*
+(*(*
  * Copyright (C) 2022 Romain Calascibetta <romain.calascibetta@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -230,3 +230,4 @@ module Make
        | `End _gz -> Async.return () in
    until_end (Gz.Def.src state.gz De.bigstring_empty 0 0)
 end
+*)

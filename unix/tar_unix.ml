@@ -186,19 +186,26 @@ let header_of_file ?level file =
   Ok (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
         ~uname ~gname ~devmajor ~devminor file stat.Unix.LargeFile.st_size)
 
-let append_file ?level ?header filename fd =
-  let* header = match header with
-    | None -> header_of_file ?level filename
-    | Some x -> Ok x
-  in
-  let* header_strings = Tar.encode_header ?level header in
+let write_strings fd datas =
   let* _written =
     List.fold_left (fun acc d ->
         let* _written = acc in
         Result.map_error unix_err_to_msg
           (safe (Unix.write_substring fd d 0) (String.length d)))
-      (Ok 0) header_strings
+      (Ok 0) datas
   in
+  Ok ()
+
+let write_header ?level header fd =
+  let* header_strings = Tar.encode_header ?level header in
+  write_strings fd header_strings
+
+let append_file ?level ?header filename fd =
+  let* header = match header with
+    | None -> header_of_file ?level filename
+    | Some x -> Ok x
+  in
+  let* () = write_header ?level header fd in
   let* src =
     Result.map_error unix_err_to_msg
       (safe Unix.(openfile filename [ O_RDONLY ]) 0)
@@ -210,23 +217,10 @@ let append_file ?level ?header filename fd =
 
 let write_global_extended_header ?level header fd =
   let* header_strings = Tar.encode_global_extended_header ?level header in
-  let* _written =
-    List.fold_left (fun acc d ->
-        let* _written = acc in
-        Result.map_error unix_err_to_msg
-          (safe (Unix.write_substring fd d 0) (String.length d)))
-      (Ok 0) header_strings
-  in
-  Ok ()
+  write_strings fd header_strings
 
 let write_end fd =
-  let* _written =
-    Result.map_error unix_err_to_msg
-      (safe
-         (Unix.write_substring fd (Tar.Header.zero_block ^ Tar.Header.zero_block) 0)
-         (Tar.Header.length + Tar.Header.length))
-  in
-  Ok ()
+  write_strings fd [ Tar.Header.zero_block ; Tar.Header.zero_block ]
 
 let create ?level ?global ?(filter = fun _ -> true) ~src dst =
   let* dst_fd =

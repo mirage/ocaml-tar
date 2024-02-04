@@ -13,7 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
+(*
 let () = Printexc.record_backtrace true
 
 module Tar_gz = Tar_gz.Make
@@ -129,3 +129,4 @@ let () = match Sys.argv with
   | _ ->
     let cmd = Filename.basename Sys.argv.(0) in
     Format.eprintf "%s <directory> [<filename.tar.gz>]\n%s list <filename.tar.gz>\n" cmd cmd
+*)

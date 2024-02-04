@@ -187,17 +187,26 @@ let header_of_file ?level file =
   in
   Lwt.return (Ok hdr)
 
+let write_strings fd datas =
+  let open Lwt_result.Infix in
+  Lwt_list.fold_left_s (fun acc d ->
+      Lwt_result.lift acc >>= fun _written ->
+      Lwt_result.map_error unix_err_to_msg
+        (safe (Lwt_unix.write_string fd d 0) (String.length d)))
+    (Ok 0) datas >|= fun _written ->
+  ()
+
+let write_header ?level header fd =
+  let open Lwt_result.Infix in
+  Lwt_result.lift (Tar.encode_header ?level header) >>= fun header_strings ->
+  write_strings fd header_strings
+
 let append_file ?level ?header filename fd =
   let open Lwt_result.Infix in
   (match header with
    | None -> header_of_file ?level filename
    | Some x -> Lwt.return (Ok x)) >>= fun header ->
-  Lwt_result.lift (Tar.encode_header ?level header) >>= fun header_strings ->
-  Lwt_list.fold_left_s (fun acc d ->
-      Lwt_result.lift acc >>= fun _written ->
-      Lwt_result.map_error unix_err_to_msg
-        (safe (Lwt_unix.write_string fd d 0) (String.length d)))
-    (Ok 0) header_strings >>= fun _written ->
+  write_header ?level header fd >>= fun () ->
   Lwt_result.map_error unix_err_to_msg
     (safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0) >>= fun src ->
   (* TOCTOU [also, header may not be valid for file] *)
@@ -209,20 +218,10 @@ let append_file ?level ?header filename fd =
 let write_global_extended_header ?level header fd =
   let open Lwt_result.Infix in
   Lwt_result.lift (Tar.encode_global_extended_header ?level header) >>= fun header_strings ->
-  Lwt_list.fold_left_s (fun acc d ->
-      Lwt_result.lift acc >>= fun _written ->
-      Lwt_result.map_error unix_err_to_msg
-        (safe (Lwt_unix.write_string fd d 0) (String.length d)))
-    (Ok 0) header_strings >|= fun _written ->
-  ()
+  write_strings fd header_strings
 
 let write_end fd =
-  let open Lwt_result.Infix in
-  Lwt_result.map_error unix_err_to_msg
-    (safe
-       (Lwt_unix.write_string fd (Tar.Header.zero_block ^ Tar.Header.zero_block) 0)
-       (Tar.Header.length + Tar.Header.length)) >|= fun _written ->
-  ()
+  write_strings fd [ Tar.Header.zero_block ; Tar.Header.zero_block ]
 
 let create ?level ?global ?(filter = fun _ -> true) ~src dst =
   let open Lwt_result.Infix in
