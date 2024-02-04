@@ -1,6 +1,6 @@
 (tests
  (names parse_test write_test allocate_set_partial_test global_extended_headers_test)
- (package tar-unix)
+ (package tar-mirage)
  (libraries
   mirage-block-unix
   mirage-block
@@ -9,4 +9,5 @@
   alcotest-lwt
   lwt
   tar-unix
+  tar-mirage
 ))

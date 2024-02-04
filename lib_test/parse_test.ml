@@ -235,15 +235,14 @@ let can_list_long_pax_tar () =
    - Reynir
 *)
 let can_list_pax_implicit_dir () =
-  let fd = Unix.openfile "lib_test/pax-shenanigans.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-       match Tar_unix.HeaderReader.read ~global:None fd with
-       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-       | Error `Eof -> Alcotest.fail "unexpected end of file"
-       | Ok (hdr, _global) ->
-         Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
-         Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
+  let f _fd ?global:_ hdr () =
+    Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
+    Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name;
+    Ok ()
+  in
+  match Tar_unix.fold f "lib_test/pax-shenanigans.tar" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
 
 (* Sample tar generated with commit 1583f71ea33b2836d3fb996ac7dc35d55abe2777:
   [let buf =
@@ -257,15 +256,14 @@ let can_list_pax_implicit_dir () =
      Tar.Header.marshal ~level (Cstruct.shift buf 1024) hdr;
      buf] *)
 let can_list_longlink_implicit_dir () =
-  let fd = Unix.openfile "lib_test/long-implicit-dir.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-       match Tar_unix.HeaderReader.read ~global:None fd with
-       | Ok (hdr, _global) ->
-         Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
-         Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
-       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-       | Error `Eof -> Alcotest.fail "unexpected end of file")
+  let f _fd ?global:_ hdr () =
+    Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
+    Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name;
+    Ok ()
+  in
+  match Tar_unix.fold f "lib_test/long-implicit-dir.tar" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
 
 let starts_with ~prefix s =
   let len_s = String.length s

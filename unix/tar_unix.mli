@@ -74,4 +74,4 @@ val write_global_extended_header : ?level:Tar.Header.compatibility ->
   (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
 
 (** [write_end fd] writes the tar end marker to [fd]. *)
-val write_end : Unix.file_descr -> (unit, [ `Msg of string ]) result
+val write_end : Unix.file_descr -> (unit, [> `Msg of string ]) result

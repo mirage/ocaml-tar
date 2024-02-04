@@ -75,42 +75,66 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     in
     Lwt.return r
 
-  module Reader = struct
-    type in_channel = {
-      b: BLOCK.t;
-      (** offset in bytes *)
-      mutable offset: int64;
-      info: Mirage_block.info;
-    }
-    type 'a io = 'a Lwt.t
-    let really_read in_channel buffer =
-      let len = Bytes.length buffer in
-      assert(len <= 512);
-      (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
-      let sector_size = in_channel.info.Mirage_block.sector_size in
-      let sector' = Int64.(div in_channel.offset (of_int sector_size)) in
-      let sector_aligned_len =
-        if len mod sector_size == 0 then len else
-          len + (sector_size - len mod sector_size)
-      in
-      let tmp = Cstruct.create sector_aligned_len in
-      BLOCK.read in_channel.b sector' [ tmp ]
-      >>= function
-      | Error e -> failwith (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
-                               BLOCK.pp_error e)
-      | Ok () ->
-        (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
-        let offset = Int64.(to_int (sub in_channel.offset (mul sector' (of_int sector_size)))) in
-        in_channel.offset <- Int64.(add in_channel.offset (of_int len));
-        Cstruct.blit_to_bytes tmp offset buffer 0 len;
-        Lwt.return_unit
-    let skip in_channel n =
-      in_channel.offset <- Int64.(add in_channel.offset (of_int n));
-      Lwt.return_unit
-    let _get_current_tar_sector in_channel = Int64.div in_channel.offset 512L
+  let read_data info b offset buffer len =
+    assert(len <= 512);
+    (* Tar assumes 512 byte sectors, but BLOCK might have 4096 byte sectors for example *)
+    let sector_size = info.Mirage_block.sector_size in
+    let sector' = Int64.(div offset (of_int sector_size)) in
+    let sector_aligned_len =
+      if len mod sector_size == 0 then
+        len
+      else
+        len + (sector_size - len mod sector_size)
+    in
+    let tmp = Cstruct.create sector_aligned_len in
+    BLOCK.read b sector' [ tmp ] >>= function
+    | Error e ->
+      Lwt.return (Error (`Msg
+                           (Format.asprintf "Failed to read sector %Ld from block device: %a" sector'
+                              BLOCK.pp_error e)))
+    | Ok () ->
+      (* If the BLOCK sector size is big, then we need to select the 512 bytes we want *)
+      let offset_in_cs = Int64.(to_int (sub offset (mul sector' (of_int sector_size)))) in
+      Cstruct.blit_to_bytes tmp offset_in_cs buffer 0 len;
+      Lwt.return (Ok ())
 
-  end
-  module HR = Tar.HeaderReader(Lwt)(Reader)
+  let fold info b f init =
+    let open Lwt_result.Infix in
+    let rec go t offset ?global ?data acc =
+      (match data with
+       | None ->
+         let buf = Bytes.make Tar.Header.length '\000' in
+         read_data info b offset buf Tar.Header.length >|= fun () ->
+         Int64.(add offset (of_int Tar.Header.length)), Bytes.unsafe_to_string buf
+       | Some data ->
+         Lwt.return (Ok (offset, data))) >>= fun (offset, data) ->
+      match Tar.decode t data with
+      | Ok (t, Some `Header hdr, g) ->
+        let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+        f offset ?global hdr acc >>= fun acc' ->
+        let off' =
+          Int64.(add offset (add hdr.Tar.Header.file_size
+                               (of_int (Tar.Header.compute_zero_padding_length hdr))))
+        in
+        go t off' ?global acc'
+      | Ok (t, Some `Skip n, g) ->
+        let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+        let off' = Int64.(add offset (of_int n)) in
+        go t off' ?global acc
+      | Ok (t, Some `Read n, g) ->
+        let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+        let buf = Bytes.make n '\000' in
+        read_data info b offset buf n >>= fun () ->
+        let data = Bytes.unsafe_to_string buf in
+        let off' = Int64.(add offset (of_int n)) in
+        go t off' ?global ~data acc
+      | Ok (t, None, g) ->
+        let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+        go t offset ?global acc
+      | Error `Eof -> Lwt.return (Ok acc)
+      | Error `Fatal _ as e -> Lwt.return e
+    in
+    go (Tar.decode_state ()) 0L init
 
   (* [read_partial_sector t sector_start ~offset ~length dst]
      reads a single sector and blits [length] bytes from [offset] into [dst]
@@ -255,33 +279,37 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
     let ssize = info.Mirage_block.sector_size in
     if ssize mod 512 <> 0 || ssize < 512 then
       invalid_arg "Sector size needs to be >= 512 and a multiple of 512";
-    let in_channel = { Reader.b; offset = 0L; info } in
-    let rec loop ~global map =
-      HR.read ~global in_channel >>= function
-      | Error `Eof -> Lwt.return map
-      | Error `Fatal e ->
-        Format.kasprintf failwith "Error reading archive: %a" Tar.pp_error e
-      | Ok (tar, global) ->
-        let filename = trim_slash tar.Tar.Header.file_name in
-        let map =
-          if filename = "" then
-            map
-          else
-            let data_tar_offset = Int64.div in_channel.Reader.offset 512L in
-            let v_or_d = if is_dict filename then Dict (tar, StringMap.empty) else Value (tar, data_tar_offset) in
-            insert map (Mirage_kv.Key.v filename) v_or_d
-        in
-        Reader.skip in_channel (Int64.to_int tar.Tar.Header.file_size) >>= fun () ->
-        Reader.skip in_channel (Tar.Header.compute_zero_padding_length tar) >>= fun () ->
-        loop ~global map
+    let f offset ?global:_ hdr (_, map) =
+      let filename = trim_slash hdr.Tar.Header.file_name in
+      let map =
+        if filename = "" then
+          map
+        else
+          let data_tar_offset = Int64.(div offset (of_int Tar.Header.length)) in
+          let v_or_d =
+            if is_dict filename then
+              Dict (hdr, StringMap.empty)
+            else
+              Value (hdr, data_tar_offset)
+          in
+          insert map (Mirage_kv.Key.v filename) v_or_d
+      in
+      let eof = Int64.(add offset
+                         (add hdr.Tar.Header.file_size
+                            (of_int (Tar.Header.compute_zero_padding_length hdr))))
+      in
+      Lwt.return (Ok (eof, map))
     in
-    let root = StringMap.empty in
-    loop ~global:None root >>= fun map ->
-    (* This is after the two [zero_block]s *)
-    let end_of_archive = in_channel.Reader.offset in
-    let map = Dict (Tar.Header.make "/" 0L, map) in
-    let write_lock = Lwt_mutex.create () in
-    Lwt.return ({ b; map; info; end_of_archive; write_lock })
+    fold info b f (0L, StringMap.empty) >>= function
+    | Error `Fatal e ->
+      Format.kasprintf failwith "Fatal error reading archive: %a" Tar.pp_error e
+    | Error `Msg msg ->
+      Format.kasprintf failwith "Error reading archive: %s" msg
+    | Ok (end_of_archive, map) ->
+      let end_of_archive = Int64.(add end_of_archive (of_int (2 * Tar.Header.length))) in
+      let map = Dict (Tar.Header.make "/" 0L, map) in
+      let write_lock = Lwt_mutex.create () in
+      Lwt.return ({ b; map; info; end_of_archive; write_lock })
 
   let disconnect _ = Lwt.return_unit
 
@@ -292,7 +320,14 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
 
   include Make_KV_RO(BLOCK)
 
-  type write_error = [ `Block of BLOCK.error | `Block_write of BLOCK.write_error | Mirage_kv.write_error | `Entry_already_exists | `Path_segment_is_a_value | `Append_only | `Write_header of string ]
+  type write_error = [
+    | `Block of BLOCK.error
+    | `Block_write of BLOCK.write_error
+    | Mirage_kv.write_error
+    | `Entry_already_exists
+    | `Path_segment_is_a_value
+    | `Append_only
+    | `Msg of string ]
 
   let pp_write_error ppf = function
    | `Block e -> Fmt.pf ppf "read error while writing: %a" BLOCK.pp_error e
@@ -301,7 +336,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
    | `Entry_already_exists -> Fmt.string ppf "entry already exists"
    | `Path_segment_is_a_value -> Fmt.string ppf "path segment is a value"
    | `Append_only -> Fmt.string ppf "append only"
-   | `Write_header msg -> Fmt.pf ppf "writing tar header failed: %s" msg
+   | `Msg msg -> Fmt.pf ppf "writing tar header failed: %s" msg
 
   let write t sector_start buffers =
     Lwt_result.map_error (fun e -> `Block_write e)
@@ -364,51 +399,31 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       let map = remove map key in
       Dict (root, map)
 
-  module Writer = struct
-    type out_channel = {
-      b: BLOCK.t;
-      (** offset in bytes *)
-      mutable offset: int64;
-      info: Mirage_block.info;
-    }
-    type 'a io = 'a Lwt.t
-    exception Read of BLOCK.error
-    exception Write of BLOCK.write_error
-    let really_write out_channel str =
-      assert (String.length str <= Tar.Header.length);
-      let data =
-        let cs = Cstruct.create Tar.Header.length in
-        Cstruct.blit_from_string str 0 cs 0 (String.length str);
-        cs
-      in
-      let sector_size = out_channel.info.sector_size in
-      let sector = Int64.(div out_channel.offset (of_int sector_size)) in
-      let block = Cstruct.create sector_size in
-      BLOCK.read out_channel.b sector [ block ] >>= function
-      | Error e -> raise (Read e)
-      | Ok () ->
-        let start_offset = Int64.to_int out_channel.offset mod sector_size in
-        Cstruct.blit data 0 block start_offset (Cstruct.length data);
-        BLOCK.write out_channel.b sector [ block ] >>= function
-        | Error e -> raise (Write e)
-        | Ok () ->
-          Lwt.return_unit
-  end
-  module HW = Tar.HeaderWriter(Lwt)(Writer)
+  let write_data info b offset buffer =
+    assert (String.length buffer <= Tar.Header.length);
+    let sector_size = info.Mirage_block.sector_size in
+    let sector = Int64.(div offset (of_int sector_size)) in
+    let block = Cstruct.create sector_size in
+    BLOCK.read b sector [ block ] >>= function
+    | Error e -> Lwt.return (Error (`Block e))
+    | Ok () ->
+      let start_offset = Int64.to_int offset mod sector_size in
+      Cstruct.blit_from_string buffer 0 block start_offset (String.length buffer);
+      BLOCK.write b sector [ block ] >>= function
+      | Error e -> Lwt.return (Error (`Block_write e))
+      | Ok () -> Lwt.return (Ok ())
 
   let write_header (t : t) header_start_bytes hdr =
-    let hw = Writer.{ b = t.b ; offset = header_start_bytes ; info = t.info } in
     (* it is important we write at level [Ustar] at most as we assume the
        header(s) taking up exactly 512 bytes. With [GNU] level extra blocks
        may be used for long names. *)
-    Lwt.catch
-      (fun () -> HW.write ~level:Tar.Header.Ustar hdr hw >|= function
-         | Ok () -> Ok ()
-         | Error `Msg msg -> Error (`Write_header msg))
-      (function
-        | Writer.Read e -> Lwt.return (Error (`Block e))
-        | Writer.Write e -> Lwt.return (Error (`Block_write e))
-        | exn -> raise exn)
+    let open Lwt_result.Infix in
+    Lwt_result.lift (Tar.encode_header ~level:Tar.Header.Ustar hdr) >>= fun datas ->
+    Lwt_list.fold_left_s (fun acc buf ->
+        Lwt_result.lift acc >>= fun off' ->
+        write_data t.info t.b off' buf >|= fun () ->
+        Int64.(add off' (of_int (String.length buf))))
+      (Ok header_start_bytes) datas
 
   let set t key data =
     Lwt_mutex.with_lock t.write_lock (fun () ->
@@ -486,7 +501,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
         in
         write t (succ data_start_sector) remaining_sectors >>>= fun () ->
         (* finally write header and first block *)
-        write_header t header_start_bytes hdr >>>= fun () ->
+        write_header t header_start_bytes hdr >>>= fun _new_offset ->
         (* read in slack at beginning which could include the header *)
         read_partial_sector t data_start_sector first_sector
           ~offset:0L ~length:data_start_sector_offset >>>= fun () ->
@@ -555,7 +570,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
           | Error _ as e -> e
         end >>>= fun (hdr, data_offset) ->
         let hdr = { hdr with Tar.Header.file_name = Mirage_kv.Key.to_string dest } in
-        write_header t Int64.(sub (mul data_offset (of_int Tar.Header.length)) (of_int Tar.Header.length)) hdr >>>= fun () ->
+        write_header t Int64.(sub (mul data_offset (of_int Tar.Header.length)) (of_int Tar.Header.length)) hdr >>>= fun _new_off ->
         t.map <- update_insert t.map dest hdr data_offset;
         t.map <- update_remove t.map source;
         Lwt_result.return ())
@@ -680,7 +695,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
             ~length:(sub sector_size last_sector_offset)
         end >>>= fun () ->
         write t to_zero_start_sector (Array.to_list data) >>>= fun () ->
-        write_header t header_start_bytes hdr >>>= fun () ->
+        write_header t header_start_bytes hdr >>>= fun _new_offset ->
         let tar_offset = div (sub t.end_of_archive (of_int Tar.Header.length)) (of_int Tar.Header.length) in
         t.end_of_archive <- end_bytes;
         t.map <- update_insert t.map key hdr tar_offset;
