@@ -16,20 +16,58 @@
 
 (** Lwt_unix I/O for tar-formatted data *)
 
-val really_read: Lwt_unix.file_descr -> bytes -> unit Lwt.t
-(** [really_read fd buf] fills [buf] with data from [fd] or fails
-    with {!Stdlib.End_of_file}. *)
+type decode_error = [
+  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Unix of Unix.error * string * string
+  | `Unexpected_end_of_file
+  | `Msg of string
+]
 
-val really_write: Lwt_unix.file_descr -> string -> unit Lwt.t
-(** [really_write fd buf] writes the full contents of [buf] to
-    [fd] or fails with {!Stdlib.End_of_file}. *)
+val pp_decode_error : Format.formatter -> decode_error -> unit
 
-val skip : Lwt_unix.file_descr -> int -> unit Lwt.t
-(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
-    should use [Lwt_unix.lseek fd n Lwt_unix.SEEK_CUR] instead. *)
+(** [fold f filename acc] folds over the tar archive. The function [f] is called
+    for each [hdr : Tar.Header.t]. It should forward the position in the file
+    descriptor by [hdr.Tar.Header.file_size]. *)
+val fold :
+  (Lwt_unix.file_descr -> ?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
+   ('a, decode_error) result Lwt.t) ->
+  string -> 'a -> ('a, decode_error) result Lwt.t
 
-(** Return the header needed for a particular file on disk. *)
-val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t Lwt.t
+(** [extract ~filter ~src dst] extracts the tar archive [src] into the
+    directory [dst]. If [dst] does not exist, it is created. If [filter] is
+    provided (defaults to [fun _ -> true]), any file where [filter hdr] returns
+    [false], is skipped. *)
+val extract :
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, decode_error) result Lwt.t
 
-module HeaderReader : Tar.HEADERREADER with type in_channel = Lwt_unix.file_descr and type 'a io = 'a Lwt.t
-module HeaderWriter : Tar.HEADERWRITER with type out_channel = Lwt_unix.file_descr and type 'a io = 'a Lwt.t
+(** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
+    [src], a directory name, as input. If [filter] is provided
+    (defaults to [fun _ -> true]), any file where [filter hdr] returns [false]
+    is skipped. *)
+val create : ?level:Tar.Header.compatibility ->
+  ?global:Tar.Header.Extended.t ->
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+
+(** [header_of_file ~level filename] returns the tar header of [filename]. *)
+val header_of_file : ?level:Tar.Header.compatibility -> string ->
+  (Tar.Header.t, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+
+(** [append_file ~level ~header filename fd] appends the contents of [filename]
+    to the tar archive [fd]. If [header] is not provided, {header_of_file} is
+    used for constructing a header. *)
+val append_file : ?level:Tar.Header.compatibility -> ?header:Tar.Header.t ->
+  string -> Lwt_unix.file_descr ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+
+(** [write_global_extended_header ~level hdr fd] writes the extended header [hdr] to
+    [fd]. *)
+val write_global_extended_header : ?level:Tar.Header.compatibility ->
+  Tar.Header.Extended.t -> Lwt_unix.file_descr ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+
+(** [write_end fd] writes the tar end marker to [fd]. *)
+val write_end : Lwt_unix.file_descr -> (unit, [ `Msg of string ]) result Lwt.t

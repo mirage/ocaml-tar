@@ -28,7 +28,7 @@ let safe_close fd =
 let read_complete fd buf len =
   let rec loop offset =
     if offset < len then
-      let* n = safe  (Unix.read fd buf offset) (len - offset) in
+      let* n = safe (Unix.read fd buf offset) (len - offset) in
       if n = 0 then
         Error `Unexpected_end_of_file
       else
@@ -136,7 +136,13 @@ let extract ?(filter = fun _ -> true) ~src dst =
         Fun.protect ~finally:(fun () -> safe_close dst)
           (fun () -> copy ~src_fd:fd ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size))
         (* TODO set owner / mode / mtime etc. *)
-      | _ -> Error (`Msg "not yet handled")
+      | _ ->
+        (* TODO handle directories, links, etc. *)
+        let* _off =
+          Result.map_error unix_err_to_msg
+            (seek fd (Int64.to_int hdr.Tar.Header.file_size))
+        in
+        Ok ()
     else
       let* _off =
         Result.map_error unix_err_to_msg
@@ -157,9 +163,25 @@ let header_of_file ?level file =
   (* TODO evaluate stat.st_kind *)
   let link_indicator = Tar.Header.Link.Normal in
   let link_name = "" in
-  let uname = if level = V7 then "" else (Unix.getpwuid stat.Unix.LargeFile.st_uid).Unix.pw_name in
+  let* uname =
+    if level = V7 then
+      Ok ""
+    else
+      try
+        let* passwd_entry = safe Unix.getpwuid stat.Unix.LargeFile.st_uid in
+        Ok passwd_entry.Unix.pw_name
+      with Not_found -> Error (`Msg ("No user entry found for UID"))
+  in
   let devmajor = if level = Ustar then stat.Unix.LargeFile.st_dev else 0 in
-  let gname = if level = V7 then "" else (Unix.getgrgid stat.Unix.LargeFile.st_gid).Unix.gr_name in
+  let* gname =
+    if level = V7 then
+      Ok ""
+    else
+      try
+        let* passwd_entry = safe Unix.getgrgid stat.Unix.LargeFile.st_gid in
+        Ok passwd_entry.Unix.gr_name
+      with Not_found -> Error (`Msg "No group entry found for GID")
+  in
   let devminor = if level = Ustar then stat.Unix.LargeFile.st_rdev else 0 in
   Ok (Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
         ~uname ~gname ~devmajor ~devminor file stat.Unix.LargeFile.st_size)
@@ -170,9 +192,9 @@ let append_file ?level ?header filename fd =
     | Some x -> Ok x
   in
   let* header_strings = Tar.encode_header ?level header in
-  let* _off =
+  let* _written =
     List.fold_left (fun acc d ->
-        let* _off = acc in
+        let* _written = acc in
         Result.map_error unix_err_to_msg
           (safe (Unix.write_substring fd d 0) (String.length d)))
       (Ok 0) header_strings
@@ -188,9 +210,9 @@ let append_file ?level ?header filename fd =
 
 let write_global_extended_header ?level header fd =
   let* header_strings = Tar.encode_global_extended_header ?level header in
-  let* _off =
+  let* _written =
     List.fold_left (fun acc d ->
-        let* _off = acc in
+        let* _written = acc in
         Result.map_error unix_err_to_msg
           (safe (Unix.write_substring fd d 0) (String.length d)))
       (Ok 0) header_strings
@@ -215,8 +237,7 @@ let create ?level ?global ?(filter = fun _ -> true) ~src dst =
     (fun () ->
        let* () = match global with
          | None -> Ok ()
-         | Some hdr ->
-           write_global_extended_header ?level hdr dst_fd
+         | Some hdr -> write_global_extended_header ?level hdr dst_fd
        in
        let rec copy_files directory =
          let* dir = safe Unix.opendir directory in

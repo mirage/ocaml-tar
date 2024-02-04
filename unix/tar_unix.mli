@@ -54,7 +54,7 @@ val create : ?level:Tar.Header.compatibility ->
 
 (** [header_of_file ~level filename] returns the tar header of [filename]. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string ->
-  (Tar.Header.t, [ `Unix of (Unix.error * string * string) ]) result
+  (Tar.Header.t, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
 
 (** [append_file ~level ~header filename fd] appends the contents of [filename]
     to the tar archive [fd]. If [header] is not provided, {header_of_file} is
