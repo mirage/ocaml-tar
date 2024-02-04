@@ -31,70 +31,15 @@ module Unix = struct
     if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
 
-let rec with_restart op fd buf off len =
-  try op fd buf off len with
-    Unix.Unix_error (Unix.EINTR,_,_) ->
-    with_restart op fd buf off len
-
-let really_read fd buf =
-  let len = Bytes.length buf in
-  let rec loop offset =
-    if offset < len then
-      let n = with_restart Unix.read fd buf offset (len - offset) in
-      if n = 0 then raise End_of_file;
-      loop (offset + n)
+let list filename =
+  let f fd ?global:_ hdr acc =
+    print_endline hdr.Tar.Header.file_name;
+    ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
+    Ok (hdr :: acc)
   in
-  loop 0
-
-let run_reader fd =
-  let rec loop ?b t acc =
-    let data = match b with
-      | None ->
-        let b = Bytes.create Tar.Header.length in
-        really_read fd b;
-        Bytes.unsafe_to_string b
-      | Some s -> s
-    in
-    match Tar.decode t data with
-    | Ok (t, Some `Header hdr, _global) ->
-      print_endline hdr.Tar.Header.file_name;
-      ignore (Unix.lseek fd
-                (Int64.to_int hdr.Tar.Header.file_size + Tar.Header.compute_zero_padding_length hdr)
-                Unix.SEEK_CUR);
-      loop t (hdr :: acc)
-    | Ok (t, Some `Skip n, _global) ->
-      ignore (Unix.lseek fd n Unix.SEEK_CUR);
-      loop t acc
-    | Ok (t, Some `Read n, _global) ->
-      let b = Bytes.create n in
-      really_read fd b;
-      let b = Bytes.unsafe_to_string b in
-      loop ~b t acc
-    | Ok (t, None, _global) ->
-      loop t acc
-    | Error `Eof -> List.rev acc
-    | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-  in
-  let t = Tar.decode_state () in
-  let r = loop t [] in
-  List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
-  r
-
-let list fd = run_reader fd
-(*  let rec loop global acc =
-    match Tar_unix.HeaderReader.read ~global fd with
-    | Ok (hdr, global) ->
-      print_endline hdr.Tar.Header.file_name;
-      Tar_unix.skip fd
-        (Int64.to_int hdr.Tar.Header.file_size + Tar.Header.compute_zero_padding_length hdr);
-      loop global (hdr :: acc)
-    | Error `Eof ->
-      List.rev acc
-    | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-  in
-  let r = loop None [] in
-  List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
-    r*)
+  match Tar_unix.fold f filename [] with
+  | Ok acc -> List.rev acc
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
 
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )
@@ -153,10 +98,8 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512
 
 let can_read_tar () =
   with_tar () @@ fun tar_filename files ->
-  let fd = Unix.openfile tar_filename [ O_RDONLY; O_CLOEXEC ] 0 in
-  let files' = List.map (fun t -> t.Tar.Header.file_name) (list fd) in
+  let files' = List.map (fun t -> t.Tar.Header.file_name) (list tar_filename) in
   flush stdout;
-  Unix.close fd;
   let missing = set_difference files files' in
   let missing' = set_difference files' files in
   Alcotest.(check (list string)) "missing" [] missing;
@@ -184,44 +127,31 @@ let can_write_pax () =
           (Unix.error_message e) f a
     ) ~finally:(fun () -> Unix.close fd);
   (* Read it back and verify the header was read *)
-  let fd = Unix.openfile filename [ O_RDONLY; O_CLOEXEC ] 0 in
-  Fun.protect
-    (fun () ->
-      match list fd with
-      | [ one ] -> Alcotest.(check int) "user_id" user_id one.Tar.Header.user_id
-      | xs -> Alcotest.failf "Headers = %a" (Fmt.list pp_header) xs
-    ) ~finally:(fun () -> Unix.close fd)
-
+  match list filename with
+  | [ one ] -> Alcotest.(check int) "user_id" user_id one.Tar.Header.user_id
+  | xs -> Alcotest.failf "Headers = %a" (Fmt.list pp_header) xs
 
 let can_list_longlink_tar () =
-  let fd = Unix.openfile "lib_test/long.tar" [ O_RDONLY; O_CLOEXEC ] 0o0 in
-  Fun.protect
-    (fun () ->
-      let all = list fd in
-      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
-      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
-      let expected = [
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
-      ] in
-      Alcotest.(check (list string)) "respects filenames" expected filenames
-    ) ~finally:(fun () -> Unix.close fd)
+  let all = list "lib_test/long.tar" in
+  let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+  (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+  let expected = [
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
+  ] in
+  Alcotest.(check (list string)) "respects filenames" expected filenames
 
 let can_list_long_pax_tar () =
-  let fd = Unix.openfile "lib_test/long-pax.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect
-    (fun () ->
-      let all = list fd in
-      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
-      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
-      let expected = [
-        "t/";
-        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggname";
-        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggglink";
-      ] in
-      Alcotest.(check (list string)) "respects filenames" expected filenames
-    ) ~finally:(fun () -> Unix.close fd)
+  let all = list "lib_test/long-pax.tar" in
+  let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+  (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+  let expected = [
+    "t/";
+    "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggname";
+    "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggglink";
+  ] in
+  Alcotest.(check (list string)) "respects filenames" expected filenames
 
 (* "pax-shenanigans.tar" is an archive with a regular file "placeholder" with a
    pax header "path=clearly/a/directory/". The resulting header has normal link
