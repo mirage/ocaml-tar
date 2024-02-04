@@ -63,6 +63,7 @@ val append_file : ?level:Tar.Header.compatibility -> ?header:Tar.Header.t ->
   string -> Lwt_unix.file_descr ->
   (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
 
+(** [write_header ~level hdr fd] writes the header [hdr] to [fd]. *)
 val write_header : ?level:Tar.Header.compatibility ->
   Tar.Header.t -> Lwt_unix.file_descr ->
   (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
