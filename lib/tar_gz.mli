@@ -1,4 +1,4 @@
-(*(*
+(*
  * Copyright (C) 2022 Romain Calascibetta <romain.calascibetta@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -72,4 +72,3 @@ module Make
   module HeaderWriter :
     Tar.HEADERWRITER with type out_channel = out_channel and type 'a io = 'a Async.t
 end
-      *)

@@ -275,25 +275,39 @@ let starts_with ~prefix s =
   in len_s >= len_pre && aux 0
 
 let can_transform_tar () =
-  (*
   let level = Tar.Header.Ustar in
   with_tar ~level () @@ fun tar_in _file_list ->
-  let fd_in = Unix.openfile tar_in [ O_RDONLY; O_CLOEXEC ] 0 in
   let tar_out = Filename.temp_file "tar-transformed" ".tar" in
   let fd_out = Unix.openfile tar_out [ O_WRONLY; O_CREAT; O_CLOEXEC ] 0o644 in
   with_tmpdir @@ fun temp_dir ->
-  Tar_unix.Archive.transform ~level (fun hdr ->
-      {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
-    fd_in fd_out;
-  Unix.close fd_in;
-  Unix.close fd_out;
-  let fd_in = Unix.openfile tar_out [ O_RDONLY; O_CLOEXEC ] 0 in
-  Tar_unix.Archive.with_next_file fd_in ~global:None (fun fd_file _global hdr ->
-      Alcotest.(check string) "Filename was transformed" temp_dir
-        (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
-      Tar_unix.skip fd_file (Int64.to_int hdr.file_size));
-  Unix.close fd_in
-     *) ()
+  let f fd ?global:_ hdr _ =
+    ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
+    let hdr =
+      { hdr with
+        Tar.Header.file_name = Filename.concat temp_dir hdr.file_name;
+        file_size = 0L
+      }
+    in
+    match Tar_unix.write_header ~level hdr fd_out with
+    | Ok () -> Ok ()
+    | Error _ -> Alcotest.fail "error writing header"
+  in
+  match Tar_unix.fold f tar_in () with
+  | Error e -> Alcotest.failf "error folding %a" Tar_unix.pp_decode_error e
+  | Ok () ->
+    match Tar_unix.write_end fd_out with
+    | Error _ -> Alcotest.fail "couldn't write end"
+    | Ok () ->
+      Unix.close fd_out;
+      let f fd ?global:_ hdr _ =
+        ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
+        Alcotest.(check string) "Filename was transformed" temp_dir
+          (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
+        Ok ()
+      in
+      match Tar_unix.fold f tar_out () with
+      | Error e -> Alcotest.failf "error folding2 %a" Tar_unix.pp_decode_error e
+      | Ok () -> ()
 
 module Block4096 = struct
   include Block
