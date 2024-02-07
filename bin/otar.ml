@@ -94,7 +94,6 @@ let list filename =
          let padding = Tar.Header.compute_zero_padding_length hdr in
          let data = Int64.to_int hdr.Tar.Header.file_size in
          let to_skip = data + padding in *)
-    let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
     Tar_gz.skip ic to_skip ;
     go global ()
     | Error `Eof -> ()
@@ -102,7 +101,10 @@ let list filename =
       Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
       exit 2
        *)
-    Ok ()
+    let open Tar in
+    let to_skip = Header.(Int64.to_int (to_sectors hdr) * length) in
+    let* _ = seek to_skip in
+    return (Ok ())
   in
   let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
   match Tar_unix.run (Tar_gz.gzipped (Tar.fold go ())) fd with
