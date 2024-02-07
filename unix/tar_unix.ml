@@ -58,8 +58,26 @@ let pp_decode_error ppf = function
   | `Msg msg ->
     Format.fprintf ppf "Error %s" msg
 
+module High : sig
+  type t
+  type 'a s = 'a
+
+    external inj : 'a s -> ('a, t) Tar.io = "%identity"
+    external prj : ('a, t) Tar.io -> 'a s = "%identity"
+end = struct
+  type t
+  type 'a s = 'a
+
+  external inj : 'a -> 'b = "%identity"
+  external prj : 'a -> 'b = "%identity"
+end
+
+type t = High.t
+
+let value v = Tar.High (High.inj v)
+
 let run t fd =
-  let rec run : type a. (a, _ as 'err) Tar.t -> (a, 'err) result = function
+  let rec run : type a. (a, _ as 'err, t) Tar.t -> (a, 'err) result = function
     | Tar.Read len ->
       let b = Bytes.make len '\000' in
       let* read = safe (Unix.read fd b 0) len in
@@ -74,10 +92,9 @@ let run t fd =
       begin match read_complete fd buf len with
       | Ok () -> Ok (Bytes.unsafe_to_string buf)
       | Error _ as err -> err end
-    | Tar.Seek len ->
-      seek fd len
-    | Tar.Return value ->
-      value
+    | Tar.Seek len -> seek fd len
+    | Tar.Return value -> value
+    | Tar.High value -> High.prj value
     | Tar.Bind (x, f) ->
       match run x with
       | Ok value -> run (f value)
@@ -88,63 +105,52 @@ let fold f filename init =
   let* fd = safe Unix.(openfile filename [ O_RDONLY ]) 0 in
   Fun.protect
     ~finally:(fun () -> safe_close fd)
-    (fun () -> run (Tar.fold (f fd) init) fd)
+    (fun () -> run (Tar.fold f init) fd)
 
 let unix_err_to_msg = function
   | `Unix (e, f, s) ->
     `Msg (Format.sprintf "error %s in function %s %s"
             (Unix.error_message e) f s)
 
-let copy ~src_fd ~dst_fd len =
+let copy ~dst_fd len =
   let blen = 65536 in
-  let buffer = Bytes.make blen '\000' in
-  let rec read_write ~src_fd ~dst_fd len =
-    if len = 0 then
-      Ok ()
+  let rec read_write ~dst_fd len =
+    let open Tar in
+    if len = 0 then Tar.return (Ok ())
     else
-      let l = min blen len in
-      let* () =
-        Result.map_error
-          (function
-            | `Unix _ as e -> unix_err_to_msg e
-            | `Unexpected_end_of_file ->
-              `Msg "Unexpected end of file")
-          (read_complete src_fd buffer l)
-      in
-      let* _written =
-        Result.map_error unix_err_to_msg
-          (safe (Unix.write dst_fd buffer 0) l)
-      in
-      read_write ~src_fd ~dst_fd (len - l)
+      let slen = min blen len in
+      let* str = really_read (min blen len) in
+      safe (Unix.write_substring dst_fd str 0) slen
+      |> Result.map_error unix_err_to_msg
+      |> function
+      | Ok _ -> read_write ~dst_fd (len - slen)
+      | Error _ as err -> return err
   in
-  read_write ~src_fd ~dst_fd len
+  read_write ~dst_fd len
 
 let extract ?(filter = fun _ -> true) ~src dst =
-  let f fd ?global:_ hdr () =
+  let f ?global:_ hdr () =
     if filter hdr then
       match hdr.Tar.Header.link_indicator with
       | Tar.Header.Link.Normal ->
-        let* dst =
-          Result.map_error unix_err_to_msg
+        begin match Result.map_error unix_err_to_msg
             (safe Unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name)
-                          [ O_WRONLY ; O_CREAT ]) hdr.Tar.Header.file_mode)
-        in
-        Fun.protect ~finally:(fun () -> safe_close dst)
-          (fun () -> copy ~src_fd:fd ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size))
+                          [ O_WRONLY ; O_CREAT ]) hdr.Tar.Header.file_mode) with
+        | Error _ as err -> Tar.return err
+        | Ok dst ->
+          try copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size)
+          with exn -> safe_close dst; Tar.return (Error (`Exn exn))
+        end
         (* TODO set owner / mode / mtime etc. *)
       | _ ->
         (* TODO handle directories, links, etc. *)
-        let* _off =
-          Result.map_error unix_err_to_msg
-            (seek fd (Int64.to_int hdr.Tar.Header.file_size))
-        in
-        Ok ()
+        let open Tar in
+        let* _off = seek (Int64.to_int hdr.Tar.Header.file_size) in
+        return (Ok ())
     else
-      let* _off =
-        Result.map_error unix_err_to_msg
-          (seek fd (Int64.to_int hdr.Tar.Header.file_size))
-      in
-      Ok ()
+      let open Tar in
+      let* _off = seek (Int64.to_int hdr.Tar.Header.file_size) in
+      Tar.return (Ok ())
   in
   fold f src ()
 
@@ -195,6 +201,29 @@ let write_strings fd datas =
 let write_header ?level header fd =
   let* header_strings = Tar.encode_header ?level header in
   write_strings fd header_strings
+
+let copy ~src_fd ~dst_fd len =
+  let blen = 65536 in
+  let buffer = Bytes.make blen '\000' in
+  let rec read_write ~src_fd ~dst_fd len =
+    if len = 0 then Ok ()
+    else
+      let l = min blen len in
+      let* () =
+        Result.map_error
+          (function
+             | `Unix _ as e -> unix_err_to_msg e
+             | `Unexpected_end_of_file ->
+               `Msg "Unexpected end of file")
+          (read_complete src_fd buffer l)
+      in
+      let* _written =
+        Result.map_error unix_err_to_msg
+          (safe (Unix.write dst_fd buffer 0) l)
+      in
+      read_write ~src_fd ~dst_fd (len - l)
+  in
+  read_write ~src_fd ~dst_fd len
 
 let append_file ?level ?header filename fd =
   let* header = match header with

@@ -23,16 +23,19 @@ type decode_error = [
   | `Msg of string
 ]
 
+type t
+
 val pp_decode_error : Format.formatter -> decode_error -> unit
 
-val run : ('a, [> decode_error ] as 'b) Tar.t -> Unix.file_descr -> ('a, 'b) result
+val run : ('a, [> decode_error ] as 'b, t) Tar.t -> Unix.file_descr -> ('a, 'b) result
+val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 
 (** [fold f filename acc] folds over the tar archive. The function [f] is called
     for each [hdr : Tar.Header.t]. It should forward the position in the file
     descriptor by [hdr.Tar.Header.file_size]. *)
 val fold :
-  (Unix.file_descr -> ?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
-   ('a, decode_error) result) ->
+  (?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
+   ('a, decode_error, t) Tar.t) ->
   string -> 'a -> ('a, decode_error) result
 
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
@@ -42,7 +45,7 @@ val fold :
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
-  (unit, decode_error) result
+  (unit, [> `Exn of exn | decode_error ]) result
 
 (** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
     [src], a directory name, as input. If [filter] is provided

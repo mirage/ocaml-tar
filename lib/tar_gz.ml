@@ -75,7 +75,7 @@ type decoder =
   ; mutable pos : int }
 
 let really_read_through_gz
-  : decoder -> bytes -> (unit, 'err) Tar.t
+  : decoder -> bytes -> (unit, 'err, _) Tar.t
   = fun ({ ic_buffer; oc_buffer; tp_length; _ } as state) res ->
     let open Tar in
     let rec until_full_or_end gz (res, res_off, res_len) =
@@ -121,20 +121,21 @@ let really_read_through_gz decoder len =
 
 type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 
-let seek_through_gz : decoder -> int -> (int, [> error ]) Tar.t = fun state len ->
+let seek_through_gz : decoder -> int -> (int, [> error ], _) Tar.t = fun state len ->
   let open Tar in
   let* _buf = really_read_through_gz state len in
   Tar.return (Ok 0 (* XXX(dinosaure): actually, [fold] ignores the result. *))
 
 let gzipped t =
-  let rec go : type a. decoder -> (a, [> error ] as 'err) Tar.t -> (a, 'err) Tar.t = fun decoder -> function
+  let rec go : type a. decoder -> (a, [> error ] as 'err, 't) Tar.t -> (a, 'err, 't) Tar.t = fun decoder -> function
     | Tar.Really_read len ->
       really_read_through_gz decoder len
     | Tar.Read _len -> assert false (* XXX(dinosaure): actually does not emit [Tar.Read]. *)
     | Tar.Seek len -> seek_through_gz decoder len
-    | Tar.Return v -> Tar.return v
+    | Tar.Return _ as ret -> ret
     | Tar.Bind (x, f) ->
-      Tar.Bind (go decoder x, (fun x -> go decoder (f x))) in
+      Tar.Bind (go decoder x, (fun x -> go decoder (f x)))
+    | Tar.High _ as high -> high in
   let decoder =
     let oc_buffer = De.bigstring_create 0x1000 in
     { gz= Gz.Inf.decoder `Manual ~o:oc_buffer

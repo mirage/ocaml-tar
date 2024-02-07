@@ -816,12 +816,15 @@ let encode_header ?level header =
 let encode_global_extended_header ?level global =
   encode_extended_header ?level `Global global
 
-type ('a, 'err) t =
-  | Really_read : int -> (string, 'err) t
-  | Read : int -> (string, 'err) t
-  | Seek : int -> (int, 'err) t
-  | Bind : ('a, 'err) t * ('a -> ('b, 'err) t) -> ('b, 'err) t
-  | Return : ('a, 'err) result -> ('a, 'err) t
+type ('a, 't) io
+
+type ('a, 'err, 't) t =
+  | Really_read : int -> (string, 'err, 't) t
+  | Read : int -> (string, 'err, 't) t
+  | Seek : int -> (int, 'err, 't) t
+  | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+  | Return : ('a, 'err) result -> ('a, 'err, 't) t
+  | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
 
 let ( let* ) x f = Bind (x, f)
 let return x = Return x
@@ -829,7 +832,7 @@ let really_read n = Really_read n
 let read n = Read n
 let seek n = Seek n
 
-type ('a, 'err) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err) result) -> 'a -> ('a, 'err) t
+type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 
 let fold f init =
   let rec go t ?global ?data acc =
@@ -839,7 +842,7 @@ let fold f init =
     match decode t data with
     | Ok (t, Some `Header hdr, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let* acc' = return (f ?global hdr acc) in
+      let* acc' = f ?global hdr acc in
       let* _off = seek (Header.compute_zero_padding_length hdr) in
       go t ?global acc'
     | Ok (t, Some `Skip n, g) ->

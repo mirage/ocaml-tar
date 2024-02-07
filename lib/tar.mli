@@ -173,19 +173,22 @@ val encode_global_extended_header : ?level:Header.compatibility -> Header.Extend
 
 (** {1 Pure implementation of [fold].} *)
 
-type ('a, 'err) t =
-  | Really_read : int -> (string, 'err) t
-  | Read : int -> (string, 'err) t
-  | Seek : int -> (int, 'err) t
-  | Bind : ('a, 'err) t * ('a -> ('b, 'err) t) -> ('b, 'err) t
-  | Return : ('a, 'err) result -> ('a, 'err) t
+type ('a, 't) io
 
-val really_read : int -> (string, _) t
-val read : int -> (string, _) t
-val seek : int -> (int, _) t
-val ( let* ) : ('a, 'err) t -> ('a -> ('b, 'err) t) -> ('b, 'err) t
-val return : ('a, 'err) result -> ('a, 'err) t
+type ('a, 'err, 't) t =
+  | Really_read : int -> (string, 'err, 't) t
+  | Read : int -> (string, 'err, 't) t
+  | Seek : int -> (int, 'err, 't) t
+  | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+  | Return : ('a, 'err) result -> ('a, 'err, 't) t
+  | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
 
-type ('a, 'err) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err) result) -> 'a -> ('a, 'err) t
+val really_read : int -> (string, _, _) t
+val read : int -> (string, _, _) t
+val seek : int -> (int, _, _) t
+val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+val return : ('a, 'err) result -> ('a, 'err, _) t
 
-val fold : ('a, [> `Fatal of error ]) fold
+type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
+
+val fold : ('a, [> `Fatal of error ], 't) fold

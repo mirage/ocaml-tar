@@ -60,9 +60,27 @@ let seek fd n =
 let safe_close fd =
   Lwt.catch (fun () -> Lwt_unix.close fd) (fun _ -> Lwt.return_unit)
 
+module High : sig
+  type t
+  type 'a s = 'a Lwt.t
+
+    external inj : 'a s -> ('a, t) Tar.io = "%identity"
+    external prj : ('a, t) Tar.io -> 'a s = "%identity"
+end = struct
+  type t
+  type 'a s = 'a Lwt.t
+
+  external inj : 'a -> 'b = "%identity"
+  external prj : 'a -> 'b = "%identity"
+end
+
+type t = High.t
+
+let value v = Tar.High (High.inj v)
+
 let run t fd =
   let open Lwt_result.Infix in
-  let rec run : type a. (a, [> decode_error ] as 'err) Tar.t -> (a, 'err) result Lwt.t = function
+  let rec run : type a. (a, [> decode_error ] as 'err, t) Tar.t -> (a, 'err) result Lwt.t = function
     | Tar.Read len ->
       let b = Bytes.make len '\000' in
       safe (Lwt_unix.read fd b 0) len >>= fun read ->
@@ -78,6 +96,7 @@ let run t fd =
       Bytes.unsafe_to_string buf
     | Tar.Seek len -> seek fd len
     | Tar.Return value -> Lwt.return value
+    | Tar.High value -> High.prj value
     | Tar.Bind (x, f) ->
       run x >>= fun value -> run (f value) in
   run t
@@ -86,7 +105,7 @@ let fold f filename init =
   let open Lwt_result.Infix in
   safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
   Lwt.finalize
-    (fun () -> run (Tar.fold (f fd) init) fd)
+    (fun () -> run (Tar.fold f init) fd)
     (fun () -> safe_close fd)
 
 let unix_err_to_msg = function
@@ -94,73 +113,52 @@ let unix_err_to_msg = function
     `Msg (Format.sprintf "error %s in function %s %s"
             (Unix.error_message e) f s)
 
-let copy ~src_fd ~dst_fd len =
+let copy ~dst_fd len =
   let open Lwt_result.Infix in
   let blen = 65536 in
-  let buffer = Bytes.make blen '\000' in
-  let rec read_write ~src_fd ~dst_fd len =
-    if len = 0 then
-      Lwt.return (Ok ())
+  let rec read_write ~dst_fd len =
+    if len = 0 then value (Lwt.return (Ok ()))
     else
-      let l = min blen len in
-      Lwt_result.map_error
-        (function
-          | `Unix _ as e -> unix_err_to_msg e
-          | `Unexpected_end_of_file ->
-            `Msg "Unexpected end of file")
-        (read_complete src_fd buffer l) >>= fun () ->
-      Lwt_result.map_error unix_err_to_msg
-        (safe (Lwt_unix.write dst_fd buffer 0) l) >>= fun _written ->
-      read_write ~src_fd ~dst_fd (len - l)
+      let open Tar in
+      let slen = min blen len in
+      let* str = Tar.really_read slen in
+      let* _written = Lwt_result.map_error unix_err_to_msg
+        (safe (Lwt_unix.write_string dst_fd str 0) slen) |> value in
+      read_write ~dst_fd (len - slen)
   in
-  read_write ~src_fd ~dst_fd len
+  read_write ~dst_fd len
 
 let extract ?(filter = fun _ -> true) ~src dst =
+  let safe_close fd =
+    let open Lwt.Infix in
+    Lwt.catch
+      (fun () -> Lwt_unix.close fd)
+      (fun _ -> Lwt.return_unit)
+    >|= Result.ok in
   let open Lwt_result.Infix in
-  let f fd hdr =
-    if filter hdr then
-      match hdr.Tar.Header.link_indicator with
-      | Tar.Header.Link.Normal ->
-        Lwt_result.map_error unix_err_to_msg
-          (safe Lwt_unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name)
-                            [ O_WRONLY ; O_CREAT ]) hdr.Tar.Header.file_mode) >>= fun dst ->
-        Lwt.finalize
-          (fun () -> copy ~src_fd:fd ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size))
-          (fun () -> safe_close dst)
-        (* TODO set owner / mode / mtime etc. *)
-      | _ ->
-        (* TODO handle directories, links, etc. *)
-        Lwt_result.map_error unix_err_to_msg
-          (seek fd (Int64.to_int hdr.Tar.Header.file_size)) >|= fun _off ->
-        ()
-    else
-      Lwt_result.map_error unix_err_to_msg
-        (seek fd (Int64.to_int hdr.Tar.Header.file_size)) >|= fun _off ->
-      ()
+  let f ?global:_ hdr () =
+    let open Tar in
+    match filter hdr, hdr.Tar.Header.link_indicator with
+    | true, Tar.Header.Link.Normal ->
+      let open Tar in
+      let* dst = Lwt_result.map_error
+        unix_err_to_msg
+        (safe Lwt_unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name) [ O_WRONLY; O_CREAT ]) hdr.Tar.Header.file_mode)
+        |> value in
+      begin try
+        let* () = copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size) in
+        let* () = value (safe_close dst) in
+        return (Ok ())
+      with exn ->
+        let* () = value (safe_close dst) in
+        return (Error (`Exn exn))
+      end
+    | _ ->
+      let open Tar in
+      let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      return (Ok ())
   in
-  (* XXX(dinosaure): the lwt logic to ignore the ['a Lwt.t]. *)
-  let open Lwt.Infix in
-  let queue = Queue.create () in
-  let f fd ?global:_ hdr () =
-    let th = f fd hdr in
-    Queue.add th queue;
-    Ok () in
-  let stop, do_stop = Lwt.task () in
-  let consume queue = match Queue.take_opt queue with
-    | Some th -> Lwt.return (`Thread th)
-    | None -> Lwt.return `Yield in
-  let rec join () =
-    Lwt.pick [ stop; consume queue ] >>= function
-    | `Stop -> Lwt.return_unit
-    | `Thread th -> th >>= fun _ -> join ()
-      (* TODO(dinosaure): we can do the yallop's trick and add a new kind of
-         value into [Tar.t] to express the ability to resolve an ['a Lwt.t]
-         value or we can as we do currently what we do here but we ignore all
-         errors from the user function. *)
-    | `Yield -> Lwt.pause () >>= join in
-  let fold () = fold f src () >|= fun acc ->
-    Lwt.wakeup do_stop `Stop; acc in
-  Lwt.both (fold ()) (join ()) >|= fun (acc, ()) -> acc
+  fold f src ()
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level file =
@@ -214,6 +212,27 @@ let write_header ?level header fd =
   let open Lwt_result.Infix in
   Lwt_result.lift (Tar.encode_header ?level header) >>= fun header_strings ->
   write_strings fd header_strings
+
+let copy ~src_fd ~dst_fd len =
+  let open Lwt_result.Infix in
+  let blen = 65536 in
+  let buffer = Bytes.make blen '\000' in
+  let rec read_write ~src_fd ~dst_fd len =
+    if len = 0 then
+      Lwt.return (Ok ())
+    else
+      let l = min blen len in
+      Lwt_result.map_error
+        (function
+          | `Unix _ as e -> unix_err_to_msg e
+          | `Unexpected_end_of_file ->
+            `Msg "Unexpected end of file")
+        (read_complete src_fd buffer l) >>= fun () ->
+      Lwt_result.map_error unix_err_to_msg
+        (safe (Lwt_unix.write dst_fd buffer 0) l) >>= fun _written ->
+      read_write ~src_fd ~dst_fd (len - l)
+  in
+  read_write ~src_fd ~dst_fd len
 
 let append_file ?level ?header filename fd =
   let open Lwt_result.Infix in
