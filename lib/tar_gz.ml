@@ -126,20 +126,13 @@ let seek_through_gz : decoder -> int -> (int, [> error ]) Tar.t = fun state len 
   let* _buf = really_read_through_gz state len in
   Tar.return (Ok 0 (* XXX(dinosaure): actually, [fold] ignores the result. *))
 
-type 'err run = { run : 'a 'err. ('a, 'err) Tar.t -> ('a, 'err) result } [@@unboxed]
-
-let fold_with_gz
-  : run:[> error ] run -> _ -> _ -> _
-  = fun ~run:{ run } f init ->
+let fold_with_gz f init =
   let rec go : type a. decoder -> (a, [> error ] as 'err) Tar.t -> (a, 'err) Tar.t = fun decoder -> function
     | Tar.Really_read len -> really_read_through_gz decoder len
     | Tar.Read _len -> assert false (* XXX(dinosaure): actually does not emit [Tar.Read]. *)
     | Tar.Seek len -> seek_through_gz decoder len
     | Tar.Return v -> Tar.return v
-    | Tar.Bind (x, f) ->
-      match run x with
-      | Ok value -> go decoder (f value)
-      | Error _ as err -> Tar.return err in
+    | Tar.Bind _ as bind -> bind in
   let decoder =
     let oc_buffer = De.bigstring_create 0x1000 in
     { gz= Gz.Inf.decoder `Manual ~o:oc_buffer
