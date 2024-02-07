@@ -17,7 +17,7 @@
 (** Unix I/O for tar-formatted data. *)
 
 type decode_error = [
-  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
   | `Msg of string

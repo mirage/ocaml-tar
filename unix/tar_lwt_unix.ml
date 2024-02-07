@@ -16,7 +16,7 @@
  *)
 
 type decode_error = [
-  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
   | `Msg of string
@@ -63,38 +63,18 @@ let safe_close fd =
 let fold f filename init =
   let open Lwt_result.Infix in
   safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
-  let rec go t fd ?global ?data acc =
-    (match data with
-     | None ->
-       let buf = Bytes.make Tar.Header.length '\000' in
-       read_complete fd buf Tar.Header.length >|= fun () ->
-       Bytes.unsafe_to_string buf
-     | Some data ->
-       Lwt.return (Ok data)) >>= fun data ->
-    match Tar.decode t data with
-    | Ok (t, Some `Header hdr, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      f fd ?global hdr acc >>= fun acc' ->
-      seek fd (Tar.Header.compute_zero_padding_length hdr) >>= fun _off ->
-      go t fd ?global acc'
-    | Ok (t, Some `Skip n, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      seek fd n >>= fun _off ->
-      go t fd ?global acc
-    | Ok (t, Some `Read n, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let buf = Bytes.make n '\000' in
-      read_complete fd buf n >>= fun () ->
-      let data = Bytes.unsafe_to_string buf in
-      go t fd ?global ~data acc
-    | Ok (t, None, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      go t fd ?global acc
-    | Error `Eof -> Lwt.return (Ok acc)
-    | Error `Fatal _ as e -> Lwt.return e
-  in
+  let rec run : type a. (a, [> decode_error ] as 'err) Tar.t -> (a, 'err) result Lwt.t = function
+    | Tar.Read _ -> assert false (* XXX(dinosaure): [Tar.fold] does not emit [Tar.Read]. *)
+    | Tar.Really_read len ->
+      let buf = Bytes.make len '\000' in
+      read_complete fd buf Tar.Header.length >|= fun () ->
+      Bytes.unsafe_to_string buf
+    | Tar.Seek len -> seek fd len
+    | Tar.Return value -> Lwt.return value
+    | Tar.Bind (x, f) ->
+      run x >>= fun value -> run (f value) in
   Lwt.finalize
-    (fun () -> go (Tar.decode_state ()) fd init)
+    (fun () -> run (Tar.fold (f fd) init))
     (fun () -> safe_close fd)
 
 let unix_err_to_msg = function
@@ -125,7 +105,7 @@ let copy ~src_fd ~dst_fd len =
 
 let extract ?(filter = fun _ -> true) ~src dst =
   let open Lwt_result.Infix in
-  let f fd ?global:_ hdr () =
+  let f fd hdr =
     if filter hdr then
       match hdr.Tar.Header.link_indicator with
       | Tar.Header.Link.Normal ->
@@ -146,7 +126,29 @@ let extract ?(filter = fun _ -> true) ~src dst =
         (seek fd (Int64.to_int hdr.Tar.Header.file_size)) >|= fun _off ->
       ()
   in
-  fold f src ()
+  (* XXX(dinosaure): the lwt logic to ignore the ['a Lwt.t]. *)
+  let open Lwt.Infix in
+  let queue = Queue.create () in
+  let f fd ?global:_ hdr () =
+    let th = f fd hdr in
+    Queue.add th queue;
+    Ok () in
+  let stop, do_stop = Lwt.task () in
+  let consume queue = match Queue.take_opt queue with
+    | Some th -> Lwt.return (`Thread th)
+    | None -> Lwt.return `Yield in
+  let rec join () =
+    Lwt.pick [ stop; consume queue ] >>= function
+    | `Stop -> Lwt.return_unit
+    | `Thread th -> th >>= fun _ -> join ()
+      (* TODO(dinosaure): we can do the yallop's trick and add a new kind of
+         value into [Tar.t] to express the ability to resolve an ['a Lwt.t]
+         value or we can as we do currently what we do here but we ignore all
+         errors from the user function. *)
+    | `Yield -> Lwt.pause () >>= join in
+  let fold () = fold f src () >|= fun acc ->
+    Lwt.wakeup do_stop `Stop; acc in
+  Lwt.both (fold ()) (join ()) >|= fun (acc, ()) -> acc
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level file =

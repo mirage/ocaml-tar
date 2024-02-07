@@ -14,6 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
+
+type 'err run = { run : 'a 'err. ('a, 'err) Tar.t -> ('a, 'err) result } [@@unboxed]
+
+val fold_with_gz : run:[> error ] run -> ('a, [> error]) Tar.fold
+
+(*
 module type READER = sig
   type in_channel
   type 'a io
@@ -72,3 +79,4 @@ module Make
   module HeaderWriter :
     Tar.HEADERWRITER with type out_channel = out_channel and type 'a io = 'a Async.t
 end
+*)

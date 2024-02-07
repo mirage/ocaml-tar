@@ -14,15 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-module type READER = sig
-  type in_channel
-  type 'a io
-  val read : in_channel -> bytes -> int io
-end
-
 external ba_get_int32_ne : De.bigstring -> int -> int32 = "%caml_bigstring_get32"
 external ba_set_int32_ne : De.bigstring -> int -> int32 -> unit = "%caml_bigstring_set32"
 
+(*
 let bigstring_to_string ?(off= 0) ?len ba =
   let len = match len with
     | Some len -> len
@@ -41,6 +36,7 @@ let bigstring_to_string ?(off= 0) ?len ba =
     Bytes.set res i v
   done;
   Bytes.unsafe_to_string res
+*)
 
 let bigstring_blit_string src ~src_off dst ~dst_off ~len =
   let len0 = len land 3 in
@@ -71,6 +67,89 @@ let bigstring_blit_bytes src ~src_off dst ~dst_off ~len =
     Bytes.set dst (dst_off + i) v
   done
 
+type decoder =
+  { mutable gz : Gz.Inf.decoder
+  ; ic_buffer : De.bigstring
+  ; oc_buffer : De.bigstring
+  ; tp_length : int
+  ; mutable pos : int }
+
+let really_read_through_gz
+  : decoder -> bytes -> (unit, 'err) Tar.t
+  = fun ({ ic_buffer; oc_buffer; tp_length; _ } as state) res ->
+    let open Tar in
+    let rec until_full_or_end gz (res, res_off, res_len) =
+      match Gz.Inf.decode gz with
+      | `Flush gz ->
+        let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
+        let len = min res_len max in
+        bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
+        if len < max
+        then ( state.pos <- len
+             ; state.gz <- gz
+             ; return (Ok ()) )
+        else until_full_or_end (Gz.Inf.flush gz) (res, res_off + len, res_len - len)
+      | `End gz ->
+        let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
+        let len = min res_len max in
+        bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
+        if res_len > len
+        then return (Error `Eof)
+        else ( state.pos <- len
+             ; state.gz <- gz
+             ; return (Ok ()) )
+      | `Await gz ->
+        let* tp_buffer = Tar.read tp_length in
+        let len = String.length tp_buffer in
+        bigstring_blit_string tp_buffer ~src_off:0 ic_buffer ~dst_off:0 ~len;
+        let gz = Gz.Inf.src gz ic_buffer 0 len in
+        until_full_or_end gz (res, res_off, res_len)
+      | `Malformed err -> return (Error (`Gz err)) in
+    let max = (De.bigstring_length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
+    let len = min (Bytes.length res) max in
+    bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len;
+    if len < max
+    then ( state.pos <- state.pos + len
+         ; return (Ok ()) )
+    else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
+
+let really_read_through_gz decoder len =
+  let open Tar in
+  let res = Bytes.create len in
+  let* () = really_read_through_gz decoder res in
+  Tar.return (Ok (Bytes.unsafe_to_string res))
+
+type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
+
+let seek_through_gz : decoder -> int -> (int, [> error ]) Tar.t = fun state len ->
+  let open Tar in
+  let* _buf = really_read_through_gz state len in
+  Tar.return (Ok 0 (* XXX(dinosaure): actually, [fold] ignores the result. *))
+
+type 'err run = { run : 'a 'err. ('a, 'err) Tar.t -> ('a, 'err) result } [@@unboxed]
+
+let fold_with_gz
+  : run:[> error ] run -> _ -> _ -> _
+  = fun ~run:{ run } f init ->
+  let rec go : type a. decoder -> (a, [> error ] as 'err) Tar.t -> (a, 'err) Tar.t = fun decoder -> function
+    | Tar.Really_read len -> really_read_through_gz decoder len
+    | Tar.Read _len -> assert false (* XXX(dinosaure): actually does not emit [Tar.Read]. *)
+    | Tar.Seek len -> seek_through_gz decoder len
+    | Tar.Return v -> Tar.return v
+    | Tar.Bind (x, f) ->
+      match run x with
+      | Ok value -> go decoder (f value)
+      | Error _ as err -> Tar.return err in
+  let decoder =
+    let oc_buffer = De.bigstring_create 0x1000 in
+    { gz= Gz.Inf.decoder `Manual ~o:oc_buffer
+    ; oc_buffer
+    ; ic_buffer= De.bigstring_create 0x1000
+    ; tp_length= 0x1000
+    ; pos= 0 } in
+  go decoder (Tar.fold f init)
+
+(*
 module Make
   (Async : Tar.ASYNC)
   (Writer : Tar.WRITER with type 'a io = 'a Async.t)
@@ -107,75 +186,6 @@ module Make
                go gz (str, str_off + len, str_len - len) ) in
       go gz (str, 0, String.length str)
   end
-
-  module Gz_reader = struct
-    type in_channel =
-      { mutable gz : Gz.Inf.decoder
-      ; ic_buffer : De.bigstring
-      ; oc_buffer : De.bigstring
-      ; tp_buffer : bytes
-      ; in_channel : Reader.in_channel
-      ; mutable pos : int }
-
-    type 'a io = 'a Async.t
-
-    let really_read
-      : in_channel -> bytes -> unit io
-      = fun ({ ic_buffer; oc_buffer; in_channel; tp_buffer; _ } as state) res ->
-        let rec until_full_or_end gz (res, res_off, res_len) =
-          match Gz.Inf.decode gz with
-          | `Flush gz ->
-            let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
-            let len = min res_len max in
-            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
-            if len < max
-            then ( state.pos <- len
-                 ; state.gz <- gz
-                 ; Async.return () )
-            else until_full_or_end (Gz.Inf.flush gz) (res, res_off + len, res_len - len)
-          | `End gz ->
-            let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
-            let len = min res_len max in
-            bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
-            if res_len > len
-            then raise End_of_file
-            else ( state.pos <- len
-                 ; state.gz <- gz
-                 ; Async.return () )
-          | `Await gz ->
-            Reader.read in_channel tp_buffer >>= fun len ->
-            bigstring_blit_string (Bytes.unsafe_to_string tp_buffer) ~src_off:0 ic_buffer ~dst_off:0 ~len;
-            let gz = Gz.Inf.src gz ic_buffer 0 len in
-            until_full_or_end gz (res, res_off, res_len)
-          | `Malformed err -> failwith ("gzip: " ^ err) in
-        let max = (De.bigstring_length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
-        let len = min (Bytes.length res) max in
-        bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len;
-        if len < max
-        then ( state.pos <- state.pos + len
-             ; Async.return () )
-        else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
-
-    let skip : in_channel -> int -> unit io = fun state len ->
-      let res = Bytes.create len in
-      really_read state res
-  end
-
-  module HeaderWriter = Tar.HeaderWriter (Async) (Gz_writer)
-  module HeaderReader = Tar.HeaderReader (Async) (Gz_reader)
-
-  type in_channel = Gz_reader.in_channel
-
-  let of_in_channel ~internal:oc_buffer in_channel =
-    { Gz_reader.gz= Gz.Inf.decoder `Manual ~o:oc_buffer
-    ; oc_buffer
-    ; ic_buffer= De.bigstring_create 0x1000
-    ; tp_buffer= Bytes.create 0x1000
-    ; in_channel
-    ; pos= 0 }
-
-  let really_read = Gz_reader.really_read
-  let skip = Gz_reader.skip
 
   type out_channel = Gz_writer.out_channel
 
@@ -230,3 +240,4 @@ module Make
        | `End _gz -> Async.return () in
    until_end (Gz.Def.src state.gz De.bigstring_empty 0 0)
 end
+*)

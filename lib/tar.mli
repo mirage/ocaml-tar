@@ -19,7 +19,7 @@
     {e %%VERSION%% - {{:%%PKG_HOMEPAGE%% }homepage}} *)
 
 (** The type of errors that may occur. *)
-type error = [`Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string]
+type error = [ `Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string ]
 
 (** [pp_error ppf e] pretty prints the error [e] on the formatter [ppf]. *)
 val pp_error : Format.formatter -> [< error] -> unit
@@ -123,7 +123,7 @@ module Header : sig
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?extended:Extended.t -> string -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
+  val unmarshal : ?extended:Extended.t -> string -> (t, [> `Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
   val marshal : ?level:compatibility -> bytes -> t -> (unit, [> `Msg of string ]) result
@@ -157,7 +157,7 @@ val decode_state : ?global:Header.Extended.t -> unit -> decode_state
     further decoding until [`Eof] (or an error) occurs. *)
 val decode : decode_state -> string ->
   (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
-   [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ])
+   [ `Eof | `Fatal of error ])
     result
 
 (** [encode_header ~level hdr] encodes the header with the provided [level]
@@ -170,3 +170,22 @@ val encode_header : ?level:Header.compatibility ->
 (** [encode_global_extended_header hdr] encodes the global extended header as
     a list of strings. *)
 val encode_global_extended_header : ?level:Header.compatibility -> Header.Extended.t -> (string list, [> `Msg of string ]) result
+
+(** {1 Pure implementation of [fold].} *)
+
+type ('a, 'err) t =
+  | Really_read : int -> (string, 'err) t
+  | Read : int -> (string, 'err) t
+  | Seek : int -> (int, 'err) t
+  | Bind : ('a, 'err) t * ('a -> ('b, 'err) t) -> ('b, 'err) t
+  | Return : ('a, 'err) result -> ('a, 'err) t
+
+val really_read : int -> (string, _) t
+val read : int -> (string, _) t
+val seek : int -> (int, _) t
+val ( let* ) : ('a, 'err) t -> ('a -> ('b, 'err) t) -> ('b, 'err) t
+val return : ('a, 'err) result -> ('a, 'err) t
+
+type ('a, 'err) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err) result) -> 'a -> ('a, 'err) t
+
+val fold : ('a, [> `Fatal of error ]) fold

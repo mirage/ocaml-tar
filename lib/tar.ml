@@ -815,3 +815,44 @@ let encode_header ?level header =
 
 let encode_global_extended_header ?level global =
   encode_extended_header ?level `Global global
+
+type ('a, 'err) t =
+  | Really_read : int -> (string, 'err) t
+  | Read : int -> (string, 'err) t
+  | Seek : int -> (int, 'err) t
+  | Bind : ('a, 'err) t * ('a -> ('b, 'err) t) -> ('b, 'err) t
+  | Return : ('a, 'err) result -> ('a, 'err) t
+
+let ( let* ) x f = Bind (x, f)
+let return x = Return x
+let really_read n = Really_read n
+let read n = Read n
+let seek n = Seek n
+
+type ('a, 'err) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err) result) -> 'a -> ('a, 'err) t
+
+let fold f init =
+  let rec go t ?global ?data acc =
+    let* data = match data with
+      | None -> really_read Header.length
+      | Some data -> return (Ok data) in
+    match decode t data with
+    | Ok (t, Some `Header hdr, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* acc' = return (f ?global hdr acc) in
+      let* _off = seek (Header.compute_zero_padding_length hdr) in
+      go t ?global acc'
+    | Ok (t, Some `Skip n, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* _off = seek n in
+      go t ?global acc
+    | Ok (t, Some `Read n, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* data = really_read n in
+      go t ?global ~data acc
+    | Ok (t, None, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      go t ?global acc
+    | Error `Eof -> return (Ok acc)
+    | Error `Fatal _ as e -> return e in
+  go (decode_state ()) init

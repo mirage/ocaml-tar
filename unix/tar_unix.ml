@@ -42,7 +42,7 @@ let seek fd n =
   safe (Unix.lseek fd n) Unix.SEEK_CUR
 
 type decode_error = [
-  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
   | `Msg of string
@@ -60,39 +60,22 @@ let pp_decode_error ppf = function
 
 let fold f filename init =
   let* fd = safe Unix.(openfile filename [ O_RDONLY ]) 0 in
-  let rec go t fd ?global ?data acc =
-    let* data = match data with
-      | None ->
-        let buf = Bytes.make Tar.Header.length '\000' in
-        let* () = read_complete fd buf Tar.Header.length in
-        Ok (Bytes.unsafe_to_string buf)
-      | Some data -> Ok data
-    in
-    match Tar.decode t data with
-    | Ok (t, Some `Header hdr, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let* acc' = f fd ?global hdr acc in
-      let* _off = seek fd (Tar.Header.compute_zero_padding_length hdr) in
-      go t fd ?global acc'
-    | Ok (t, Some `Skip n, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let* _off = seek fd n in
-      go t fd ?global acc
-    | Ok (t, Some `Read n, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let buf = Bytes.make n '\000' in
-      let* () = read_complete fd buf n in
-      let data = Bytes.unsafe_to_string buf in
-      go t fd ?global ~data acc
-    | Ok (t, None, g) ->
-      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      go t fd ?global acc
-    | Error `Eof -> Ok acc
-    | Error `Fatal _ as e -> e
-  in
+  let rec run : type a. (a, [> decode_error ] as 'err) Tar.t -> (a, 'err) result = function
+    | Tar.Read _ -> assert false (* XXX(dinosaure): [Tar.fold] does not emit [Tar.Read]. *)
+    | Tar.Really_read len ->
+      let buf = Bytes.make len '\000' in
+      begin match read_complete fd buf len with
+      | Ok () -> Ok (Bytes.unsafe_to_string buf)
+      | Error _ as err -> err end
+    | Tar.Seek len -> seek fd len
+    | Tar.Return value -> value
+    | Tar.Bind (x, f) ->
+      match run x with
+      | Ok value -> run (f value)
+      | Error _ as err -> err in
   Fun.protect
     ~finally:(fun () -> safe_close fd)
-    (fun () -> go (Tar.decode_state ()) fd init)
+    (fun () -> run (Tar.fold (f fd) init))
 
 let unix_err_to_msg = function
   | `Unix (e, f, s) ->

@@ -17,7 +17,7 @@
 (** Lwt_unix I/O for tar-formatted data *)
 
 type decode_error = [
-  | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ]
+  | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
   | `Msg of string
@@ -30,8 +30,8 @@ val pp_decode_error : Format.formatter -> decode_error -> unit
     descriptor by [hdr.Tar.Header.file_size]. *)
 val fold :
   (Lwt_unix.file_descr -> ?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
-   ('a, decode_error) result Lwt.t) ->
-  string -> 'a -> ('a, decode_error) result Lwt.t
+  ('a, [> decode_error ] as 'err) result) ->
+  string -> 'a -> ('a, 'err) result Lwt.t
 
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
     directory [dst]. If [dst] does not exist, it is created. If [filter] is
