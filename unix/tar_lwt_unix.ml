@@ -60,11 +60,18 @@ let seek fd n =
 let safe_close fd =
   Lwt.catch (fun () -> Lwt_unix.close fd) (fun _ -> Lwt.return_unit)
 
-let fold f filename init =
+let run t fd =
   let open Lwt_result.Infix in
-  safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
   let rec run : type a. (a, [> decode_error ] as 'err) Tar.t -> (a, 'err) result Lwt.t = function
-    | Tar.Read _ -> assert false (* XXX(dinosaure): [Tar.fold] does not emit [Tar.Read]. *)
+    | Tar.Read len ->
+      let b = Bytes.make len '\000' in
+      safe (Lwt_unix.read fd b 0) len >>= fun read ->
+      if read = 0 then
+        Lwt_result.fail `Unexpected_end_of_file
+      else if len = read then
+        Lwt_result.return (Bytes.unsafe_to_string b)
+      else
+        Lwt_result.return (Bytes.sub_string b 0 read)
     | Tar.Really_read len ->
       let buf = Bytes.make len '\000' in
       read_complete fd buf Tar.Header.length >|= fun () ->
@@ -73,8 +80,13 @@ let fold f filename init =
     | Tar.Return value -> Lwt.return value
     | Tar.Bind (x, f) ->
       run x >>= fun value -> run (f value) in
+  run t
+
+let fold f filename init =
+  let open Lwt_result.Infix in
+  safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
   Lwt.finalize
-    (fun () -> run (Tar.fold (f fd) init))
+    (fun () -> run (Tar.fold (f fd) init) fd)
     (fun () -> safe_close fd)
 
 let unix_err_to_msg = function

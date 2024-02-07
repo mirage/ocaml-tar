@@ -58,24 +58,37 @@ let pp_decode_error ppf = function
   | `Msg msg ->
     Format.fprintf ppf "Error %s" msg
 
-let fold f filename init =
-  let* fd = safe Unix.(openfile filename [ O_RDONLY ]) 0 in
-  let rec run : type a. (a, [> decode_error ] as 'err) Tar.t -> (a, 'err) result = function
-    | Tar.Read _ -> assert false (* XXX(dinosaure): [Tar.fold] does not emit [Tar.Read]. *)
+let run t fd =
+  let rec run : type a. (a, _ as 'err) Tar.t -> (a, 'err) result = function
+    | Tar.Read len ->
+      let b = Bytes.make len '\000' in
+      let* read = safe (Unix.read fd b 0) len in
+      if read = 0 then
+        Error `Unexpected_end_of_file
+      else if len = read then
+        Ok (Bytes.unsafe_to_string b)
+      else
+        Ok (Bytes.sub_string b 0 read)
     | Tar.Really_read len ->
       let buf = Bytes.make len '\000' in
       begin match read_complete fd buf len with
       | Ok () -> Ok (Bytes.unsafe_to_string buf)
       | Error _ as err -> err end
-    | Tar.Seek len -> seek fd len
-    | Tar.Return value -> value
+    | Tar.Seek len ->
+      seek fd len
+    | Tar.Return value ->
+      value
     | Tar.Bind (x, f) ->
       match run x with
       | Ok value -> run (f value)
       | Error _ as err -> err in
+  run t
+
+let fold f filename init =
+  let* fd = safe Unix.(openfile filename [ O_RDONLY ]) 0 in
   Fun.protect
     ~finally:(fun () -> safe_close fd)
-    (fun () -> run (Tar.fold (f fd) init))
+    (fun () -> run (Tar.fold (f fd) init) fd)
 
 let unix_err_to_msg = function
   | `Unix (e, f, s) ->

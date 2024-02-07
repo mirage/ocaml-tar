@@ -25,6 +25,8 @@ type decode_error = [
 
 val pp_decode_error : Format.formatter -> decode_error -> unit
 
+val run : ('a, [> decode_error ] as 'b) Tar.t -> Unix.file_descr -> ('a, 'b) result
+
 (** [fold f filename acc] folds over the tar archive. The function [f] is called
     for each [hdr : Tar.Header.t]. It should forward the position in the file
     descriptor by [hdr.Tar.Header.file_size]. *)

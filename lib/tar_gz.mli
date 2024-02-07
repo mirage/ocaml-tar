@@ -16,7 +16,7 @@
 
 type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 
-val fold_with_gz : ('a, [> error]) Tar.fold
+val gzipped : ('a, ([> error ] as 'err)) Tar.t -> ('a, 'err) Tar.t
 
 (*
 module type READER = sig

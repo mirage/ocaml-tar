@@ -13,23 +13,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-(*
+
 let () = Printexc.record_backtrace true
-
-module Tar_gz = Tar_gz.Make
-  (struct type 'a t = 'a
-          let ( >>= ) x f = f x
-          let return x = x end)
-  (struct type out_channel = Stdlib.out_channel
-          type 'a io = 'a
-          let really_write oc str =
-            output_string oc str end)
-  (struct type in_channel = Stdlib.in_channel
-          type 'a io = 'a
-          let read ic buf =
-            input ic buf 0 (Bytes.length buf)
-        end)
-
 
 let ( / ) = Filename.concat
 
@@ -44,6 +29,7 @@ let stream_of_fd fd =
 
 let always x = fun _ -> x
 
+(*
 let create_tarball directory oc =
   let files = Sys.readdir directory in
   let os = match Sys.os_type with
@@ -85,6 +71,7 @@ let make directory oc =
       let oc = open_out filename in
       oc, (fun () -> close_out oc), Filename.extension filename = ".gz" in
   create_tarball directory oc ; oc_close ()
+   *)
 
 let sizes = [| "B"; "KiB"; "MiB"; "GiB"; "TiB"; "PiB"; "EiB"; "ZiB"; "YiB" |]
 
@@ -97,36 +84,49 @@ let bytes_to_size ?(decimals = 2) ppf = function
       Format.fprintf ppf "%.*f %s" decimals r sizes.(int_of_float i)
 
 let list filename =
-  let ic = open_in filename in
-  let ic = Tar_gz.of_in_channel ~internal:(De.bigstring_create 0x1000) ic in
-  let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
-    | Ok (hdr, global) ->
-      Format.printf "%s (%s, %a)\n%!"
-        hdr.Tar.Header.file_name
-        (Tar.Header.Link.to_string hdr.link_indicator)
-        (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
-      (* Alternatively:
-           let padding = Tar.Header.compute_zero_padding_length hdr in
-           let data = Int64.to_int hdr.Tar.Header.file_size in
-           let to_skip = data + padding in *)
-      let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
-      Tar_gz.skip ic to_skip ;
-      go global ()
+  let go ?global:_ hdr () =
+    Format.printf "%s (%s, %a)\n%!"
+      hdr.Tar.Header.file_name
+      (Tar.Header.Link.to_string hdr.link_indicator)
+      (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
+    (*
+    (* Alternatively:
+         let padding = Tar.Header.compute_zero_padding_length hdr in
+         let data = Int64.to_int hdr.Tar.Header.file_size in
+         let to_skip = data + padding in *)
+    let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
+    Tar_gz.skip ic to_skip ;
+    go global ()
     | Error `Eof -> ()
     | Error `Fatal e ->
       Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
       exit 2
+       *)
+    Ok ()
   in
-  go None ()
+  let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
+  match Tar_unix.run (Tar_gz.gzipped (Tar.fold go ())) fd with
+  | Ok () -> ()
+  | Error (`Unix _) ->
+    Format.eprintf "Some UNIX error occurred.\n%!"
+  | Error (`Msg e) ->
+    Format.eprintf "Some error: %s.\n%!" e
+  | Error `Unexpected_end_of_file ->
+    Format.eprintf "Unexpected end of file.\n%!"
+  | Error `Eof | Error `Gz _ ->
+    Format.eprintf "Some fatal error occurred.\n%!"
+  | Error (`Fatal _) ->
+    Format.eprintf "Some fatal error occurred.\n%!"
 
 let () = match Sys.argv with
   | [| _; "list"; filename; |] when Sys.file_exists filename ->
     list filename
+      (*
   | [| _; directory |] when Sys.is_directory directory ->
     make directory None
   | [| _; directory; output |] when Sys.is_directory directory ->
     make directory (Some output)
+         *)
   | _ ->
     let cmd = Filename.basename Sys.argv.(0) in
     Format.eprintf "%s <directory> [<filename.tar.gz>]\n%s list <filename.tar.gz>\n" cmd cmd
-*)
