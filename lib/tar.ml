@@ -510,11 +510,12 @@ module Header = struct
   let checksum x : int64 =
     (* Sum of all the byte values of the header with the checksum field taken
        as 8 ' ' (spaces) *)
+    assert (String.length x >= length);
     let result = ref 0 in
     let in_checksum_range i =
       i >= hdr_chksum_off && i < hdr_chksum_off + sizeof_hdr_chksum
     in
-    for i = 0 to String.length x - 1 do
+    for i = 0 to length - 1 do
       let v =
         if in_checksum_range i then
           int_of_char ' '
@@ -577,6 +578,11 @@ module Header = struct
   (** Marshal a header block, computing and inserting the checksum *)
   let marshal ?level c (x: t) =
     let level = compatibility level in
+    let* () =
+      if Bytes.length c < length then
+        Error (`Msg "buffer too short")
+      else Ok ()
+    in
     (* The caller (e.g. write_block) is expected to insert the extra ././@LongLink header *)
     let* () =
       if String.length x.file_name > sizeof_hdr_file_name && level <> GNU then
