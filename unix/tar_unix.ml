@@ -58,6 +58,14 @@ let pp_decode_error ppf = function
   | `Msg msg ->
     Format.fprintf ppf "Error %s" msg
 
+(* XXX(dinosaure): This is a trick to pass from a value ['a] to a value
+   [('a, High.t) Tar.io]. It may seem that the code is "unsafe" but physically
+   the value remains the same (we mainly want to decorate the type of our value
+   with new information). For more information on this trick, it is well
+   described in this research paper:
+
+   https://www.cl.cam.ac.uk/~jdy22/papers/lightweight-higher-kinded-polymorphism.pdf
+*)
 module High : sig
   type t
   type 'a s = 'a

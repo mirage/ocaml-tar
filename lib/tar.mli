@@ -171,7 +171,17 @@ val encode_header : ?level:Header.compatibility ->
     a list of strings. *)
 val encode_global_extended_header : ?level:Header.compatibility -> Header.Extended.t -> (string list, [> `Msg of string ]) result
 
-(** {1 Pure implementation of [fold].} *)
+(** {1 Pure implementation of [fold].}
+
+    [fold] produces a [('a, 'err, 't) t] value which can be {b evaluated} by
+    a scheduler (such as [lwt] or [unix]). This value describe when we require
+    to [Read] (like {!val:Stdlib.input}), [Really_read] (like
+    {!val:Stdlib.really_read}) and [Seek] (like {!val:Stdlib.seek_in}).
+
+    We can compose these actions with [Bind], [Return] and [High]. The latter
+    allows you to use a value [('a, 't) io] that comes from the scheduler used -
+    so you can use an Lwt value (['a Lwt.t]) without depending on Lwt
+    ([('a, lwt) t]) at this stage. *)
 
 type ('a, 't) io
 
