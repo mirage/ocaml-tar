@@ -123,16 +123,16 @@ let unix_err_to_msg = function
 let copy ~dst_fd len =
   let blen = 65536 in
   let rec read_write ~dst_fd len =
-    let open Tar in
+    let ( let* ) = Tar.( let* ) in
     if len = 0 then Tar.return (Ok ())
     else
       let slen = min blen len in
-      let* str = really_read (min blen len) in
+      let* str = Tar.really_read (min blen len) in
       safe (Unix.write_substring dst_fd str 0) slen
       |> Result.map_error unix_err_to_msg
       |> function
       | Ok _ -> read_write ~dst_fd (len - slen)
-      | Error _ as err -> return err
+      | Error _ as err -> Tar.return err
   in
   read_write ~dst_fd len
 
@@ -152,12 +152,12 @@ let extract ?(filter = fun _ -> true) ~src dst =
         (* TODO set owner / mode / mtime etc. *)
       | _ ->
         (* TODO handle directories, links, etc. *)
-        let open Tar in
-        let* _off = seek (Int64.to_int hdr.Tar.Header.file_size) in
-        return (Ok ())
+        let ( let* ) = Tar.( let* ) in
+        let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+        Tar.return (Ok ())
     else
-      let open Tar in
-      let* _off = seek (Int64.to_int hdr.Tar.Header.file_size) in
+      let ( let* ) = Tar.( let* ) in
+      let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in
   fold f src ()

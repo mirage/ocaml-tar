@@ -114,12 +114,11 @@ let unix_err_to_msg = function
             (Unix.error_message e) f s)
 
 let copy ~dst_fd len =
-  let open Lwt_result.Infix in
   let blen = 65536 in
   let rec read_write ~dst_fd len =
     if len = 0 then value (Lwt.return (Ok ()))
     else
-      let open Tar in
+      let ( let* ) = Tar.( let* ) in
       let slen = min blen len in
       let* str = Tar.really_read slen in
       let* _written = Lwt_result.map_error unix_err_to_msg
@@ -135,12 +134,10 @@ let extract ?(filter = fun _ -> true) ~src dst =
       (fun () -> Lwt_unix.close fd)
       (fun _ -> Lwt.return_unit)
     >|= Result.ok in
-  let open Lwt_result.Infix in
   let f ?global:_ hdr () =
-    let open Tar in
+    let ( let* ) = Tar.( let* ) in
     match filter hdr, hdr.Tar.Header.link_indicator with
     | true, Tar.Header.Link.Normal ->
-      let open Tar in
       let* dst = Lwt_result.map_error
         unix_err_to_msg
         (safe Lwt_unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name) [ O_WRONLY; O_CREAT ]) hdr.Tar.Header.file_mode)
@@ -148,15 +145,14 @@ let extract ?(filter = fun _ -> true) ~src dst =
       begin try
         let* () = copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size) in
         let* () = value (safe_close dst) in
-        return (Ok ())
+        Tar.return (Ok ())
       with exn ->
         let* () = value (safe_close dst) in
-        return (Error (`Exn exn))
+        Tar.return (Error (`Exn exn))
       end
     | _ ->
-      let open Tar in
       let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
-      return (Ok ())
+      Tar.return (Ok ())
   in
   fold f src ()
 

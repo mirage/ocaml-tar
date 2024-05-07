@@ -46,24 +46,26 @@ let use_global_extended_headers _test_ctxt =
       let pp ppf hdr = Fmt.pf ppf "%s" (Tar.Header.Extended.to_detailed_string hdr) in
       Alcotest.testable (fun ppf hdr -> Fmt.pf ppf "%a" Fmt.(option pp) hdr) ( = )
     in
-    let f _fd ?global hdr idx =
+    let f ?global hdr idx =
+      let ( let* ) = Tar.( let* ) in
+      let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       match idx with
       | 0 ->
         Alcotest.check header "expected global header" (Some g0) global;
         Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
-        Ok 1
+        Tar.return (Ok 1)
       | 1 ->
         Alcotest.check header "expected global header" (Some g0) global;
         Alcotest.(check int) "expected user" 2000 hdr.Tar.Header.user_id;
-        Ok 2
+        Tar.return (Ok 2)
       | 2 ->
         Alcotest.check header "expected global header" (Some g0) global;
         Alcotest.(check int) "expected user" 1000 hdr.Tar.Header.user_id;
-        Ok 3
+        Tar.return (Ok 3)
       | 3 ->
         Alcotest.check header "expected global header" (Some g1) global;
         Alcotest.(check int) "expected user" 3000 hdr.Tar.Header.user_id;
-        Ok 4
+        Tar.return (Ok 4)
       | _ -> Alcotest.fail "too many headers"
     in
     match Tar_unix.fold f "test.tar" 0 with

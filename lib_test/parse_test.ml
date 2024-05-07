@@ -32,10 +32,11 @@ module Unix = struct
 end
 
 let list filename =
-  let f fd ?global:_ hdr acc =
+  let f ?global:_ hdr acc =
     print_endline hdr.Tar.Header.file_name;
-    ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
-    Ok (hdr :: acc)
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    Tar.return (Ok (hdr :: acc))
   in
   match Tar_unix.fold f filename [] with
   | Ok acc -> List.rev acc
@@ -44,7 +45,7 @@ let list filename =
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )
 
-let error = Alcotest.testable Tar.pp_error ( = )
+let error : Tar.error Alcotest.testable = Alcotest.testable Tar.pp_error ( = )
 
 let link = Alcotest.testable (Fmt.of_to_string Tar.Header.Link.to_string) ( = )
 
@@ -165,10 +166,12 @@ let can_list_long_pax_tar () =
    - Reynir
 *)
 let can_list_pax_implicit_dir () =
-  let f _fd ?global:_ hdr () =
+  let f ?global:_ hdr () =
     Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
     Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name;
-    Ok ()
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    Tar.return (Ok ())
   in
   match Tar_unix.fold f "lib_test/pax-shenanigans.tar" () with
   | Ok () -> ()
@@ -186,10 +189,12 @@ let can_list_pax_implicit_dir () =
      Tar.Header.marshal ~level (Cstruct.shift buf 1024) hdr;
      buf] *)
 let can_list_longlink_implicit_dir () =
-  let f _fd ?global:_ hdr () =
+  let f ?global:_ hdr () =
     Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
     Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name;
-    Ok ()
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    Tar.return (Ok ())
   in
   match Tar_unix.fold f "lib_test/long-implicit-dir.tar" () with
   | Ok () -> ()
@@ -210,8 +215,9 @@ let can_transform_tar () =
   let tar_out = Filename.temp_file "tar-transformed" ".tar" in
   let fd_out = Unix.openfile tar_out [ O_WRONLY; O_CREAT; O_CLOEXEC ] 0o644 in
   with_tmpdir @@ fun temp_dir ->
-  let f fd ?global:_ hdr _ =
-    ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
+  let f ?global:_ hdr _ =
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
     let hdr =
       { hdr with
         Tar.Header.file_name = Filename.concat temp_dir hdr.file_name;
@@ -219,7 +225,7 @@ let can_transform_tar () =
       }
     in
     match Tar_unix.write_header ~level hdr fd_out with
-    | Ok () -> Ok ()
+    | Ok () -> Tar.return (Ok ())
     | Error _ -> Alcotest.fail "error writing header"
   in
   match Tar_unix.fold f tar_in () with
@@ -229,11 +235,12 @@ let can_transform_tar () =
     | Error _ -> Alcotest.fail "couldn't write end"
     | Ok () ->
       Unix.close fd_out;
-      let f fd ?global:_ hdr _ =
-        ignore Unix.(lseek fd (Int64.to_int hdr.Tar.Header.file_size) SEEK_CUR);
+      let f ?global:_ hdr _ =
+        let ( let* ) = Tar.( let* ) in
+        let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Alcotest.(check string) "Filename was transformed" temp_dir
           (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
-        Ok ()
+        Tar.return (Ok ())
       in
       match Tar_unix.fold f tar_out () with
       | Error e -> Alcotest.failf "error folding2 %a" Tar_unix.pp_decode_error e
