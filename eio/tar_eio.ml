@@ -18,42 +18,63 @@
 
 open Eio
 
-module Monad = struct
-  type 'a t = 'a
-  let (>>=) a f = f a
-  let return = Fun.id
+module High : sig
+  type t
+  type 'a s = 'a
+
+  external inj : 'a s -> ('a, t) Tar.io = "%identity"
+  external prj : ('a, t) Tar.io -> 'a s = "%identity"
+end = struct
+  type t
+  type 'a s = 'a
+
+  external inj : 'a -> 'b = "%identity"
+  external prj : 'b -> 'a = "%identity"
 end
 
-module Io = struct
-  type in_channel = Flow.source
-  type 'a io = 'a
-  let really_read f b =
-    let len = Bytes.length b in
-    let cs = Cstruct.create len in
-    Flow.read_exact f cs;
-    Cstruct.blit_to_bytes cs 0 b 0 len
-  let skip f (n: int) =
-    let buffer_size = 32768 in
-    let buffer = Cstruct.create buffer_size in
-    let rec loop (n: int) =
-      if n <= 0 then ()
-      else
-        let amount = min n buffer_size in
-        let block = Cstruct.sub buffer 0 amount in
-        Flow.read_exact f block;
-        loop (n - amount) in
-    loop n
+type t = High.t
 
-  type out_channel = Flow.sink
-  let really_write f str = Flow.write f [ Cstruct.of_string str ]
-end
+let value v = Tar.High (High.inj v)
 
-let really_read = Flow.read_exact
-let skip = Io.skip
-let really_write f b = Flow.write f [ b ]
+let run t f =
+  let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
+    | Tar.Read len ->
+      let b = Cstruct.create len in
+      (match Flow.single_read f b with
+       | len ->
+         Ok (Cstruct.to_string ~len b)
+       | exception End_of_file ->
+         (* XXX: should we catch other exceptions?! *)
+         Error `Unexpected_end_of_file)
+    | Tar.Really_read len ->
+      let b = Cstruct.create len in
+      (try
+         Flow.read_exact f b;
+         Ok (Cstruct.to_string b)
+       with End_of_file -> Error `Unexpected_end_of_file)
+    | Tar.Seek n ->
+      let buffer_size = 32768 in
+      let buffer = Cstruct.create buffer_size in
+      let rec loop (n: int) =
+        if n <= 0 then Ok (-1) (* XXX: I dunno... *)
+        else
+          let amount = min n buffer_size in
+          let block = Cstruct.sub buffer 0 amount in
+          Flow.read_exact f block;
+          loop (n - amount) in
+      loop n
+    | Tar.Return value -> value
+    | Tar.High value -> High.prj value
+    | Tar.Bind (x, f) ->
+      match run x with
+      | Ok value -> run (f value)
+      | Error _ as err -> err in
+  run t
 
-module HeaderReader = Tar.HeaderReader(Monad)(Io)
-module HeaderWriter = Tar.HeaderWriter(Monad)(Io)
+let fold f filename init =
+  (* XXX(reynir): ??? *)
+  Eio.Path.with_open_in filename
+    (run (Tar.fold f init))
 
 (* Eio needs a non-file-opening stat. *)
 let stat path =
@@ -79,3 +100,28 @@ let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
   let devminor    = if level = Ustar then stat.rdev |> Int64.to_int else 0 in
   Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
                   ?uname ?gname ~devmajor ~devminor (snd filepath) file_size
+let extract ?filter:(_ = fun _ -> true) ~src:_ _dst =
+  (* TODO *)
+  failwith "TODO"
+
+let create ?level:_ ?global:_ ?filter:(_ = fun _ -> true) ~src:_ _dst =
+  (* TODO *)
+  failwith "TODO"
+
+let append_file ?level:_ ?header:_ _filename _dst =
+  (* TODO *)
+  failwith "TODO"
+
+let write_header ?level:_ _hdr _fl =
+  (* TODO *)
+  failwith "TODO"
+
+let write_global_extended_header ?level:_ _global _fl =
+  (* TODO *)
+  failwith "TODO"
+
+let write_end fl =
+  let zero_block = Cstruct.of_string Tar.Header.zero_block in
+  (* TODO: catch exceptions?! *)
+  Eio.Flow.write fl [ zero_block; zero_block ];
+  Ok ()
