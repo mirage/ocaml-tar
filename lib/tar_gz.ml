@@ -121,10 +121,10 @@ let really_read_through_gz decoder len =
 
 type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 
-let seek_through_gz : decoder -> int -> (int, [> error ], _) Tar.t = fun state len ->
+let seek_through_gz : decoder -> int -> (unit, [> error ], _) Tar.t = fun state len ->
   let open Tar in
   let* _buf = really_read_through_gz state len in
-  Tar.return (Ok 0 (* XXX(dinosaure): actually, [fold] ignores the result. *))
+  Tar.return (Ok ())
 
 let gzipped t =
   let rec go : type a. decoder -> (a, [> error ] as 'err, 't) Tar.t -> (a, 'err, 't) Tar.t = fun decoder -> function

@@ -56,6 +56,7 @@ let read_complete fd buf len =
 
 let seek fd n =
   safe (Lwt_unix.lseek fd n) Unix.SEEK_CUR
+  |> Lwt_result.map ignore
 
 let safe_close fd =
   Lwt.catch (fun () -> Lwt_unix.close fd) (fun _ -> Lwt.return_unit)
@@ -151,7 +152,7 @@ let extract ?(filter = fun _ -> true) ~src dst =
         Tar.return (Error (`Exn exn))
       end
     | _ ->
-      let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in
   fold f src ()

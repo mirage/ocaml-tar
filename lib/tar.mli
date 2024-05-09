@@ -181,21 +181,25 @@ val encode_global_extended_header : ?level:Header.compatibility -> Header.Extend
     We can compose these actions with [Bind], [Return] and [High]. The latter
     allows you to use a value [('a, 't) io] that comes from the scheduler used -
     so you can use an Lwt value (['a Lwt.t]) without depending on Lwt
-    ([('a, lwt) t]) at this stage. *)
+    ([('a, lwt) t]) at this stage.
+
+    For further informations, you can look at the paper about Lightweight
+    Higher Kind Polymorphism available
+    {{:https://www.cl.cam.ac.uk/~jdy22/papers/lightweight-higher-kinded-polymorphism.pdf} here}. *)
 
 type ('a, 't) io
 
 type ('a, 'err, 't) t =
   | Really_read : int -> (string, 'err, 't) t
   | Read : int -> (string, 'err, 't) t
-  | Seek : int -> (int, 'err, 't) t
+  | Seek : int -> (unit, 'err, 't) t
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
 
 val really_read : int -> (string, _, _) t
 val read : int -> (string, _, _) t
-val seek : int -> (int, _, _) t
+val seek : int -> (unit, _, _) t
 val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
 val return : ('a, 'err) result -> ('a, 'err, _) t
 

@@ -40,6 +40,7 @@ let read_complete fd buf len =
 
 let seek fd n =
   safe (Unix.lseek fd n) Unix.SEEK_CUR
+  |> Result.map ignore
 
 type decode_error = [
   | `Fatal of Tar.error
@@ -70,8 +71,8 @@ module High : sig
   type t
   type 'a s = 'a
 
-    external inj : 'a s -> ('a, t) Tar.io = "%identity"
-    external prj : ('a, t) Tar.io -> 'a s = "%identity"
+  external inj : 'a s -> ('a, t) Tar.io = "%identity"
+  external prj : ('a, t) Tar.io -> 'a s = "%identity"
 end = struct
   type t
   type 'a s = 'a
@@ -153,11 +154,11 @@ let extract ?(filter = fun _ -> true) ~src dst =
       | _ ->
         (* TODO handle directories, links, etc. *)
         let ( let* ) = Tar.( let* ) in
-        let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+        let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Tar.return (Ok ())
     else
       let ( let* ) = Tar.( let* ) in
-      let* _off = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in
   fold f src ()

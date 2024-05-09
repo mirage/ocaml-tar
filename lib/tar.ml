@@ -821,7 +821,7 @@ type ('a, 't) io
 type ('a, 'err, 't) t =
   | Really_read : int -> (string, 'err, 't) t
   | Read : int -> (string, 'err, 't) t
-  | Seek : int -> (int, 'err, 't) t
+  | Seek : int -> (unit, 'err, 't) t
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
@@ -843,11 +843,11 @@ let fold f init =
     | Ok (t, Some `Header hdr, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
       let* acc' = f ?global hdr acc in
-      let* _off = seek (Header.compute_zero_padding_length hdr) in
+      let* () = seek (Header.compute_zero_padding_length hdr) in
       go t ?global acc'
     | Ok (t, Some `Skip n, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-      let* _off = seek n in
+      let* () = seek n in
       go t ?global acc
     | Ok (t, Some `Read n, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
