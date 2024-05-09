@@ -44,7 +44,7 @@ val fold :
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
-  (unit, [> `Exn of exn | decode_error ]) result
+  (unit, [> `Exn of exn | `Msg of string | decode_error ]) result
 
 (** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
     [src], a directory name, as input. If [filter] is provided

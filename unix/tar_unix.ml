@@ -46,7 +46,6 @@ type decode_error = [
   | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
-  | `Msg of string
 ]
 
 let pp_decode_error ppf = function

@@ -56,7 +56,7 @@ let run t f =
       let buffer_size = 32768 in
       let buffer = Cstruct.create buffer_size in
       let rec loop (n: int) =
-        if n <= 0 then Ok (-1) (* XXX: I dunno... *)
+        if n <= 0 then Ok ()
         else
           let amount = min n buffer_size in
           let block = Cstruct.sub buffer 0 amount in
