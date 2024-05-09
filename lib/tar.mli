@@ -206,3 +206,6 @@ val return : ('a, 'err) result -> ('a, 'err, _) t
 type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 
 val fold : ('a, [> `Fatal of error ], 't) fold
+(** [fold f] is a [_ t] that reads an archive and executes [f] on each header.
+    [f] is expected to either read or skip the file contents, or return an
+    error. *)
