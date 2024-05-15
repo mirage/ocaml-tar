@@ -871,7 +871,7 @@ let rec writev = function
 let rec pipe stream =
   let* block = stream () in
   match block with
-  | Some str -> let* () = writev [ str ] in pipe stream
+  | Some str -> let* () = write str in pipe stream
   | None -> return (Ok ())
 
 type ('err, 't) content = unit -> (string option, 'err, 't) t
@@ -890,12 +890,12 @@ let out ?level hdr entries =
       | Ok sstr ->
         let* () = writev sstr in
         let* () = pipe stream in
-        let* () = writev [ Header.zero_padding hdr ] in
+        let* () = write (Header.zero_padding hdr)] in
         go ()
       | Error _ as err -> return err in
   match encode_header ?level hdr with
   | Error _ as err -> return err
   | Ok sstr ->
     let* () = writev sstr in
-    let* () = writev [ Header.zero_padding hdr ] in
+    let* () = write (Header.zero_padding hdr) in
     go ()
