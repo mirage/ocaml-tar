@@ -71,7 +71,7 @@ let use_global_extended_headers _test_ctxt =
     match Tar_unix.fold f "test.tar" 0 with
     | Ok 4 -> ()
     | Ok n -> Alcotest.failf "early abort, expected 4, received %u" n
-    | Error e -> Alcotest.failf "failed to read: %a" Tar_unix.pp_decode_error e
+    | Error e -> Alcotest.failf "failed to read: %a" Tar_unix.pp_error e
 
 let () =
   let suite = "tar - pax global extended headers", [

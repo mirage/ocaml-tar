@@ -16,17 +16,18 @@
 
 (** Unix I/O for tar-formatted data. *)
 
-type decode_error = [
+type error = [
   | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
+  | `Msg of string
 ]
 
 type t
 
-val pp_decode_error : Format.formatter -> decode_error -> unit
+val pp_error : Format.formatter -> error -> unit
 
-val run : ('a, [> decode_error ] as 'b, t) Tar.t -> Unix.file_descr -> ('a, 'b) result
+val run : ('a, [> error ] as 'b, t) Tar.t -> Unix.file_descr -> ('a, 'b) result
 val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 
 (** [fold f filename acc] folds over the tar archive. The function [f] is called
@@ -34,8 +35,8 @@ val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
     descriptor by [hdr.Tar.Header.file_size]. *)
 val fold :
   (?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
-   ('a, decode_error, t) Tar.t) ->
-  string -> 'a -> ('a, decode_error) result
+   ('a, error, t) Tar.t) ->
+  string -> 'a -> ('a, error) result
 
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
     directory [dst]. If [dst] does not exist, it is created. If [filter] is
@@ -44,7 +45,7 @@ val fold :
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
-  (unit, [> `Exn of exn | `Msg of string | decode_error ]) result
+  (unit, [> `Exn of exn | error ]) result
 
 (** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
     [src], a directory name, as input. If [filter] is provided

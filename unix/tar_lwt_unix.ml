@@ -82,6 +82,9 @@ let value v = Tar.High (High.inj v)
 let run t fd =
   let open Lwt_result.Infix in
   let rec run : type a. (a, [> decode_error ] as 'err, t) Tar.t -> (a, 'err) result Lwt.t = function
+    | Tar.Write str ->
+      safe (Lwt_unix.write_string fd str 0) (String.length str) >>= fun _write ->
+      Lwt_result.return ()
     | Tar.Read len ->
       let b = Bytes.make len '\000' in
       safe (Lwt_unix.read fd b 0) len >>= fun read ->

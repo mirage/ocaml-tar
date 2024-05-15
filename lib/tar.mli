@@ -196,12 +196,14 @@ type ('a, 'err, 't) t =
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
+  | Write : string -> (unit, 'err, 't) t
 
 val really_read : int -> (string, _, _) t
 val read : int -> (string, _, _) t
 val seek : int -> (unit, _, _) t
 val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
 val return : ('a, 'err) result -> ('a, 'err, _) t
+val write : string -> (unit, _, _) t
 
 type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 
@@ -209,3 +211,16 @@ val fold : ('a, [> `Fatal of error ], 't) fold
 (** [fold f] is a [_ t] that reads an archive and executes [f] on each header.
     [f] is expected to either read or skip the file contents, or return an
     error. *)
+
+type ('err, 't) content = unit -> (string option, 'err, 't) t
+type ('err, 't) entry = Header.compatibility option * Header.t * ('err, 't) content
+type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
+
+val out :
+     ?level:Header.compatibility
+  -> Header.t
+  -> ([> `Msg of string ] as 'err, 't) entries
+  -> (unit, 'err, 't) t
+(** [out hdr entries] is a [_ t] that writes [entries] into an archive. [hdr] is
+    the global header and each entry must come from a {!type:content} stream and
+    the associated header.*)

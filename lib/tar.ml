@@ -795,7 +795,7 @@ let encode_unextended_header ?level header =
 let encode_extended_header ?level scope hdr =
   let link_indicator, link_indicator_name = match scope with
     | `Per_file -> Header.Link.PerFileExtendedHeader, "paxheader"
-    | `Global ->Header.Link.GlobalExtendedHeader, "pax_global_header"
+    | `Global -> Header.Link.GlobalExtendedHeader, "pax_global_header"
     | _ -> assert false
   in
   let pax_payload = Header.Extended.marshal hdr in
@@ -825,12 +825,14 @@ type ('a, 'err, 't) t =
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
+  | Write : string -> (unit, 'err, 't) t
 
 let ( let* ) x f = Bind (x, f)
 let return x = Return x
 let really_read n = Really_read n
 let read n = Read n
 let seek n = Seek n
+let write str = Write str
 
 type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 
@@ -859,3 +861,41 @@ let fold f init =
     | Error `Eof -> return (Ok acc)
     | Error `Fatal _ as e -> return e in
   go (decode_state ()) init
+
+let rec writev = function
+  | [] -> return (Ok ())
+  | x :: r ->
+    let* () = write x in
+    writev r
+
+let rec pipe stream =
+  let* block = stream () in
+  match block with
+  | Some str -> let* () = writev [ str ] in pipe stream
+  | None -> return (Ok ())
+
+type ('err, 't) content = unit -> (string option, 'err, 't) t
+type ('err, 't) entry = Header.compatibility option * Header.t * ('err, 't) content
+type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
+
+let out ?level hdr entries =
+  let rec go () =
+    let* entry = entries () in
+    match entry with
+    | None ->
+      let* () = writev [ Header.zero_block; Header.zero_block ] in
+      return (Ok ())
+    | Some (level, hdr, stream) ->
+      match encode_header ?level hdr with
+      | Ok sstr ->
+        let* () = writev sstr in
+        let* () = pipe stream in
+        let* () = writev [ Header.zero_padding hdr ] in
+        go ()
+      | Error _ as err -> return err in
+  match encode_header ?level hdr with
+  | Error _ as err -> return err
+  | Ok sstr ->
+    let* () = writev sstr in
+    let* () = writev [ Header.zero_padding hdr ] in
+    go ()

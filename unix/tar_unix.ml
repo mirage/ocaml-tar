@@ -42,13 +42,14 @@ let seek fd n =
   safe (Unix.lseek fd n) Unix.SEEK_CUR
   |> Result.map ignore
 
-type decode_error = [
+type error = [
   | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
   | `Unexpected_end_of_file
+  | `Msg of string
 ]
 
-let pp_decode_error ppf = function
+let pp_error ppf = function
   | `Fatal err -> Tar.pp_error ppf err
   | `Unix (err, fname, arg) ->
     Format.fprintf ppf "Unix error %s (function %s, arg %s)"
@@ -86,6 +87,9 @@ let value v = Tar.High (High.inj v)
 
 let run t fd =
   let rec run : type a. (a, _ as 'err, t) Tar.t -> (a, 'err) result = function
+    | Tar.Write str ->
+      let* _write = safe (Unix.write_substring fd str 0) (String.length str) in
+      Ok ()
     | Tar.Read len ->
       let b = Bytes.make len '\000' in
       let* read = safe (Unix.read fd b 0) len in

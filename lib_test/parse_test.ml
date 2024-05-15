@@ -40,7 +40,7 @@ let list filename =
   in
   match Tar_unix.fold f filename [] with
   | Ok acc -> List.rev acc
-  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )
@@ -175,7 +175,7 @@ let can_list_pax_implicit_dir () =
   in
   match Tar_unix.fold f "lib_test/pax-shenanigans.tar" () with
   | Ok () -> ()
-  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 (* Sample tar generated with commit 1583f71ea33b2836d3fb996ac7dc35d55abe2777:
   [let buf =
@@ -198,7 +198,7 @@ let can_list_longlink_implicit_dir () =
   in
   match Tar_unix.fold f "lib_test/long-implicit-dir.tar" () with
   | Ok () -> ()
-  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_decode_error e
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 let starts_with ~prefix s =
   let len_s = String.length s
@@ -229,7 +229,7 @@ let can_transform_tar () =
     | Error _ -> Alcotest.fail "error writing header"
   in
   match Tar_unix.fold f tar_in () with
-  | Error e -> Alcotest.failf "error folding %a" Tar_unix.pp_decode_error e
+  | Error e -> Alcotest.failf "error folding %a" Tar_unix.pp_error e
   | Ok () ->
     match Tar_unix.write_end fd_out with
     | Error _ -> Alcotest.fail "couldn't write end"
@@ -243,7 +243,7 @@ let can_transform_tar () =
         Tar.return (Ok ())
       in
       match Tar_unix.fold f tar_out () with
-      | Error e -> Alcotest.failf "error folding2 %a" Tar_unix.pp_decode_error e
+      | Error e -> Alcotest.failf "error folding2 %a" Tar_unix.pp_error e
       | Ok () -> ()
 
 module Block4096 = struct
