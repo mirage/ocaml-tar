@@ -42,8 +42,9 @@ let create_tarball directory fd =
     | "Win32" -> Gz.NTFS (* XXX(dinosaure): true? *)
     | "Unix" | "Cygwin" | _ -> Gz.Unix in
   let mtime = Unix.gettimeofday () in
-  let hdr = Tar.Header.make ~file_mode:0o755
+  let dir_hdr = Tar.Header.make ~file_mode:0o755
     ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
+  let dir_entry = (None, dir_hdr, (fun () -> Tar.return (Ok None))) in
   let entries = Array.fold_left begin fun acc filename ->
     let stat        = Unix.LargeFile.stat (directory / filename) in
     match stat.st_kind with
@@ -58,10 +59,10 @@ let create_tarball directory fd =
         (directory / filename) stat.st_size in
       (level, hdr, contents_of_path (directory / filename)) :: acc
     | _ -> acc end [] files in
-  let entries = List.to_seq entries in
+  let entries = List.to_seq (dir_entry :: entries) in
   let entries = Seq.to_dispenser entries in
   let entries () = Tar.return (Ok (entries ())) in
-  let t = Tar.out ~level:Tar.Header.Ustar hdr entries in
+  let t = Tar.out ~level:Tar.Header.Ustar entries in
   let t = Tar_gz.out_gzipped ~level:4 ~mtime:(Int32.of_float mtime) os t in
   match Tar_unix.run t fd with
   | Ok () -> ()

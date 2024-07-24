@@ -218,7 +218,7 @@ type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
 
 val out :
      ?level:Header.compatibility
-  -> Header.t
+  -> ?global_hdr:Header.Extended.t
   -> ([> `Msg of string ] as 'err, 't) entries
   -> (unit, 'err, 't) t
 (** [out hdr entries] is a [_ t] that writes [entries] into an archive. [hdr] is

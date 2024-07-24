@@ -796,7 +796,6 @@ let encode_extended_header ?level scope hdr =
   let link_indicator, link_indicator_name = match scope with
     | `Per_file -> Header.Link.PerFileExtendedHeader, "paxheader"
     | `Global -> Header.Link.GlobalExtendedHeader, "pax_global_header"
-    | _ -> assert false
   in
   let pax_payload = Header.Extended.marshal hdr in
   let pax =
@@ -878,7 +877,7 @@ type ('err, 't) content = unit -> (string option, 'err, 't) t
 type ('err, 't) entry = Header.compatibility option * Header.t * ('err, 't) content
 type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
 
-let out ?level hdr entries =
+let out ?level ?global_hdr entries =
   let rec go () =
     let* entry = entries () in
     match entry with
@@ -890,12 +889,15 @@ let out ?level hdr entries =
       | Ok sstr ->
         let* () = writev sstr in
         let* () = pipe stream in
-        let* () = write (Header.zero_padding hdr)] in
+        let* () = write (Header.zero_padding hdr) in
         go ()
       | Error _ as err -> return err in
-  match encode_header ?level hdr with
-  | Error _ as err -> return err
-  | Ok sstr ->
-    let* () = writev sstr in
-    let* () = write (Header.zero_padding hdr) in
-    go ()
+  match global_hdr with
+  | None -> go ()
+  | Some hdr ->
+    (* [encode_extended_header] includes padding *)
+    match encode_extended_header ?level `Global hdr with
+    | Error _ as err -> return err
+    | Ok sstr ->
+      let* () = writev sstr in
+      go ()
