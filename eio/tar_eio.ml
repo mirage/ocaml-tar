@@ -36,8 +36,9 @@ type t = High.t
 
 let value v = Tar.High (High.inj v)
 
-let run t f =
+let run_read_only t f =
   let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
+    | Tar.Write _ -> assert false
     | Tar.Read len ->
       let b = Cstruct.create len in
       (match Flow.single_read f b with
@@ -74,7 +75,7 @@ let run t f =
 let fold f filename init =
   (* XXX(reynir): ??? *)
   Eio.Path.with_open_in filename
-    (run (Tar.fold f init))
+    (run_read_only (Tar.fold f init))
 
 (* Eio needs a non-file-opening stat. *)
 let stat path =

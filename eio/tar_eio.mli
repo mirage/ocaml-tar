@@ -20,14 +20,14 @@ type t
 
 val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 
-val run : ('a, [> `Unexpected_end_of_file] as 'b, t) Tar.t -> Eio.Flow.source -> ('a, 'b) result
+val run_read_only : ('a, [> `Unexpected_end_of_file] as 'b, t) Tar.t -> [> `R ] Eio.Flow.source -> ('a, 'b) result
 
 val fold :
   (?global:Tar.Header.Extended.t ->
    Tar.Header.t ->
    'a ->
    ('a, [> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b, t) Tar.t) ->
-  Eio.Fs.dir Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
   'a ->
   ('a, 'b) result
 
@@ -38,33 +38,33 @@ val header_of_file :
     ?level:Tar.Header.compatibility ->
     ?getpwuid:(int64 -> string) ->
     ?getgrgid:(int64 -> string) ->
-    Eio.Fs.dir Eio.Path.t ->
+    Eio.Fs.dir_ty Eio.Path.t ->
     Tar.Header.t
 
 val extract : ?filter:(Tar.Header.t -> bool) ->
-  src:Eio.Fs.dir Eio.Path.t ->
-  Eio.Fs.dir Eio.Path.t ->
+  src:Eio.Fs.dir_ty Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
   (unit, _) result
 
 val create : ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
-  src:Eio.Fs.dir Eio.Path.t ->
-  Eio.Fs.dir Eio.Path.t ->
+  src:Eio.Fs.dir_ty Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
   (unit, _) result
 
 val append_file : ?level:Tar.Header.compatibility ->
   ?header:Tar.Header.t ->
-  Eio.Fs.dir Eio.Path.t ->
-  Eio.Flow.sink ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  [> `W ] Eio.Flow.sink ->
   (unit, _) result
 
 val write_header : ?level:Tar.Header.compatibility ->
-  Tar.Header.t -> Eio.Flow.sink ->
+  Tar.Header.t -> [> `W ] Eio.Flow.sink ->
   (unit, _) result
 
 val write_global_extended_header : ?level:Tar.Header.compatibility ->
-  Tar.Header.Extended.t -> Eio.Flow.sink ->
+  Tar.Header.Extended.t -> [> `W ] Eio.Flow.sink ->
   (unit, _) result
 
-val write_end : Eio.Flow.sink -> (unit, _) result
+val write_end : [> `W ] Eio.Flow.sink -> (unit, _) result
