@@ -36,6 +36,12 @@ let contents_of_path path =
       Tar.return (Ok (Some str)) in
   dispenser
 
+let to_stream lst =
+  let lst = ref lst in
+  fun () -> match !lst with
+  | [] -> None
+  | x :: r -> lst := r; Some x
+
 let create_tarball directory fd =
   let files = Sys.readdir directory in
   let os = match Sys.os_type with
@@ -59,8 +65,7 @@ let create_tarball directory fd =
         (directory / filename) stat.st_size in
       (level, hdr, contents_of_path (directory / filename)) :: acc
     | _ -> acc end [] files in
-  let entries = List.to_seq (dir_entry :: entries) in
-  let entries = Seq.to_dispenser entries in
+  let entries = to_stream (dir_entry :: entries) in
   let entries () = Tar.return (Ok (entries ())) in
   let t = Tar.out ~level:Tar.Header.Ustar entries in
   let t = Tar_gz.out_gzipped ~level:4 ~mtime:(Int32.of_float mtime) os t in
