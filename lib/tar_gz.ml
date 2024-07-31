@@ -113,13 +113,13 @@ let in_gzipped t =
     = fun decoder -> function
     | Tar.Really_read len ->
       really_read_through_gz decoder len
-    | Tar.Read _len -> assert false (* XXX(dinosaure): actually does not emit [Tar.Read]. *)
+    | Tar.Read _len as v -> v
     | Tar.Seek len -> seek_through_gz decoder len
     | Tar.Return _ as ret -> ret
     | Tar.Bind (x, f) ->
       Tar.Bind (go decoder x, (fun x -> go decoder (f x)))
     | Tar.High _ as high -> high
-    | Tar.Write _ -> assert false in
+    | Tar.Write _ as v -> v in
   let decoder =
     let oc_buffer = De.bigstring_create 0x1000 in
     { gz= Gz.Inf.decoder `Manual ~o:oc_buffer
