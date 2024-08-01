@@ -141,7 +141,7 @@ let rec until_await oc_pos oc_buffer = function
     let max = De.bigstring_length oc_buffer - Gz.Def.dst_rem gz - oc_pos in
     let len = min 0x100 max in
     let res = Bytes.create len in
-    bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:0 ~len;
+    bigstring_blit_bytes oc_buffer ~src_off:oc_pos res ~dst_off:0 ~len;
     let* () = Tar.write (Bytes.unsafe_to_string res) in
     if len > 0 then until_await (oc_pos + len) oc_buffer state
     else
@@ -157,7 +157,7 @@ let rec until_end oc_pos oc_buffer = function
     let max = De.bigstring_length oc_buffer - Gz.Def.dst_rem gz - oc_pos in
     let len = min 0x100 max in
     let res = Bytes.create len in
-    bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:0 ~len;
+    bigstring_blit_bytes oc_buffer ~src_off:oc_pos res ~dst_off:0 ~len;
     let* () = Tar.write (Bytes.unsafe_to_string res) in
     if len > 0 then until_end (oc_pos + len) oc_buffer state
     else match state with
