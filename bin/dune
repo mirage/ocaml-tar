@@ -2,4 +2,4 @@
  (name otar)
  (public_name otar)
  (package tar-unix)
- (libraries unix tar.gz))
+ (libraries unix tar.gz tar_unix))

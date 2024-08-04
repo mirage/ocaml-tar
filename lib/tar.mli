@@ -19,7 +19,7 @@
     {e %%VERSION%% - {{:%%PKG_HOMEPAGE%% }homepage}} *)
 
 (** The type of errors that may occur. *)
-type error = [`Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string]
+type error = [ `Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string ]
 
 (** [pp_error ppf e] pretty prints the error [e] on the formatter [ppf]. *)
 val pp_error : Format.formatter -> [< error] -> unit
@@ -123,7 +123,7 @@ module Header : sig
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?extended:Extended.t -> string -> (t, [`Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
+  val unmarshal : ?extended:Extended.t -> string -> (t, [> `Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
   val marshal : ?level:compatibility -> bytes -> t -> (unit, [> `Msg of string ]) result
@@ -139,47 +139,88 @@ module Header : sig
   val to_sectors: t -> int64
 end
 
-module type ASYNC = sig
-  type 'a t
-  val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
-  val return: 'a -> 'a t
-end
+(** {1 Decoding and encoding of a whole archive} *)
 
-module type READER = sig
-  type in_channel
-  type 'a io
-  val really_read: in_channel -> bytes -> unit io
-  val skip: in_channel -> int -> unit io
-end
+(** The type of the decode state. *)
+type decode_state
 
-module type WRITER = sig
-  type out_channel
-  type 'a io
-  val really_write: out_channel -> string -> unit io
-end
+(** [decode_state ~global ()] constructs a decode_state. *)
+val decode_state : ?global:Header.Extended.t -> unit -> decode_state
 
-module type HEADERREADER = sig
-  type in_channel
-  type 'a io
+(** [decode t data] decodes [data] taking the current state [t] into account.
+    It may result on success in a new state, optionally some action that should
+    be done ([`Read] or [`Skip]), or a decoded [`Header]. Possibly a new global
+    PAX header is provided as well.
 
-  (** Returns the next header block or error [`Eof] if two consecutive
-      zero-filled blocks are discovered. Assumes stream is positioned at the
-      possible start of a header block.
-      @param global Holds the current global pax extended header, if
-        any. Needs to be given to the next call to [read]. *)
-  val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result io
-end
+    If no [`Read] or [`Skip] is returned, the new state should be used with
+    [decode] with the next [Header.length] sized string, which will lead to
+    further decoding until [`Eof] (or an error) occurs. *)
+val decode : decode_state -> string ->
+  (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
+   [ `Eof | `Fatal of error ])
+    result
 
-module type HEADERWRITER = sig
-  type out_channel
-  type 'a io
-  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
-  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
-end
+(** [encode_header ~level hdr] encodes the header with the provided [level]
+    (defaults to [V7]) into a list of strings to be written to the disk.
+    Once a header is written, the payload (padded to multiples of
+    [Header.length]) should follow. *)
+val encode_header : ?level:Header.compatibility ->
+  Header.t -> (string list, [> `Msg of string ]) result
 
-module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) :
-  HEADERREADER with type in_channel = Reader.in_channel and type 'a io = 'a Async.t
+(** [encode_global_extended_header hdr] encodes the global extended header as
+    a list of strings. *)
+val encode_global_extended_header : ?level:Header.compatibility -> Header.Extended.t -> (string list, [> `Msg of string ]) result
 
-module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) :
-  HEADERWRITER with type out_channel = Writer.out_channel and type 'a io = 'a Async.t
+(** {1 Pure implementation of [fold].}
+
+    [fold] produces a [('a, 'err, 't) t] value which can be {b evaluated} by
+    a scheduler (such as [lwt] or [unix]). This value describe when we require
+    to [Read] (like {!val:Stdlib.input}), [Really_read] (like
+    {!val:Stdlib.really_read}) and [Seek] (like {!val:Stdlib.seek_in}).
+
+    We can compose these actions with [Bind], [Return] and [High]. The latter
+    allows you to use a value [('a, 't) io] that comes from the scheduler used -
+    so you can use an Lwt value (['a Lwt.t]) without depending on Lwt
+    ([('a, lwt) t]) at this stage.
+
+    For further informations, you can look at the paper about Lightweight
+    Higher Kind Polymorphism available
+    {{:https://www.cl.cam.ac.uk/~jdy22/papers/lightweight-higher-kinded-polymorphism.pdf} here}. *)
+
+type ('a, 't) io
+
+type ('a, 'err, 't) t =
+  | Really_read : int -> (string, 'err, 't) t
+  | Read : int -> (string, 'err, 't) t
+  | Seek : int -> (unit, 'err, 't) t
+  | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+  | Return : ('a, 'err) result -> ('a, 'err, 't) t
+  | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
+  | Write : string -> (unit, 'err, 't) t
+
+val really_read : int -> (string, _, _) t
+val read : int -> (string, _, _) t
+val seek : int -> (unit, _, _) t
+val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+val return : ('a, 'err) result -> ('a, 'err, _) t
+val write : string -> (unit, _, _) t
+
+type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
+
+val fold : ('a, [> `Fatal of error ], 't) fold
+(** [fold f] is a [_ t] that reads an archive and executes [f] on each header.
+    [f] is expected to either read or skip the file contents, or return an
+    error. *)
+
+type ('err, 't) content = unit -> (string option, 'err, 't) t
+type ('err, 't) entry = Header.compatibility option * Header.t * ('err, 't) content
+type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
+
+val out :
+     ?level:Header.compatibility
+  -> ?global_hdr:Header.Extended.t
+  -> ([> `Msg of string ] as 'err, 't) entries
+  -> (unit, 'err, 't) t
+(** [out hdr entries] is a [_ t] that writes [entries] into an archive. [hdr] is
+    the global header and each entry must come from a {!type:content} stream and
+    the associated header.*)

@@ -667,230 +667,243 @@ module Header = struct
     Int64.(div (add (pred (of_int length)) x.file_size) (of_int length))
 end
 
-module type ASYNC = sig
-  type 'a t
-  val ( >>= ): 'a t -> ('a -> 'b t) -> 'b t
-  val return: 'a -> 'a t
-end
-
-module type READER = sig
-  type in_channel
-  type 'a io
-  val really_read: in_channel -> bytes -> unit io
-  val skip: in_channel -> int -> unit io
-end
-
-module type WRITER = sig
-  type out_channel
-  type 'a io
-  val really_write: out_channel -> string -> unit io
-end
-
-module type HEADERREADER = sig
-  type in_channel
-  type 'a io
-  val read : global:Header.Extended.t option -> in_channel ->
-    (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result io
-end
-
-module type HEADERWRITER = sig
-  type out_channel
-  type 'a io
-  val write : ?level:Header.compatibility -> Header.t -> out_channel -> (unit, [> `Msg of string ]) result io
-  val write_global_extended_header : Header.Extended.t -> out_channel -> (unit, [> `Msg of string ]) result io
-end
-
 let longlink = "././@LongLink"
 
-module HeaderReader(Async: ASYNC)(Reader: READER with type 'a io = 'a Async.t) = struct
-  open Async
-  open Reader
+let fix_link_indicator x =
+  (* For backward compatibility we treat normal files ending in slash as
+     directories. Because [Link.of_char] treats unrecognized link indicator
+     values as normal files we check directly. This is not completely correct
+     as [Header.Link.of_char] turns unknown link indicators into
+     [Header.Link.Normal]. Ideally, it should only be done for '0' and
+     '\000'. *)
+  if String.length x.Header.file_name > 0
+  && x.file_name.[String.length x.file_name - 1] = '/'
+  && x.link_indicator = Header.Link.Normal then
+    { x with link_indicator = Header.Link.Directory }
+  else
+    x
 
-  type in_channel = Reader.in_channel
-  type 'a io = 'a t
+type decode_state = {
+  global : Header.Extended.t option;
+  state : [ `Active of bool
+          | `Global_extended_header of Header.t
+          | `Per_file_extended_header of Header.t
+          | `Real_header of Header.Extended.t
+          | `Next_longlink of Header.t ];
+  next_longlink : string option ;
+  next_longname : string option
+}
 
-  (* This is not a bind, but more a lift and bind combined. *)
-  let ( let^* ) x f =
-    match x with
-    | Ok x -> f x
-    | Error _ as e -> return e
+let decode_state ?global () =
+  { global ; state = `Active false ; next_longlink = None ; next_longname = None }
 
-  let fix_link_indicator x =
-    (* For backward compatibility we treat normal files ending in slash as
-       directories. Because [Link.of_char] treats unrecognized link indicator
-       values as normal files we check directly. This is not completely correct
-       as [Header.Link.of_char] turns unknown link indicators into
-       [Header.Link.Normal]. Ideally, it should only be done for '0' and
-       '\000'. *)
-    if String.length x.Header.file_name > 0
-    && x.file_name.[String.length x.file_name - 1] = '/'
-    && x.link_indicator = Header.Link.Normal then
-      { x with link_indicator = Header.Link.Directory }
+let construct_header t (hdr : Header.t) =
+  let hdr = Option.fold ~none:hdr ~some:(fun file_name -> { hdr with file_name }) t.next_longname in
+  let hdr = Option.fold ~none:hdr ~some:(fun link_name -> { hdr with link_name }) t.next_longlink in
+  let hdr = fix_link_indicator hdr in
+  { t with next_longlink = None ; next_longname = None ; state = `Active false },
+  hdr
+
+let decode t data =
+  match t.state with
+  | `Global_extended_header x ->
+    let* global =
+      (* unmarshal merges the previous global (if any) with the
+         discovered global (if any) and returns the new global. *)
+      Result.map_error (fun e -> `Fatal e)
+        (Header.Extended.unmarshal ~global:t.global data)
+    in
+    Ok ({ t with global = Some global ; state = `Active false },
+        Some (`Skip (Header.compute_zero_padding_length x)),
+        Some global)
+  | `Per_file_extended_header x ->
+    let* extended =
+      Result.map_error
+        (fun e -> `Fatal e)
+        (Header.Extended.unmarshal ~global:t.global data)
+    in
+    Ok ({ t with state = `Real_header extended },
+        Some (`Skip (Header.compute_zero_padding_length x)),
+        None)
+  | `Real_header extended ->
+    let* x =
+      Result.map_error
+        (fun _ -> `Fatal `Corrupt_pax_header) (* NB better error *)
+        (Header.unmarshal ~extended data)
+    in
+    let t, hdr = construct_header t x in
+    Ok (t, Some (`Header hdr), None)
+  | `Next_longlink x ->
+    let name = String.sub data 0 (String.length data - 1) in
+    let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else t.next_longlink in
+    let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else t.next_longname in
+    Ok ({ t with next_longlink ; next_longname ; state = `Active false },
+        Some (`Skip (Header.compute_zero_padding_length x)),
+        None)
+  | `Active read_zero ->
+    match Header.unmarshal ?extended:t.global data with
+    | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
+      Ok ({ t with state = `Global_extended_header x },
+          Some (`Read (Int64.to_int x.Header.file_size)),
+          None)
+    | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
+      Ok ({ t with state = `Per_file_extended_header x },
+          Some (`Read (Int64.to_int x.Header.file_size)),
+          None)
+    | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
+      Ok ({ t with state = `Next_longlink x },
+          Some (`Read (Int64.to_int x.Header.file_size)),
+          None)
+    | Ok x ->
+      let t, hdr = construct_header t x in
+      Ok (t, Some (`Header hdr), None)
+    | Error `Zero_block ->
+      if read_zero then
+        Error `Eof
+      else
+        Ok ({ t with state = `Active true }, None, None)
+    | Error ((`Checksum_mismatch | `Unmarshal _) as e) ->
+      Error (`Fatal e)
+
+let encode_long level link_indicator payload =
+  let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
+  let payload = payload ^ "\000" in
+  let file_size = String.length payload in
+  let blank = {blank with Header.file_size = Int64.of_int file_size} in
+  let buffer = Bytes.make Header.length '\000' in
+  let* () = Header.marshal ~level buffer { blank with link_indicator } in
+  Ok [ Bytes.unsafe_to_string buffer ; payload ; Header.zero_padding blank ]
+
+let encode_unextended_header ?level header =
+  let level = Header.compatibility level in
+  let* pre =
+    if level = Header.GNU then
+      let* longlink =
+        if String.length header.Header.link_name > Header.sizeof_hdr_link_name then
+          encode_long level Header.Link.LongLink header.Header.link_name
+        else
+          Ok []
+      in
+      let* longname =
+        if String.length header.Header.file_name > Header.sizeof_hdr_file_name then
+          encode_long level Header.Link.LongName header.Header.file_name
+        else
+          Ok []
+      in
+      Ok (longlink @ longname)
     else
-      x
+      Ok []
+  in
+  let buffer = Bytes.make Header.length '\000' in
+  let* () = Header.marshal ~level buffer header in
+  Ok (pre @ [ Bytes.unsafe_to_string buffer ])
 
-  let read ~global (ifd: Reader.in_channel) : (Header.t * Header.Extended.t option, [ `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
-    (* We might need to read 2 headers at once if we encounter a Pax header *)
-    let buffer = Bytes.make Header.length '\000' in
-    let real_header_buf = Bytes.make Header.length '\000' in
+let encode_extended_header ?level scope hdr =
+  let link_indicator, link_indicator_name = match scope with
+    | `Per_file -> Header.Link.PerFileExtendedHeader, "paxheader"
+    | `Global -> Header.Link.GlobalExtendedHeader, "pax_global_header"
+  in
+  let pax_payload = Header.Extended.marshal hdr in
+  let pax =
+    Header.make ~link_indicator link_indicator_name
+      (Int64.of_int @@ String.length pax_payload)
+  in
+  let* pax_hdr = encode_unextended_header ?level pax in
+  Ok (pax_hdr @ [ pax_payload ; Header.zero_padding pax ])
 
-    let next_block global () =
-      really_read ifd buffer >>= fun () ->
-      return (Header.unmarshal ?extended:global (Bytes.unsafe_to_string buffer))
-    in
+let encode_header ?level header =
+  let* extended =
+    Option.fold ~none:(Ok []) ~some:(encode_extended_header ?level `Per_file) header.Header.extended
+  in
+  let* rest = encode_unextended_header ?level header in
+  Ok (extended @ rest)
 
-    let rec get_hdr ~next_longname ~next_longlink global () : (Header.t * Header.Extended.t option, [> `Eof | `Fatal of [ `Checksum_mismatch | `Corrupt_pax_header | `Unmarshal of string ] ]) result t =
-      next_block global () >>= function
-      | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
-        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
-        really_read ifd extra_header_buf >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
-        (* unmarshal merges the previous global (if any) with the
-           discovered global (if any) and returns the new global. *)
-        let^* global =
-          Result.map_error
-            (fun e -> `Fatal e)
-            (Header.Extended.unmarshal ~global (Bytes.unsafe_to_string extra_header_buf))
-        in
-        get_hdr ~next_longname ~next_longlink (Some global) ()
-      | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
-        let extra_header_buf = Bytes.make (Int64.to_int x.Header.file_size) '\000' in
-        really_read ifd extra_header_buf >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
-        let^* extended =
-          Result.map_error
-            (fun e -> `Fatal e)
-            (Header.Extended.unmarshal ~global (Bytes.unsafe_to_string extra_header_buf))
-        in
-        really_read ifd real_header_buf >>= fun () ->
-        let^* x =
-          Result.map_error
-            (fun _ -> `Fatal `Corrupt_pax_header)
-            (Header.unmarshal ~extended (Bytes.unsafe_to_string real_header_buf))
-        in
-        let x = fix_link_indicator x in
-        return (Ok (x, global))
-      | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
-        let extra_header_buf = Bytes.create (Int64.to_int x.Header.file_size) in
-        really_read ifd extra_header_buf >>= fun () ->
-        skip ifd (Header.compute_zero_padding_length x) >>= fun () ->
-        let name = String.sub (Bytes.unsafe_to_string extra_header_buf) 0 (Bytes.length extra_header_buf - 1) in
-        let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else next_longlink in
-        let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else next_longname in
-        get_hdr ~next_longname ~next_longlink global ()
-      | Ok x ->
-        (* XXX: unclear how/if pax headers should interact with gnu extensions *)
-        let x = match next_longname with
-          | None -> x
-          | Some file_name -> { x with file_name }
-        in
-        let x = match next_longlink with
-          | None -> x
-          | Some link_name -> { x with link_name }
-        in
-        let x = fix_link_indicator x in
-        return (Ok (x, global))
-      | Error `Zero_block ->
-        begin
-          next_block global () >>= function
-          | Ok x -> return (Ok (x, global))
-          | Error `Zero_block -> return (Error `Eof)
-          | Error ((`Checksum_mismatch | `Unmarshal _) as e) -> return (Error (`Fatal e))
-        end
-      | Error ((`Checksum_mismatch | `Unmarshal _) as e) ->
-        return (Error (`Fatal e))
-    in
-    get_hdr ~next_longname:None ~next_longlink:None global ()
+let encode_global_extended_header ?level global =
+  encode_extended_header ?level `Global global
 
-end
+type ('a, 't) io
 
-module HeaderWriter(Async: ASYNC)(Writer: WRITER with type 'a io = 'a Async.t) = struct
-  open Async
-  open Writer
+type ('a, 'err, 't) t =
+  | Really_read : int -> (string, 'err, 't) t
+  | Read : int -> (string, 'err, 't) t
+  | Seek : int -> (unit, 'err, 't) t
+  | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+  | Return : ('a, 'err) result -> ('a, 'err, 't) t
+  | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
+  | Write : string -> (unit, 'err, 't) t
 
-  type out_channel = Writer.out_channel
-  type 'a io = 'a t
+let ( let* ) x f = Bind (x, f)
+let return x = Return x
+let really_read n = Really_read n
+let read n = Read n
+let seek n = Seek n
+let write str = Write str
 
-  let write_unextended ?level header fd =
-    let level = Header.compatibility level in
-    let blank = {Header.file_name = longlink; file_mode = 0; user_id = 0; group_id = 0; mod_time = 0L; file_size = 0L; link_indicator = Header.Link.LongLink; link_name = ""; uname = "root"; gname = "root"; devmajor = 0; devminor = 0; extended = None} in
-    (if level = Header.GNU then begin
-        begin
-          if String.length header.Header.link_name > Header.sizeof_hdr_link_name then begin
-            let file_size = String.length header.Header.link_name + 1 in
-            let blank = {blank with Header.file_size = Int64.of_int file_size} in
-            let buffer = Bytes.make Header.length '\000' in
-            match
-              Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongLink }
-            with
-            | Error _ as e -> return e
-            | Ok () ->
-              really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
-              let payload = header.Header.link_name ^ "\000" in
-              really_write fd payload >>= fun () ->
-              really_write fd (Header.zero_padding blank) >>= fun () ->
-              return (Ok ())
-          end else
-            return (Ok ())
-        end >>= function
-        | Error _ as e -> return e
-        | Ok () ->
-          begin
-            if String.length header.Header.file_name > Header.sizeof_hdr_file_name then begin
-              let file_size = String.length header.Header.file_name + 1 in
-              let blank = {blank with Header.file_size = Int64.of_int file_size} in
-              let buffer = Bytes.make Header.length '\000' in
-              match
-                Header.marshal ~level buffer { blank with link_indicator = Header.Link.LongName }
-              with
-              | Error _ as e -> return e
-              | Ok () ->
-                really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
-                let payload = header.Header.file_name ^ "\000" in
-                really_write fd payload >>= fun () ->
-                really_write fd (Header.zero_padding blank) >>= fun () ->
-                return (Ok ())
-            end else
-              return (Ok ())
-          end >>= function
-          | Error _ as e -> return e
-          | Ok () -> return (Ok ())
-      end else
-       return (Ok ())) >>= function
-    | Error _ as e -> return e
-    | Ok () ->
-      let buffer = Bytes.make Header.length '\000' in
-      match Header.marshal ~level buffer header with
-      | Error _  as e -> return e
-      | Ok () ->
-        really_write fd (Bytes.unsafe_to_string buffer) >>= fun () ->
-        return (Ok ())
+type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 
-  let write_extended ?level ~link_indicator hdr fd =
-    let link_indicator_name = match link_indicator with
-      | Header.Link.PerFileExtendedHeader -> "paxheader"
-      | Header.Link.GlobalExtendedHeader -> "pax_global_header"
-      | _ -> assert false
-    in
-    let pax_payload = Header.Extended.marshal hdr in
-    let pax = Header.make ~link_indicator link_indicator_name
-                (Int64.of_int @@ String.length pax_payload) in
-    write_unextended ?level pax fd >>= function
-    | Error _ as e -> return e
-    | Ok () ->
-      really_write fd pax_payload >>= fun () ->
-      really_write fd (Header.zero_padding pax) >>= fun () ->
+let fold f init =
+  let rec go t ?global ?data acc =
+    let* data = match data with
+      | None -> really_read Header.length
+      | Some data -> return (Ok data) in
+    match decode t data with
+    | Ok (t, Some `Header hdr, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* acc' = f ?global hdr acc in
+      let* () = seek (Header.compute_zero_padding_length hdr) in
+      go t ?global acc'
+    | Ok (t, Some `Skip n, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* () = seek n in
+      go t ?global acc
+    | Ok (t, Some `Read n, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      let* data = really_read n in
+      go t ?global ~data acc
+    | Ok (t, None, g) ->
+      let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
+      go t ?global acc
+    | Error `Eof -> return (Ok acc)
+    | Error `Fatal _ as e -> return e in
+  go (decode_state ()) init
+
+let rec writev = function
+  | [] -> return (Ok ())
+  | x :: r ->
+    let* () = write x in
+    writev r
+
+let rec pipe stream =
+  let* block = stream () in
+  match block with
+  | Some str -> let* () = write str in pipe stream
+  | None -> return (Ok ())
+
+type ('err, 't) content = unit -> (string option, 'err, 't) t
+type ('err, 't) entry = Header.compatibility option * Header.t * ('err, 't) content
+type ('err, 't) entries = unit -> (('err, 't) entry option, 'err, 't) t
+
+let out ?level ?global_hdr entries =
+  let rec go () =
+    let* entry = entries () in
+    match entry with
+    | None ->
+      let* () = writev [ Header.zero_block; Header.zero_block ] in
       return (Ok ())
-
-  let write ?level header fd =
-    ( match header.Header.extended with
-      | None -> return (Ok ())
-      | Some e ->
-        write_extended ?level ~link_indicator:Header.Link.PerFileExtendedHeader e fd )
-    >>= function
-    | Error _ as e -> return e
-    | Ok () -> write_unextended ?level header fd
-
-  let write_global_extended_header global fd =
-    write_extended ~link_indicator:Header.Link.GlobalExtendedHeader global fd
-end
+    | Some (level, hdr, stream) ->
+      match encode_header ?level hdr with
+      | Ok sstr ->
+        let* () = writev sstr in
+        let* () = pipe stream in
+        let* () = write (Header.zero_padding hdr) in
+        go ()
+      | Error _ as err -> return err in
+  match global_hdr with
+  | None -> go ()
+  | Some hdr ->
+    (* [encode_extended_header] includes padding *)
+    match encode_extended_header ?level `Global hdr with
+    | Error _ as err -> return err
+    | Ok sstr ->
+      let* () = writev sstr in
+      go ()

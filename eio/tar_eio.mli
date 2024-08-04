@@ -16,17 +16,20 @@
 
 (** I/O for tar-formatted data *)
 
-val really_read: Eio.Flow.source -> Cstruct.t -> unit
-(** [really_read fd buf] fills [buf] with data from [fd] or fails
-    with {!Stdlib.End_of_file}. *)
+type t
 
-val really_write: Eio.Flow.sink -> Cstruct.t -> unit
-(** [really_write fd buf] writes the full contents of [buf] to
-    [fd] or fails with {!Stdlib.End_of_file}. *)
+val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 
-val skip : Eio.Flow.source -> int -> unit
-(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
-    should use [Lwt_unix.lseek fd n Lwt_unix.SEEK_CUR] instead. *)
+val run_read_only : ('a, [> `Unexpected_end_of_file] as 'b, t) Tar.t -> [> `R ] Eio.Flow.source -> ('a, 'b) result
+
+val fold :
+  (?global:Tar.Header.Extended.t ->
+   Tar.Header.t ->
+   'a ->
+   ('a, [> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b, t) Tar.t) ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  'a ->
+  ('a, 'b) result
 
 (** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
     functions that should take the uid and gid respectively and return the passwd and group entry
@@ -35,8 +38,33 @@ val header_of_file :
     ?level:Tar.Header.compatibility ->
     ?getpwuid:(int64 -> string) ->
     ?getgrgid:(int64 -> string) ->
-    Eio.Fs.dir Eio.Path.t ->
+    Eio.Fs.dir_ty Eio.Path.t ->
     Tar.Header.t
 
-module HeaderReader : Tar.HEADERREADER with type in_channel = Eio.Flow.source and type 'a io = 'a
-module HeaderWriter : Tar.HEADERWRITER with type out_channel = Eio.Flow.sink and type 'a io = 'a
+val extract : ?filter:(Tar.Header.t -> bool) ->
+  src:Eio.Fs.dir_ty Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  (unit, _) result
+
+val create : ?level:Tar.Header.compatibility ->
+  ?global:Tar.Header.Extended.t ->
+  ?filter:(Tar.Header.t -> bool) ->
+  src:Eio.Fs.dir_ty Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  (unit, _) result
+
+val append_file : ?level:Tar.Header.compatibility ->
+  ?header:Tar.Header.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  [> `W ] Eio.Flow.sink ->
+  (unit, _) result
+
+val write_header : ?level:Tar.Header.compatibility ->
+  Tar.Header.t -> [> `W ] Eio.Flow.sink ->
+  (unit, _) result
+
+val write_global_extended_header : ?level:Tar.Header.compatibility ->
+  Tar.Header.Extended.t -> [> `W ] Eio.Flow.sink ->
+  (unit, _) result
+
+val write_end : [> `W ] Eio.Flow.sink -> (unit, _) result

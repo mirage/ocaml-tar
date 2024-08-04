@@ -9,4 +9,5 @@
   alcotest-lwt
   lwt
   tar-unix
-  tar-mirage))
+  tar-mirage
+))

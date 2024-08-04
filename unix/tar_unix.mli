@@ -16,20 +16,68 @@
 
 (** Unix I/O for tar-formatted data. *)
 
-val really_read: Unix.file_descr -> bytes -> unit
-(** [really_read fd buf] fills [buf] with data from [fd] or raises
-   {!Stdlib.End_of_file}. *)
+type error = [
+  | `Fatal of Tar.error
+  | `Unix of Unix.error * string * string
+  | `Unexpected_end_of_file
+  | `Msg of string
+]
 
-val really_write: Unix.file_descr -> string -> unit
-(** [really_write fd buf] writes the full contents of [buf] to [fd]
-    or {!Stdlib.End_of_file}. *)
+type t
 
-val skip : Unix.file_descr -> int -> unit
-(** [skip fd n] reads [n] bytes from [fd] and discards them. If possible, you
-    should use [Unix.lseek fd n Unix.SEEK_CUR] instead. *)
+val pp_error : Format.formatter -> error -> unit
 
-(** Return the header needed for a particular file on disk. *)
-val header_of_file : ?level:Tar.Header.compatibility -> string -> Tar.Header.t
+val run : ('a, [> error ] as 'b, t) Tar.t -> Unix.file_descr -> ('a, 'b) result
+val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 
-module HeaderReader : Tar.HEADERREADER with type in_channel = Unix.file_descr and type 'a io = 'a
-module HeaderWriter : Tar.HEADERWRITER with type out_channel = Unix.file_descr and type 'a io = 'a
+(** [fold f filename acc] folds over the tar archive. The function [f] is called
+    for each [hdr : Tar.Header.t]. It should forward the position in the file
+    descriptor by [hdr.Tar.Header.file_size]. *)
+val fold :
+  (?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
+   ('a, error, t) Tar.t) ->
+  string -> 'a -> ('a, error) result
+
+(** [extract ~filter ~src dst] extracts the tar archive [src] into the
+    directory [dst]. If [dst] does not exist, it is created. If [filter] is
+    provided (defaults to [fun _ -> true]), any file where [filter hdr] returns
+    [false], is skipped. *)
+val extract :
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, [> `Exn of exn | error ]) result
+
+(** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
+    [src], a directory name, as input. If [filter] is provided
+    (defaults to [fun _ -> true]), any file where [filter hdr] returns [false]
+    is skipped. *)
+val create : ?level:Tar.Header.compatibility ->
+  ?global:Tar.Header.Extended.t ->
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
+
+(** [header_of_file ~level filename] returns the tar header of [filename]. *)
+val header_of_file : ?level:Tar.Header.compatibility -> string ->
+  (Tar.Header.t, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
+
+(** [append_file ~level ~header filename fd] appends the contents of [filename]
+    to the tar archive [fd]. If [header] is not provided, {header_of_file} is
+    used for constructing a header. *)
+val append_file : ?level:Tar.Header.compatibility -> ?header:Tar.Header.t ->
+  string -> Unix.file_descr ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
+
+(** [write_header ~level hdr fd] writes the header [hdr] to [fd]. *)
+val write_header : ?level:Tar.Header.compatibility ->
+  Tar.Header.t -> Unix.file_descr ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
+
+(** [write_global_extended_header ~level hdr fd] writes the extended header [hdr] to
+    [fd]. *)
+val write_global_extended_header : ?level:Tar.Header.compatibility ->
+  Tar.Header.Extended.t -> Unix.file_descr ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result
+
+(** [write_end fd] writes the tar end marker to [fd]. *)
+val write_end : Unix.file_descr -> (unit, [> `Msg of string ]) result

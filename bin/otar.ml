@@ -16,75 +16,72 @@
 
 let () = Printexc.record_backtrace true
 
-module Tar_gz = Tar_gz.Make
-  (struct type 'a t = 'a
-          let ( >>= ) x f = f x
-          let return x = x end)
-  (struct type out_channel = Stdlib.out_channel
-          type 'a io = 'a
-          let really_write oc str =
-            output_string oc str end)
-  (struct type in_channel = Stdlib.in_channel
-          type 'a io = 'a
-          let read ic buf =
-            input ic buf 0 (Bytes.length buf)
-        end)
-
-
 let ( / ) = Filename.concat
 
-let stream_of_fd fd =
-  let buf = Bytes.create 0x1000 in
-  fun () -> match Unix.read fd buf 0 (Bytes.length buf) with
-  | 0 -> None
-  | len ->
-    let str = Bytes.sub_string buf 0 len in
-    Some str
-  | exception End_of_file -> None
+let contents_of_path path =
+  let fd = ref `None in
+  let buf = Bytes.create 0x100 in
+  let rec dispenser () = match !fd with
+  | `Closed -> Tar.return (Ok None)
+  | `None ->
+    let fd' = Unix.openfile path Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
+    fd := `Active fd';
+    dispenser ()
+  | `Active fd' ->
+    match Unix.read fd' buf 0 (Bytes.length buf) with
+    | 0 | exception End_of_file ->
+      Unix.close fd'; fd := `Closed; Tar.return (Ok None)
+    | len ->
+      let str = Bytes.sub_string buf 0 len in
+      Tar.return (Ok (Some str)) in
+  dispenser
 
-let always x = fun _ -> x
+let to_stream lst =
+  let lst = ref lst in
+  fun () -> match !lst with
+  | [] -> None
+  | x :: r -> lst := r; Some x
 
-let create_tarball directory oc =
+let create_tarball directory fd =
   let files = Sys.readdir directory in
   let os = match Sys.os_type with
     | "Win32" -> Gz.NTFS (* XXX(dinosaure): true? *)
     | "Unix" | "Cygwin" | _ -> Gz.Unix in
   let mtime = Unix.gettimeofday () in
-  let out_channel = Tar_gz.of_out_channel ~level:4 ~mtime:(Int32.of_float mtime) os oc in
-  let hdr = Tar.Header.make ~file_mode:0o755
-      ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
-  (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel (always None) with
-   | Ok () -> ()
-   | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
-  Array.iter begin fun filename ->
-  let fd        = Unix.openfile (directory / filename) Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
-  let stat      = Unix.LargeFile.lstat (directory / filename) in
-  match stat.st_kind with
-  | Unix.S_REG ->
-    let stream    = stream_of_fd fd in
-    let file_mode = if stat.Unix.LargeFile.st_perm land 0o111 <> 0 then 0o755 else 0o644 in
-    let mod_time  = Int64.of_float stat.Unix.LargeFile.st_mtime in
-    let user_id   = stat.Unix.LargeFile.st_uid in
-    let group_id  = stat.Unix.LargeFile.st_gid in
-    let hdr = Tar.Header.make
+  let dir_hdr = Tar.Header.make ~file_mode:0o755
+    ~mod_time:(Int64.of_float mtime) (Filename.concat directory "") 0L in
+  let dir_entry = (None, dir_hdr, (fun () -> Tar.return (Ok None))) in
+  let entries = Array.fold_left begin fun acc filename ->
+    let stat        = Unix.LargeFile.stat (directory / filename) in
+    match stat.st_kind with
+    | Unix.S_REG ->
+      let file_mode = if stat.st_perm land 0o111 <> 0 then 0o755 else 0o644 in
+      let mod_time  = Int64.of_float stat.Unix.LargeFile.st_mtime in
+      let user_id   = stat.st_uid in
+      let group_id  = stat.st_gid in
+      let level     = Some Tar.Header.Ustar in
+      let hdr       = Tar.Header.make
         ~file_mode ~mod_time ~user_id ~group_id
-        (directory / filename) stat.Unix.LargeFile.st_size in
-    (match Tar_gz.write_block ~level:Tar.Header.Ustar hdr out_channel stream with
-     | Ok () -> ()
-     | Error `Msg msg -> Format.eprintf "Error %s writing block\n%!" msg);
-    Unix.close fd ;
-  | _ ->
-    Format.eprintf "Skipping non-regular file %s\n" (Filename.concat directory filename)
-  end files ;
-  Tar_gz.write_end out_channel
+        (directory / filename) stat.st_size in
+      (level, hdr, contents_of_path (directory / filename)) :: acc
+    | _ -> acc end [] files in
+  let entries = to_stream (dir_entry :: entries) in
+  let entries () = Tar.return (Ok (entries ())) in
+  let t = Tar.out ~level:Tar.Header.Ustar entries in
+  let t = Tar_gz.out_gzipped ~level:4 ~mtime:(Int32.of_float mtime) os t in
+  match Tar_unix.run t fd with
+  | Ok () -> ()
+  | Error err ->
+    Format.eprintf "%s: %a\n%!" Sys.executable_name Tar_unix.pp_error err
 
 let make directory oc =
-  let oc, oc_close, _gz = match oc with
-    | None -> stdout, ignore, false
+  let fd, fd_close = match oc with
+    | None -> Unix.stdout, ignore
     | Some filename ->
-      let oc = open_out filename in
-      oc, (fun () -> close_out oc), Filename.extension filename = ".gz" in
-  create_tarball directory oc ; oc_close ()
+      let fd = Unix.openfile filename Unix.[ O_TRUNC; O_CREAT; O_WRONLY; O_CLOEXEC ] 0o644 in
+      fd, (fun () -> Unix.close fd) in
+  Fun.protect ~finally:fd_close @@ fun () ->
+  create_tarball directory fd
 
 let sizes = [| "B"; "KiB"; "MiB"; "GiB"; "TiB"; "PiB"; "EiB"; "ZiB"; "YiB" |]
 
@@ -97,27 +94,28 @@ let bytes_to_size ?(decimals = 2) ppf = function
       Format.fprintf ppf "%.*f %s" decimals r sizes.(int_of_float i)
 
 let list filename =
-  let ic = open_in filename in
-  let ic = Tar_gz.of_in_channel ~internal:(De.bigstring_create 0x1000) ic in
-  let rec go global () = match Tar_gz.HeaderReader.read ~global ic with
-    | Ok (hdr, global) ->
-      Format.printf "%s (%s, %a)\n%!"
-        hdr.Tar.Header.file_name
-        (Tar.Header.Link.to_string hdr.link_indicator)
-        (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
-      (* Alternatively:
-           let padding = Tar.Header.compute_zero_padding_length hdr in
-           let data = Int64.to_int hdr.Tar.Header.file_size in
-           let to_skip = data + padding in *)
-      let to_skip = Tar.Header.(Int64.to_int (to_sectors hdr) * length) in
-      Tar_gz.skip ic to_skip ;
-      go global ()
-    | Error `Eof -> ()
-    | Error `Fatal e ->
-      Format.eprintf "Error listing archive: %a\n%!" Tar.pp_error e;
-      exit 2
+  let go ?global:_ hdr () =
+    Format.printf "%s (%s, %a)\n%!"
+      hdr.Tar.Header.file_name
+      (Tar.Header.Link.to_string hdr.link_indicator)
+      (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
+    let open Tar in
+    let* _ = seek (Int64.to_int hdr.Tar.Header.file_size) in
+    return (Ok ())
   in
-  go None ()
+  let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
+  match Tar_unix.run (Tar_gz.in_gzipped (Tar.fold go ())) fd with
+  | Ok () -> ()
+  | Error (`Unix _) ->
+    Format.eprintf "Some UNIX error occurred.\n%!"
+  | Error (`Msg e) ->
+    Format.eprintf "Some error: %s.\n%!" e
+  | Error (`Unexpected_end_of_file | `Eof) ->
+    Format.eprintf "Unexpected end of file.\n%!"
+  | Error `Gz err ->
+    Format.eprintf "Some Gzip error occurred: %s.\n%!" err
+  | Error (`Fatal _) ->
+    Format.eprintf "Some fatal error occurred.\n%!"
 
 let () = match Sys.argv with
   | [| _; "list"; filename; |] when Sys.file_exists filename ->

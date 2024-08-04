@@ -31,26 +31,21 @@ module Unix = struct
     if Sys.win32 then truncate (convert_path `Windows path) else truncate path
 end
 
-let list fd =
-  let rec loop global acc =
-    match Tar_unix.HeaderReader.read ~global fd with
-    | Ok (hdr, global) ->
-      print_endline hdr.Tar.Header.file_name;
-      Tar_unix.skip fd
-        (Int64.to_int hdr.Tar.Header.file_size + Tar.Header.compute_zero_padding_length hdr);
-      loop global (hdr :: acc)
-    | Error `Eof ->
-      List.rev acc
-    | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
+let list filename =
+  let f ?global:_ hdr acc =
+    print_endline hdr.Tar.Header.file_name;
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    Tar.return (Ok (hdr :: acc))
   in
-  let r = loop None [] in
-  List.iter (fun h -> print_endline h.Tar.Header.file_name) r;
-  r
+  match Tar_unix.fold f filename [] with
+  | Ok acc -> List.rev acc
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 let pp_header f x = Fmt.pf f "%s" (Tar.Header.to_detailed_string x)
 let header = Alcotest.testable pp_header ( = )
 
-let error = Alcotest.testable Tar.pp_error ( = )
+let error : Tar.error Alcotest.testable = Alcotest.testable Tar.pp_error ( = )
 
 let link = Alcotest.testable (Fmt.of_to_string Tar.Header.Link.to_string) ( = )
 
@@ -104,10 +99,8 @@ let with_tar ?(level:Tar.Header.compatibility option) ?files ?(sector_size = 512
 
 let can_read_tar () =
   with_tar () @@ fun tar_filename files ->
-  let fd = Unix.openfile tar_filename [ O_RDONLY; O_CLOEXEC ] 0 in
-  let files' = List.map (fun t -> t.Tar.Header.file_name) (list fd) in
+  let files' = List.map (fun t -> t.Tar.Header.file_name) (list tar_filename) in
   flush stdout;
-  Unix.close fd;
   let missing = set_difference files files' in
   let missing' = set_difference files' files in
   Alcotest.(check (list string)) "missing" [] missing;
@@ -121,53 +114,45 @@ let can_write_pax () =
   let fd = Unix.openfile filename [ O_CREAT; O_WRONLY; O_CLOEXEC ] 0o0644 in
   Fun.protect
     (fun () ->
-      let hdr = Tar.Header.make ~user_id "test" 0L in
-      match Tar_unix.HeaderWriter.write hdr fd with
+      let header = Tar.Header.make ~user_id "test" 0L in
+      match Tar_unix.write_header header fd with
       | Ok () ->
-        Tar_unix.really_write fd Tar.Header.zero_block;
-        Tar_unix.really_write fd Tar.Header.zero_block;
+        (match Tar_unix.write_end fd with
+         | Ok () -> ()
+         | Error `Msg msg ->
+           Alcotest.failf "error writing end %s" msg)
       | Error `Msg msg ->
         Alcotest.failf "error writing header %s" msg
+      | Error `Unix (e, f, a) ->
+        Alcotest.failf "error writing header - unix error %s %s %s"
+          (Unix.error_message e) f a
     ) ~finally:(fun () -> Unix.close fd);
   (* Read it back and verify the header was read *)
-  let fd = Unix.openfile filename [ O_RDONLY; O_CLOEXEC ] 0 in
-  Fun.protect
-    (fun () ->
-      match list fd with
-      | [ one ] -> Alcotest.(check int) "user_id" user_id one.Tar.Header.user_id
-      | xs -> Alcotest.failf "Headers = %a" (Fmt.list pp_header) xs
-    ) ~finally:(fun () -> Unix.close fd)
-
+  match list filename with
+  | [ one ] -> Alcotest.(check int) "user_id" user_id one.Tar.Header.user_id
+  | xs -> Alcotest.failf "Headers = %a" (Fmt.list pp_header) xs
 
 let can_list_longlink_tar () =
-  let fd = Unix.openfile "lib_test/long.tar" [ O_RDONLY; O_CLOEXEC ] 0o0 in
-  Fun.protect
-    (fun () ->
-      let all = list fd in
-      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
-      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
-      let expected = [
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
-      ] in
-      Alcotest.(check (list string)) "respects filenames" expected filenames
-    ) ~finally:(fun () -> Unix.close fd)
+  let all = list "lib_test/long.tar" in
+  let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+  (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+  let expected = [
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/";
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/CDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.txt";
+  ] in
+  Alcotest.(check (list string)) "respects filenames" expected filenames
 
 let can_list_long_pax_tar () =
-  let fd = Unix.openfile "lib_test/long-pax.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect
-    (fun () ->
-      let all = list fd in
-      let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
-      (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
-      let expected = [
-        "t/";
-        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggname";
-        "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggglink";
-      ] in
-      Alcotest.(check (list string)) "respects filenames" expected filenames
-    ) ~finally:(fun () -> Unix.close fd)
+  let all = list "lib_test/long-pax.tar" in
+  let filenames = List.map (fun h -> h.Tar.Header.file_name) all in
+  (* List.iteri (fun i x -> Printf.fprintf stderr "%d: %s\n%!" i x) filenames; *)
+  let expected = [
+    "t/";
+    "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggname";
+    "t/someveryveryverylonggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggglink";
+  ] in
+  Alcotest.(check (list string)) "respects filenames" expected filenames
 
 (* "pax-shenanigans.tar" is an archive with a regular file "placeholder" with a
    pax header "path=clearly/a/directory/". The resulting header has normal link
@@ -181,15 +166,16 @@ let can_list_long_pax_tar () =
    - Reynir
 *)
 let can_list_pax_implicit_dir () =
-  let fd = Unix.openfile "lib_test/pax-shenanigans.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-       match Tar_unix.HeaderReader.read ~global:None fd with
-       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-       | Error `Eof -> Alcotest.fail "unexpected end of file"
-       | Ok (hdr, _global) ->
-         Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
-         Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name)
+  let f ?global:_ hdr () =
+    Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
+    Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name;
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    Tar.return (Ok ())
+  in
+  match Tar_unix.fold f "lib_test/pax-shenanigans.tar" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 (* Sample tar generated with commit 1583f71ea33b2836d3fb996ac7dc35d55abe2777:
   [let buf =
@@ -203,16 +189,16 @@ let can_list_pax_implicit_dir () =
      Tar.Header.marshal ~level (Cstruct.shift buf 1024) hdr;
      buf] *)
 let can_list_longlink_implicit_dir () =
-  let fd = Unix.openfile "lib_test/long-implicit-dir.tar" [ O_RDONLY; O_CLOEXEC ] 0x0 in
-  Fun.protect ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-       match Tar_unix.HeaderReader.read ~global:None fd with
-       | Ok (hdr, _global) ->
-         Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.link_indicator;
-         Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name
-       | Error `Fatal e -> Alcotest.failf "unexpected error: %a" Tar.pp_error e
-       | Error `Eof -> Alcotest.fail "unexpected end of file")
-
+  let f ?global:_ hdr () =
+    Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
+    Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name;
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    Tar.return (Ok ())
+  in
+  match Tar_unix.fold f "lib_test/long-implicit-dir.tar" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.failf "unexpected error: %a" Tar_unix.pp_error e
 
 let starts_with ~prefix s =
   let len_s = String.length s
@@ -224,25 +210,41 @@ let starts_with ~prefix s =
   in len_s >= len_pre && aux 0
 
 let can_transform_tar () =
-  (*
   let level = Tar.Header.Ustar in
   with_tar ~level () @@ fun tar_in _file_list ->
-  let fd_in = Unix.openfile tar_in [ O_RDONLY; O_CLOEXEC ] 0 in
   let tar_out = Filename.temp_file "tar-transformed" ".tar" in
   let fd_out = Unix.openfile tar_out [ O_WRONLY; O_CREAT; O_CLOEXEC ] 0o644 in
   with_tmpdir @@ fun temp_dir ->
-  Tar_unix.Archive.transform ~level (fun hdr ->
-      {hdr with Tar.Header.file_name = Filename.concat temp_dir hdr.file_name})
-    fd_in fd_out;
-  Unix.close fd_in;
-  Unix.close fd_out;
-  let fd_in = Unix.openfile tar_out [ O_RDONLY; O_CLOEXEC ] 0 in
-  Tar_unix.Archive.with_next_file fd_in ~global:None (fun fd_file _global hdr ->
-      Alcotest.(check string) "Filename was transformed" temp_dir
-        (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
-      Tar_unix.skip fd_file (Int64.to_int hdr.file_size));
-  Unix.close fd_in
-     *) ()
+  let f ?global:_ hdr _ =
+    let ( let* ) = Tar.( let* ) in
+    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    let hdr =
+      { hdr with
+        Tar.Header.file_name = Filename.concat temp_dir hdr.file_name;
+        file_size = 0L
+      }
+    in
+    match Tar_unix.write_header ~level hdr fd_out with
+    | Ok () -> Tar.return (Ok ())
+    | Error _ -> Alcotest.fail "error writing header"
+  in
+  match Tar_unix.fold f tar_in () with
+  | Error e -> Alcotest.failf "error folding %a" Tar_unix.pp_error e
+  | Ok () ->
+    match Tar_unix.write_end fd_out with
+    | Error _ -> Alcotest.fail "couldn't write end"
+    | Ok () ->
+      Unix.close fd_out;
+      let f ?global:_ hdr _ =
+        let ( let* ) = Tar.( let* ) in
+        let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+        Alcotest.(check string) "Filename was transformed" temp_dir
+          (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
+        Tar.return (Ok ())
+      in
+      match Tar_unix.fold f tar_out () with
+      | Error e -> Alcotest.failf "error folding2 %a" Tar_unix.pp_error e
+      | Ok () -> ()
 
 module Block4096 = struct
   include Block

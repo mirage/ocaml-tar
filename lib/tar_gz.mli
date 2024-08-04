@@ -14,61 +14,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-module type READER = sig
-  type in_channel
-  type 'a io
-  val read : in_channel -> bytes -> int io
-end
+type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 
-module Make
-  (Async : Tar.ASYNC)
-  (Writer : Tar.WRITER with type 'a io = 'a Async.t)
-  (Reader : READER with type 'a io = 'a Async.t)
-: sig
-  type in_channel
+val in_gzipped : ('a, ([> error ] as 'err), 't) Tar.t -> ('a, 'err, 't) Tar.t
+  (** [in_gzipped] takes a {i tar process} (like {!val:Tar.fold}) and add a
+      uncompression layer to be able to manipulate a [*.tar.gz] archive. *)
 
-  val of_in_channel : internal:De.bigstring -> Reader.in_channel -> in_channel
-
-  val really_read : in_channel -> bytes -> unit Async.t
-  (** [really_read fd buf] fills [buf] with data from [fd] or raises
-      {!Stdlib.End_of_file}. *)
-
-  val skip : in_channel -> int -> unit Async.t
-
-  type out_channel
-
-  val of_out_channel : ?bits:int -> ?q:int -> level:int ->
-    mtime:int32 -> Gz.os -> Writer.out_channel -> out_channel
-
-  val write_block : ?level:Tar.Header.compatibility -> Tar.Header.t ->
-    out_channel -> (unit -> string option Async.t) -> (unit, [> `Msg of string ]) result Async.t
-  (** [write_block hdr oc stream] writes [hdr], then {i deflate} the given
-      [stream], then zero-pads so the stream is positionned for the next
-      block.
-
-      A simple usage to write a file:
-      {[
-        let stream_of_fd fd =
-          let buf = Bytes.create 0x1000 in
-          fun () -> match Unix.read fd buf 0 (Bytes.length buf) with
-          | 0 -> None
-          | len -> Some (Bytes.sub_string buf 0 len)
-          | exception End_of_file -> None
-
-        let add_file oc filename =
-          let fd = Unix.openfile filename Unix.[ O_RDONLY ] 0o644 in
-          let hdr = Tar.Header.make ... in
-          (match write_block hdr oc (stream_of_fd fd) with
-           | Ok () -> ()
-           | Error `Msg msg -> print_endline ("error: " ^ msg));
-          Unix.close fd
-      ]} *)
-
-  val write_end : out_channel -> unit Async.t
-  (** [write_end oc] writes a stream terminator to [oc]. *)
-
-  module HeaderReader :
-    Tar.HEADERREADER with type in_channel = in_channel and type 'a io = 'a Async.t
-  module HeaderWriter :
-    Tar.HEADERWRITER with type out_channel = out_channel and type 'a io = 'a Async.t
-end
+val out_gzipped :
+     level:int
+  -> mtime:int32
+  -> Gz.os
+  -> ('a, 'err, 't) Tar.t
+  -> ('a, 'err, 't) Tar.t
+(** [out_gzipped] takes a {i tar process} (like {!val:Tar.out}) and add a
+    compression layer to be able to generate a [*.tar.gz] archive. *)
