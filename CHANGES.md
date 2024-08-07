@@ -1,5 +1,36 @@
-## unreleased
+## v3.0.0 (2024-08-05)
 
+- Fix `Header.marshal` and the checksum and the length (@reynir, #145)
+- Delete a mutable field about the level into the header (@hannesm, #141)
+- **BREAKING**: de-functorize the package (@hannesm, @reynir, @dinosaure, #140, #143, #146)
+
+  These PRs attempt to de-functorize `Tar` so that users can implement I/O
+  themselves, using `Tar`'s own element serialization/deserialization functions
+  to take advantage of read/write methods. This avoids imposing on the user the
+  implementation of a module that is too rigid in his/her case (which could have
+  performance implications).
+
+  `Tar` offers functions for serializing/deserializing tar-specific elements
+  from `string`. It is then up to the user to know how to obtain or write these
+  `strings`.
+
+  To this, these PRs add "logics" (see `'a Tar.t`) requiring read and/or write
+  implementations and describing how to extract all entries from a tar file or
+  how to write a tar file according to a "dispenser" (like `Seq.to_dispenser`)
+  of entries.
+
+  These logics do not depend on a particular "scheduler", and these PRs propose
+  a derivation of these logics with `tar-unix`, `tar-eio` and `tar-mirage`.
+  These latter derivations mean that the API for these packages has only been
+  extended, and there are no breaking changes as such.
+
+  These logics also make it easy to offer a compression/decompression layer with
+  `decompress`, so you can easily manipulate and/or create a .tar.gz file.
+
+## v2.6.0 (2023-09-07)
+
+- Add eio backend for tar in tar-eio (@patricoferris, review by @talex5, @reynir, #132)
+- Also apply backwards compatibility fix when GNU LongName is used. The compatibility fix is unfortunately also applied for unknown-to-ocaml-tar link indicators (reported by @gravicappa in #129, @reynir, #133)
 - `tar`: support pax Global Extended Headers. This adds state to tar parsing.
   (#119, #120, @MisterDA)
 - Support GNU LongLink and LongName. Prior, `Tar.HeaderWriter` and
@@ -18,11 +49,6 @@
 - Remove the `Tar_cstruct` module as it was unused (#127)
 - Remove debug printers (#127)
 - Finally remove the unused camlp-streams dependency (#127)
-
-## v2.6.0 (2023-09-07)
-
-- Add eio backend for tar in tar-eio (@patricoferris, review by @talex5, @reynir, #132)
-- Also apply backwards compatibility fix when GNU LongName is used. The compatibility fix is unfortunately also applied for unknown-to-ocaml-tar link indicators (reported by @gravicappa in #129, @reynir, #133)
 
 ## v2.5.1 (2023-06-20)
 
