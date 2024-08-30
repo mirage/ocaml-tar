@@ -39,6 +39,13 @@ val fold :
   ('a, [> decode_error ] as 'err, t) Tar.t) ->
   string -> 'a -> ('a, 'err) result Lwt.t
 
+(** [fold_gz f filename acc] is like [fold f filename acc] working on a gzip
+    compressed tar archive. *)
+val fold_gz :
+  (?global:Tar.Header.Extended.t -> Tar.Header.t -> 'a ->
+  ('a, [> decode_error | Tar_gz.error ] as 'err, t) Tar.t) ->
+  string -> 'a -> ('a, 'err) result Lwt.t
+
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
     directory [dst]. If [dst] does not exist, it is created. If [filter] is
     provided (defaults to [fun _ -> true]), any file where [filter hdr] returns
@@ -47,6 +54,13 @@ val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
   (unit, [> `Exn of exn | decode_error ]) result Lwt.t
+
+(** [extract_gz ~filter ~src dst] is like [extract ~filter ~src dst] extracting
+    a gzip compressed archive. *)
+val extract_gz :
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, [> `Exn of exn | decode_error | Tar_gz.error ]) result Lwt.t
 
 (** [create ~level ~filter ~src dst] creates a tar archive at [dst]. It uses
     [src], a directory name, as input. If [filter] is provided
@@ -57,6 +71,14 @@ val create : ?level:Tar.Header.compatibility ->
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
   (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+
+(** [create_gz ~level ~filter ~src dst] is like [create ~level ~filter ~src
+    dst] creating a gzip compressed archive. *)
+val create_gz : ?level:Tar.Header.compatibility ->
+  ?global:Tar.Header.Extended.t ->
+  ?filter:(Tar.Header.t -> bool) ->
+  src:string -> string ->
+  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) | Tar_gz.error ]) result Lwt.t
 
 (** [header_of_file ~level filename] returns the tar header of [filename]. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string ->

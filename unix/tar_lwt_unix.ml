@@ -105,12 +105,16 @@ let run t fd =
       run x >>= fun value -> run (f value) in
   run t
 
-let fold f filename init =
+let with_in filename f =
   let open Lwt_result.Infix in
   safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
-  Lwt.finalize
-    (fun () -> run (Tar.fold f init) fd)
-    (fun () -> safe_close fd)
+  Lwt.finalize (fun () -> f fd) (fun () -> safe_close fd)
+
+let fold f filename init =
+  with_in filename (fun fd -> run (Tar.fold f init) fd)
+
+let fold_gz f filename init =
+  with_in filename (fun fd -> run (Tar_gz.in_gzipped (Tar.fold f init)) fd)
 
 let unix_err_to_msg = function
   | `Unix (e, f, s) ->
@@ -131,13 +135,10 @@ let copy ~dst_fd len =
   in
   read_write ~dst_fd len
 
-let extract ?(filter = fun _ -> true) ~src dst =
+let extract ~filter dst =
   let safe_close fd =
     let open Lwt.Infix in
-    Lwt.catch
-      (fun () -> Lwt_unix.close fd)
-      (fun _ -> Lwt.return_unit)
-    >|= Result.ok in
+    safe_close fd >|= Result.ok in
   let f ?global:_ hdr () =
     let ( let* ) = Tar.( let* ) in
     match filter hdr, hdr.Tar.Header.link_indicator with
@@ -158,7 +159,12 @@ let extract ?(filter = fun _ -> true) ~src dst =
       let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in
-  fold f src ()
+  Tar.fold f ()
+
+let extract ?(filter = fun _ -> true) ~src dst =
+  with_in src (fun fd -> run (extract ~filter dst) fd)
+and extract_gz ?(filter = fun _ -> true) ~src dst =
+  with_in src (fun fd -> run (Tar_gz.in_gzipped (extract ~filter dst)) fd)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level file =
@@ -296,3 +302,7 @@ let create ?level ?global ?(filter = fun _ -> true) ~src dst =
        copy_files src >>= fun () ->
        write_end dst_fd)
     (fun () -> safe_close dst_fd)
+
+let create_gz ?level:_ ?global:_ ?filter:_ ~src:_ _dst =
+  (* TODO *)
+  assert false
