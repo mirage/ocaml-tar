@@ -27,6 +27,8 @@ val pp_decode_error : Format.formatter -> decode_error -> unit
 
 type t
 
+val run : ('a, [> decode_error ] as 'b, t) Tar.t -> Lwt_unix.file_descr ->
+  ('a, 'b) result Lwt.t
 val value : ('a, 'err) result Lwt.t -> ('a, 'err, t) Tar.t
 
 (** [fold f filename acc] folds over the tar archive. The function [f] is called
