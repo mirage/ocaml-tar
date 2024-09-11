@@ -46,7 +46,7 @@
  (tags ("org:xapi-project" "org:mirage"))
  (depends
   (ocaml (>= 4.08.0))
-  lwt
+  (lwt (>= 5.7.0))
   (tar (= :version))
  )
 )
