@@ -1,3 +1,8 @@
+## V3.1.0 (2024-09-11)
+
+- Expose `Tar_lwt_unix.run` as we do with `Tar_unix.run` and `Tar_eio.run`.
+  This was an oversight in v3.0.0. (Reported by @jonahbeckford, @reynir, #150)
+
 ## v3.0.0 (2024-08-05)
 
 - Fix `Header.marshal` and the checksum and the length (@reynir, #145)
