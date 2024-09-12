@@ -70,15 +70,16 @@ val create : ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
-  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) ]) result Lwt.t
+  (unit, [> decode_error ]) result Lwt.t
 
-(** [create_gz ~level ~filter ~src dst] is like [create ~level ~filter ~src
-    dst] creating a gzip compressed archive. *)
+(** [create_gz ~level ~filter ?gz_level ~gz_mtime ~src dst] is like
+    [create ~level ~filter ~src dst] creating a gzip compressed archive. *)
 val create_gz : ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
+  ?gz_level:int -> gz_mtime:int32 ->
   src:string -> string ->
-  (unit, [ `Msg of string | `Unix of (Unix.error * string * string) | Tar_gz.error ]) result Lwt.t
+  (unit, [> decode_error ]) result Lwt.t
 
 (** [header_of_file ~level filename] returns the tar header of [filename]. *)
 val header_of_file : ?level:Tar.Header.compatibility -> string ->
