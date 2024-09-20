@@ -8,6 +8,7 @@ let test_filter : Tar.Header.t -> bool =
 module TestExtract = struct
   let do_test filename =
     let open Lwt.Infix in
+    Lwt_unix.mkdir "extracted" 0o750 >>= fun () ->
     Tar_lwt_unix.extract ~filter:test_filter ~src:filename "extracted/"
     >>= function
     | Ok v -> Lwt.return v
@@ -67,10 +68,18 @@ module TestUntar = struct
         Tar_lwt_unix.t )
       Tar.t =
    fun ?global:_ hdr acc ->
+   let ( let* ) = Tar.( let* ) in
+   let rec skip_until = function
+     | n when n <= max_int_64 -> Tar.seek (Int64.to_int n)
+     | n ->
+       let* () = Tar.seek Int.max_int in
+       skip_until (Int64.sub n max_int_64)
+   in
     match acc with
-    | Some found -> Tar.return (Ok (Some found))
+    | Some found ->
+      let* () = skip_until hdr.Tar.Header.file_size in
+      Tar.return (Ok (Some found))
     | None ->
-        let ( let* ) = Tar.( let* ) in
         if test_filter hdr then
           (* Found entry *)
           let* entry_len =
@@ -89,12 +98,6 @@ module TestUntar = struct
           Tar.return (Ok (Some entry_content))
         else
           (* Did not find entry *)
-          let rec skip_until = function
-            | n when n <= max_int_64 -> Tar.seek (Int64.to_int n)
-            | n ->
-                let* _ = Tar.seek Int.max_int in
-                skip_until (Int64.sub n max_int_64)
-          in
           let* _ = skip_until hdr.Tar.Header.file_size in
           Tar.return (Ok None)
 
