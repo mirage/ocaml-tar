@@ -1,3 +1,11 @@
+## v3.1.2 (2024-09-20)
+
+- Fix a wrong assumption in `Tar_lwt_unix.run` for `Tar.Really_read _` that one
+  tar block was always read. This meant that using `Tar.Really_read` with a
+  size different from 512 would fail. (Reported by @jonahbeckford, review by @hannesm, @reynir, #153)
+- Document better the actual behavior of `Tar_unix.extract` and
+  `Tar_lwt_unix.extract` (@reynir, #155)
+
 ## v3.1.1 (2024-09-13)
 
 - Expose `Tar_lwt_unix.run` as we do with `Tar_unix.run` and `Tar_eio.run`.
