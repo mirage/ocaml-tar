@@ -39,9 +39,10 @@ val fold :
   string -> 'a -> ('a, error) result
 
 (** [extract ~filter ~src dst] extracts the tar archive [src] into the
-    directory [dst]. If [dst] does not exist, it is created. If [filter] is
-    provided (defaults to [fun _ -> true]), any file where [filter hdr] returns
-    [false], is skipped. *)
+    directory [dst]. If [filter] is provided (defaults to [fun _ -> true]), any
+    file where [filter hdr] returns [false], is skipped. No directories are
+    created including [dst] and any (implicit or explicit) directories in the
+    archive. *)
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src:string -> string ->
