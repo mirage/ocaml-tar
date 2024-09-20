@@ -96,7 +96,7 @@ let run t fd =
         Lwt_result.return (Bytes.sub_string b 0 read)
     | Tar.Really_read len ->
       let buf = Bytes.make len '\000' in
-      read_complete fd buf Tar.Header.length >|= fun () ->
+      read_complete fd buf len >|= fun () ->
       Bytes.unsafe_to_string buf
     | Tar.Seek len -> seek fd len
     | Tar.Return value -> Lwt.return value
