@@ -890,7 +890,12 @@ let out ?level ?global_hdr entries =
     | None ->
       let* () = writev [ Header.zero_block; Header.zero_block ] in
       return (Ok ())
-    | Some (level, hdr, stream) ->
+    | Some (level', hdr, stream) ->
+      let level =
+        match level' with
+        | Some _ as level -> level
+        | None -> level
+      in
       match encode_header ?level hdr with
       | Ok sstr ->
         let* () = writev sstr in
