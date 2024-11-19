@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** {0 Eio Tar} 
+(** {1 Eio Tar} 
 
     This library provides low-level and high-level abstractions for reading
     and writing Tar files using Eio.
@@ -24,20 +24,17 @@ type t
 
 type src =
   | Flow : _ Eio.Flow.source -> src
-  | File : _ Eio.File.ro -> src
-(** Sources for tar files *)
+  | File : _ Eio.File.ro -> src  (** Sources for tar files *)
 
 type decode_error =
   [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
 (** Possible decoding errors *)
 
-(** {1 High-level Interface} *)
+(** {2 High-level Interface} *)
 
 val run :
-  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t ->
-  src ->
-  ('a, 'b) result
-  (** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
+  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> src -> ('a, 'b) result
+(** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
 
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
@@ -51,7 +48,9 @@ val extract :
       Tar_eio.extract src dst
     ]}
 
-    will extract the file at [src] into the directory at [dst].
+    will extract the file at [src] into the directory at [dst]. Note that this function
+    only creates {b files}, {b directories} and {b symlinks} with the correct mode (it does not, for
+    example, set the ownership of the files according to the tar file).
 
     @param filter Can be used to exclude certain entries based on their header. *)
 
@@ -78,7 +77,7 @@ val fold :
   ('acc, 'b) result
 (** [fold f src init] folds over the tarred [src]. *)
 
-(** {1 Low-level Interface} *)
+(** {2 Low-level Interface} *)
 
 val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 (** Converts a normal result into {! Tar}s IO type *)

@@ -133,11 +133,18 @@ let copy dst len =
 let extract ?(filter = fun _ -> true) src dst =
   let f ?global:_ hdr () =
     let ( let* ) = Tar.( let* ) in
+    let path = dst / hdr.Tar.Header.file_name in
     match (filter hdr, hdr.Tar.Header.link_indicator) with
     | true, Tar.Header.Link.Normal ->
         Eio.Path.with_open_out ~create:(`If_missing hdr.Tar.Header.file_mode)
-          (dst / hdr.file_name)
+          path
         @@ fun dst -> copy dst (Int64.to_int hdr.Tar.Header.file_size)
+    | true, Tar.Header.Link.Symbolic ->
+        Eio.Path.symlink ~link_to:hdr.link_name path;
+        Tar.return (Ok ())
+    | true, Tar.Header.Link.Directory ->
+        Eio.Path.mkdir ~perm:hdr.file_mode path;
+        Tar.return (Ok ())
     | _ ->
         let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Tar.return (Ok ())
