@@ -22,6 +22,11 @@
 
 type t
 
+type src =
+  | Flow : _ Eio.Flow.source -> src
+  | File : _ Eio.File.ro -> src
+(** Sources for tar files *)
+
 type decode_error =
   [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
 (** Possible decoding errors *)
@@ -30,13 +35,13 @@ type decode_error =
 
 val run :
   ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t ->
-  _ Eio.File.ro ->
+  src ->
   ('a, 'b) result
   (** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
 
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
-  _ Eio.File.ro ->
+  src ->
   Eio.Fs.dir_ty Eio.Path.t ->
   (unit, [> decode_error ]) result
 (** [extract src dst] extracts the tar file from [src] into [dst]. For example:
@@ -68,7 +73,7 @@ val fold :
   Tar.Header.t ->
   'acc ->
   ('acc, ([> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b), t) Tar.t) ->
-  _ Eio.File.ro ->
+  src ->
   'acc ->
   ('acc, 'b) result
 (** [fold f src init] folds over the tarred [src]. *)

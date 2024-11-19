@@ -41,10 +41,30 @@ type t = High.t
 
 let value v = Tar.High (High.inj v)
 
+type src = Flow : _ Eio.Flow.source -> src | File : _ Eio.File.ro -> src
+
+let src_to_flow = function
+  | Flow f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
+  | File f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
+
+let skip f n =
+  let buffer_size = 32768 in
+  let buffer = Cstruct.create buffer_size in
+  let rec loop (n : int) =
+    if n <= 0 then Ok ()
+    else
+      let amount = min n buffer_size in
+      let block = Cstruct.sub buffer 0 amount in
+      Eio.Flow.read_exact f block;
+      loop (n - amount)
+  in
+  loop n
+
 let run t f =
   let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
     | Tar.Write _ -> assert false
     | Tar.Read len -> (
+        let f = src_to_flow f in
         let b = Cstruct.create len in
         match Eio.Flow.single_read f b with
         | len -> Ok (Cstruct.to_string ~len b)
@@ -52,16 +72,21 @@ let run t f =
             (* XXX: should we catch other exceptions?! *)
             Error `Unexpected_end_of_file)
     | Tar.Really_read len -> (
+        let f = src_to_flow f in
         let b = Cstruct.create len in
         try
           Eio.Flow.read_exact f b;
           Ok (Cstruct.to_string b)
         with End_of_file -> Error `Unexpected_end_of_file)
-    | Tar.Seek n ->
-        let _set : Optint.Int63.t =
-          Eio.File.seek f (Optint.Int63.of_int n) `Set
-        in
-        Ok ()
+    | Tar.Seek n -> (
+        (* Seek is really just skip in ocaml-tar *)
+        match f with
+        | Flow f -> skip f n
+        | File f ->
+            let _set : Optint.Int63.t =
+              Eio.File.seek f (Optint.Int63.of_int n) `Cur
+            in
+            Ok ())
     | Tar.Return value -> value
     | Tar.High value -> High.prj value
     | Tar.Bind (x, f) -> (
