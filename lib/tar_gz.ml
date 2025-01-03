@@ -53,8 +53,8 @@ type decoder =
   ; tp_length : int
   ; mutable pos : int }
 
-let really_read_through_gz
-  : decoder -> bytes -> (unit, 'err, _) Tar.t
+let read_through_gz
+  : decoder -> bytes -> (int, 'err, _) Tar.t
   = fun ({ ic_buffer; oc_buffer; tp_length; _ } as state) res ->
     let open Tar in
     let rec until_full_or_end gz (res, res_off, res_len) =
@@ -66,17 +66,15 @@ let really_read_through_gz
         if len < max
         then ( state.pos <- len
              ; state.gz <- gz
-             ; return (Ok ()) )
+             ; return (Ok (res_off + len)) )
         else until_full_or_end (Gz.Inf.flush gz) (res, res_off + len, res_len - len)
       | `End gz ->
         let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
         let len = min res_len max in
         bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
-        if res_len > len
-        then return (Error `Eof)
-        else ( state.pos <- len
-             ; state.gz <- gz
-             ; return (Ok ()) )
+        state.pos <- len;
+        state.gz <- gz;
+        return (Ok (res_off + len))
       | `Await gz ->
         let* tp_buffer = Tar.read tp_length in
         let len = String.length tp_buffer in
@@ -89,14 +87,23 @@ let really_read_through_gz
     bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len;
     if len < max
     then ( state.pos <- state.pos + len
-         ; return (Ok ()) )
+         ; return (Ok len) )
     else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
 
 let really_read_through_gz decoder len =
   let open Tar in
   let res = Bytes.create len in
-  let* () = really_read_through_gz decoder res in
-  Tar.return (Ok (Bytes.unsafe_to_string res))
+  let* len = read_through_gz decoder res in
+  if Bytes.length res = len
+  then Tar.return (Ok (Bytes.unsafe_to_string res))
+  else Tar.return (Error `Eof)
+
+let read_through_gz decoder len =
+  let open Tar in
+  let res = Bytes.create len in
+  let* len = read_through_gz decoder res in
+  let str = Bytes.sub_string res 0 len in
+  Tar.return (Ok str)
 
 type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 
@@ -113,7 +120,8 @@ let in_gzipped t =
     = fun decoder -> function
     | Tar.Really_read len ->
       really_read_through_gz decoder len
-    | Tar.Read _len as v -> v
+    | Tar.Read len ->
+      read_through_gz decoder len
     | Tar.Seek len -> seek_through_gz decoder len
     | Tar.Return _ as ret -> ret
     | Tar.Bind (x, f) ->
