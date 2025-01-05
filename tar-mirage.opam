@@ -58,3 +58,4 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/mirage/ocaml-tar.git"
+x-maintenance-intent: [ "(latest)" ]
