@@ -1,7 +1,7 @@
 let test_filter : Tar.Header.t -> bool =
   let search_for = Str.regexp ".*/openapi/spec3.json$" in
   fun { file_name; _ } ->
-    match Str.search_forward search_for file_name with
+    match Str.search_forward search_for file_name 0 with
     | exception Not_found -> false
     | _ -> true
 
