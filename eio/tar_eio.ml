@@ -16,7 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Eio
+type decode_error =
+  [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
+
+let ( / ) = Eio.Path.( / )
+let ( let* ) = Result.bind
+let ( let+ ) v f = Result.map f v
 
 module High : sig
   type t
@@ -36,51 +41,61 @@ type t = High.t
 
 let value v = Tar.High (High.inj v)
 
-let run_read_only t f =
+type src = Flow : _ Eio.Flow.source -> src | File : _ Eio.File.ro -> src
+
+let src_to_flow = function
+  | Flow f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
+  | File f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
+
+let skip f n =
+  let buffer_size = 32768 in
+  let buffer = Cstruct.create buffer_size in
+  let rec loop (n : int) =
+    if n <= 0 then Ok ()
+    else
+      let amount = min n buffer_size in
+      let block = Cstruct.sub buffer 0 amount in
+      Eio.Flow.read_exact f block;
+      loop (n - amount)
+  in
+  loop n
+
+let run t f =
   let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
     | Tar.Write _ -> assert false
-    | Tar.Read len ->
-      let b = Cstruct.create len in
-      (match Flow.single_read f b with
-       | len ->
-         Ok (Cstruct.to_string ~len b)
-       | exception End_of_file ->
-         (* XXX: should we catch other exceptions?! *)
-         Error `Unexpected_end_of_file)
-    | Tar.Really_read len ->
-      let b = Cstruct.create len in
-      (try
-         Flow.read_exact f b;
-         Ok (Cstruct.to_string b)
-       with End_of_file -> Error `Unexpected_end_of_file)
-    | Tar.Seek n ->
-      let buffer_size = 32768 in
-      let buffer = Cstruct.create buffer_size in
-      let rec loop (n: int) =
-        if n <= 0 then Ok ()
-        else
-          let amount = min n buffer_size in
-          let block = Cstruct.sub buffer 0 amount in
-          Flow.read_exact f block;
-          loop (n - amount) in
-      loop n
+    | Tar.Read len -> (
+        let f = src_to_flow f in
+        let b = Cstruct.create len in
+        match Eio.Flow.single_read f b with
+        | len -> Ok (Cstruct.to_string ~len b)
+        | exception End_of_file ->
+            (* XXX: should we catch other exceptions?! *)
+            Error `Unexpected_end_of_file)
+    | Tar.Really_read len -> (
+        let f = src_to_flow f in
+        let b = Cstruct.create len in
+        try
+          Eio.Flow.read_exact f b;
+          Ok (Cstruct.to_string b)
+        with End_of_file -> Error `Unexpected_end_of_file)
+    | Tar.Seek n -> (
+        (* Seek is really just skip in ocaml-tar *)
+        match f with
+        | Flow f -> skip f n
+        | File f ->
+            let _set : Optint.Int63.t =
+              Eio.File.seek f (Optint.Int63.of_int n) `Cur
+            in
+            Ok ())
     | Tar.Return value -> value
     | Tar.High value -> High.prj value
-    | Tar.Bind (x, f) ->
-      match run x with
-      | Ok value -> run (f value)
-      | Error _ as err -> err in
+    | Tar.Bind (x, f) -> (
+        match run x with Ok value -> run (f value) | Error _ as err -> err)
+  in
   run t
 
-let fold f filename init =
-  (* XXX(reynir): ??? *)
-  Eio.Path.with_open_in filename
-    (run_read_only (Tar.fold f init))
-
-(* Eio needs a non-file-opening stat. *)
-let stat path =
-  Eio.Path.with_open_in path @@ fun f ->
-  Eio.File.stat f
+let fold f source init = run (Tar.fold f init) source
+let stat path = Eio.Path.stat ~follow:true path
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
@@ -88,41 +103,117 @@ let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
   let stat = stat filepath in
   let pwent = Option.map (fun f -> f stat.uid) getpwuid in
   let grent = Option.map (fun f -> f stat.gid) getgrgid in
-  let uname       = if level = V7 then Some "" else pwent in
-  let gname       = if level = V7 then Some "" else grent in
-  let file_mode   = stat.perm in
-  let user_id     = stat.uid |> Int64.to_int in
-  let group_id    = stat.gid |> Int64.to_int in
-  let file_size   = stat.size |> Optint.Int63.to_int64 in
-  let mod_time    = Int64.of_float stat.mtime in
+  let uname = if level = V7 then Some "" else pwent in
+  let gname = if level = V7 then Some "" else grent in
+  let file_mode = stat.perm in
+  let user_id = stat.uid |> Int64.to_int in
+  let group_id = stat.gid |> Int64.to_int in
+  let file_size = stat.size |> Optint.Int63.to_int64 in
+  let mod_time = Int64.of_float stat.mtime in
   let link_indicator = Tar.Header.Link.Normal in
-  let link_name   = "" in
-  let devmajor    = if level = Ustar then stat.dev |> Int64.to_int else 0 in
-  let devminor    = if level = Ustar then stat.rdev |> Int64.to_int else 0 in
-  Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
-                  ?uname ?gname ~devmajor ~devminor (snd filepath) file_size
-let extract ?filter:(_ = fun _ -> true) ~src:_ _dst =
-  (* TODO *)
-  failwith "TODO"
+  let link_name = "" in
+  let devmajor = if level = Ustar then stat.dev |> Int64.to_int else 0 in
+  let devminor = if level = Ustar then stat.rdev |> Int64.to_int else 0 in
+  Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator
+    ~link_name ?uname ?gname ~devmajor ~devminor (snd filepath) file_size
 
-let create ?level:_ ?global:_ ?filter:(_ = fun _ -> true) ~src:_ _dst =
-  (* TODO *)
-  failwith "TODO"
+let copy dst len =
+  let blen = 65536 in
+  let rec read_write dst len =
+    if len = 0 then value (Ok ())
+    else
+      let ( let* ) = Tar.( let* ) in
+      let slen = min blen len in
+      let* str = Tar.really_read slen in
+      let* _written = Result.ok (Eio.Flow.copy_string str dst) |> value in
+      read_write dst (len - slen)
+  in
+  read_write dst len
 
-let append_file ?level:_ ?header:_ _filename _dst =
-  (* TODO *)
-  failwith "TODO"
+let extract ?(filter = fun _ -> true) src dst =
+  let f ?global:_ hdr () =
+    let ( let* ) = Tar.( let* ) in
+    let path = dst / hdr.Tar.Header.file_name in
+    match (filter hdr, hdr.Tar.Header.link_indicator) with
+    | true, Tar.Header.Link.Normal ->
+        Eio.Path.with_open_out ~create:(`If_missing hdr.Tar.Header.file_mode)
+          path
+        @@ fun dst -> copy dst (Int64.to_int hdr.Tar.Header.file_size)
+    | true, Tar.Header.Link.Symbolic ->
+        Eio.Path.symlink ~link_to:hdr.link_name path;
+        Tar.return (Ok ())
+    | true, Tar.Header.Link.Directory ->
+        Eio.Path.mkdir ~perm:hdr.file_mode path;
+        Tar.return (Ok ())
+    | _ ->
+        let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+        Tar.return (Ok ())
+  in
+  fold f src ()
 
-let write_header ?level:_ _hdr _fl =
-  (* TODO *)
-  failwith "TODO"
+let write_strings fd datas =
+  List.iter (fun d -> Eio.Flow.copy_string d fd) datas
 
-let write_global_extended_header ?level:_ _global _fl =
-  (* TODO *)
-  failwith "TODO"
+let write_header ?level hdr fl =
+  let+ bytes = Tar.encode_header ?level hdr in
+  write_strings fl bytes
+
+let copy src sink len =
+  let blen = 65536 in
+  let buf = Cstruct.create blen in
+  let rec read_and_write len =
+    if len = 0 then Ok ()
+    else
+      match Eio.Flow.single_read src buf with
+      | n ->
+          Eio.Flow.write sink [ Cstruct.sub buf 0 n ];
+          read_and_write (len - n)
+      | exception End_of_file -> Error (`Msg "Unexpected end of file")
+  in
+  read_and_write len
+
+let append_file ?level ?header filename dst =
+  let header =
+    match header with None -> header_of_file ?level filename | Some x -> x
+  in
+  let* () = write_header ?level header dst in
+  Eio.Path.with_open_in filename @@ fun src ->
+  (* TOCTOU [also, header may not be valid for file] *)
+  copy src dst (Int64.to_int header.Tar.Header.file_size)
+
+let write_global_extended_header ?level header sink =
+  Result.map (write_strings sink)
+    (Tar.encode_global_extended_header ?level header)
 
 let write_end fl =
-  let zero_block = Cstruct.of_string Tar.Header.zero_block in
-  (* TODO: catch exceptions?! *)
-  Eio.Flow.write fl [ zero_block; zero_block ];
-  Ok ()
+  write_strings fl [ Tar.Header.zero_block; Tar.Header.zero_block ]
+
+let create ?level ?global ?(filter = fun _ -> true) ~src dst =
+  match global with
+  | None -> Ok ()
+  | Some hdr ->
+      let* () = write_global_extended_header ?level hdr dst in
+      let rec copy_files directory =
+        let rec next = function
+          | [] -> Ok ()
+          | name :: names -> (
+              try
+                let filename = directory / name in
+                let header = header_of_file ?level filename in
+                if filter header then
+                  match header.Tar.Header.link_indicator with
+                  | Normal ->
+                      let* () = append_file ?level ~header filename dst in
+                      next names
+                  | Directory ->
+                      (* TODO first finish curdir (and close the dir fd), then go deeper *)
+                      let* () = copy_files filename in
+                      next names
+                  | _ -> Ok () (* NYI *)
+                else Ok ()
+              with End_of_file -> Ok ())
+        in
+        next (Eio.Path.read_dir directory)
+      in
+      let+ () = copy_files src in
+      write_end dst

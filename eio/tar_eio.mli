@@ -14,57 +14,102 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** I/O for tar-formatted data *)
+(** {1 Eio Tar} 
+
+    This library provides low-level and high-level abstractions for reading
+    and writing Tar files using Eio.
+*)
 
 type t
 
-val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
+type src =
+  | Flow : _ Eio.Flow.source -> src
+  | File : _ Eio.File.ro -> src  (** Sources for tar files *)
 
-val run_read_only : ('a, [> `Unexpected_end_of_file] as 'b, t) Tar.t -> [> `R ] Eio.Flow.source -> ('a, 'b) result
+type decode_error =
+  [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
+(** Possible decoding errors *)
 
-val fold :
-  (?global:Tar.Header.Extended.t ->
-   Tar.Header.t ->
-   'a ->
-   ('a, [> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b, t) Tar.t) ->
+(** {2 High-level Interface} *)
+
+val run :
+  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> src -> ('a, 'b) result
+(** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
+
+val extract :
+  ?filter:(Tar.Header.t -> bool) ->
+  src ->
   Eio.Fs.dir_ty Eio.Path.t ->
-  'a ->
-  ('a, 'b) result
+  (unit, [> decode_error ]) result
+(** [extract src dst] extracts the tar file from [src] into [dst]. For example:
 
-(** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
-    functions that should take the uid and gid respectively and return the passwd and group entry
-    names for each. These will be added to the header. *)
-val header_of_file :
-    ?level:Tar.Header.compatibility ->
-    ?getpwuid:(int64 -> string) ->
-    ?getgrgid:(int64 -> string) ->
-    Eio.Fs.dir_ty Eio.Path.t ->
-    Tar.Header.t
+    {[
+      Eio.Path.with_open_in src @@ fun src ->
+      Tar_eio.extract src dst
+    ]}
 
-val extract : ?filter:(Tar.Header.t -> bool) ->
-  src:Eio.Fs.dir_ty Eio.Path.t ->
-  Eio.Fs.dir_ty Eio.Path.t ->
-  (unit, _) result
+    will extract the file at [src] into the directory at [dst]. Note that this function
+    only creates {b files}, {b directories} and {b symlinks} with the correct mode (it does not, for
+    example, set the ownership of the files according to the tar file).
 
-val create : ?level:Tar.Header.compatibility ->
+    @param filter Can be used to exclude certain entries based on their header. *)
+
+val create :
+  ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
   src:Eio.Fs.dir_ty Eio.Path.t ->
-  Eio.Fs.dir_ty Eio.Path.t ->
-  (unit, _) result
+  _ Eio.Flow.sink ->
+  (unit, [> decode_error ]) result
+(** [create ~src dst] is the opposite of {! extract}. The path [src] is tarred
+    into [dst].
 
-val append_file : ?level:Tar.Header.compatibility ->
+    @param filter Can be used to exclude certain entries based on their header.
+*)
+
+val fold :
+  (?global:Tar.Header.Extended.t ->
+  Tar.Header.t ->
+  'acc ->
+  ('acc, ([> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b), t) Tar.t) ->
+  src ->
+  'acc ->
+  ('acc, 'b) result
+(** [fold f src init] folds over the tarred [src]. *)
+
+(** {2 Low-level Interface} *)
+
+val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
+(** Converts a normal result into {! Tar}s IO type *)
+
+val append_file :
+  ?level:Tar.Header.compatibility ->
   ?header:Tar.Header.t ->
   Eio.Fs.dir_ty Eio.Path.t ->
-  [> `W ] Eio.Flow.sink ->
-  (unit, _) result
+  _ Eio.Flow.sink ->
+  (unit, [> decode_error ]) result
+(** [append_file dst sink] *)
 
-val write_header : ?level:Tar.Header.compatibility ->
-  Tar.Header.t -> [> `W ] Eio.Flow.sink ->
-  (unit, _) result
+val header_of_file :
+  ?level:Tar.Header.compatibility ->
+  ?getpwuid:(int64 -> string) ->
+  ?getgrgid:(int64 -> string) ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  Tar.Header.t
+(** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
+    functions that should take the uid and gid respectively and return the passwd and group entry
+    names for each. These will be added to the header. *)
 
-val write_global_extended_header : ?level:Tar.Header.compatibility ->
-  Tar.Header.Extended.t -> [> `W ] Eio.Flow.sink ->
-  (unit, _) result
+val write_header :
+  ?level:Tar.Header.compatibility ->
+  Tar.Header.t ->
+  _ Eio.Flow.sink ->
+  (unit, [> decode_error ]) result
 
-val write_end : [> `W ] Eio.Flow.sink -> (unit, _) result
+val write_global_extended_header :
+  ?level:Tar.Header.compatibility ->
+  Tar.Header.Extended.t ->
+  _ Eio.Flow.sink ->
+  (unit, [> decode_error ]) result
+
+val write_end : _ Eio.Flow.sink -> unit

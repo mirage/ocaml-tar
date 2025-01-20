@@ -89,7 +89,7 @@
  (tags ("org:xapi-project" "org:mirage"))
  (depends
   (ocaml (>= 5.00.0))
-  (eio (and (>= 1.1) (< 1.2)))
+  (eio (and (>= 1.1)))
   (tar (= :version))
  )
 )
