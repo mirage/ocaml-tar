@@ -1,3 +1,10 @@
+## v3.2.0 (2025-01-20)
+
+- Fix the Tar monad with Tar_gz and allow the `read` operation (@dinosaure, @BChabanne, @reynir, #161)
+- Add `x-maintenance-intent` field into opam files (@hannesm, #162)
+- Defaults level per entries to the global level (@reynir, #157)
+- Update `Tar_eio` with the last version of `tar` (@patricoferris, #159)
+
 ## v3.1.2 (2024-09-20)
 
 - Fix a wrong assumption in `Tar_lwt_unix.run` for `Tar.Really_read _` that one
