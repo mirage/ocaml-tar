@@ -127,7 +127,7 @@ let unix_err_to_msg = function
 let copy ~dst_fd len =
   let blen = 65536 in
   let rec read_write ~dst_fd len =
-    let ( let* ) = Tar.( let* ) in
+    let open Tar.Syntax in
     if len = 0 then Tar.return (Ok ())
     else
       let slen = min blen len in
@@ -156,11 +156,11 @@ let extract ?(filter = fun _ -> true) ~src dst =
         (* TODO set owner / mode / mtime etc. *)
       | _ ->
         (* TODO handle directories, links, etc. *)
-        let ( let* ) = Tar.( let* ) in
+        let open Tar.Syntax in
         let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Tar.return (Ok ())
     else
-      let ( let* ) = Tar.( let* ) in
+      let open Tar.Syntax in
       let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in

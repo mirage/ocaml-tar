@@ -122,7 +122,7 @@ let copy dst len =
   let rec read_write dst len =
     if len = 0 then value (Ok ())
     else
-      let ( let* ) = Tar.( let* ) in
+      let open Tar.Syntax in
       let slen = min blen len in
       let* str = Tar.really_read slen in
       let* _written = Result.ok (Eio.Flow.copy_string str dst) |> value in
@@ -132,7 +132,7 @@ let copy dst len =
 
 let extract ?(filter = fun _ -> true) src dst =
   let f ?global:_ hdr () =
-    let ( let* ) = Tar.( let* ) in
+    let open Tar.Syntax in
     let path = dst / hdr.Tar.Header.file_name in
     match (filter hdr, hdr.Tar.Header.link_indicator) with
     | true, Tar.Header.Link.Normal ->
