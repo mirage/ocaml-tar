@@ -832,12 +832,18 @@ type ('a, 'err, 't) t =
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
   | Write : string -> (unit, 'err, 't) t
 
-let ( let* ) x f = Bind (x, f)
+let bind x f = Bind (x, f)
 let return x = Return x
 let really_read n = Really_read n
 let read n = Read n
 let seek n = Seek n
 let write str = Write str
+
+module Syntax = struct
+  let ( let* ) = bind
+end
+
+open Syntax
 
 type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
 

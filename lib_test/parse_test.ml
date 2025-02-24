@@ -13,6 +13,7 @@
  *)
 
 open Lwt.Infix
+open Tar.Syntax
 
 let convert_path os path =
   let ch = Unix.open_process_in (Printf.sprintf "cygpath -%c -- %s" (match os with `Mixed -> 'm' | `Unix -> 'u' | `Windows -> 'w') path) in
@@ -34,8 +35,7 @@ end
 let list filename =
   let f ?global:_ hdr acc =
     print_endline hdr.Tar.Header.file_name;
-    let ( let* ) = Tar.( let* ) in
-    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
     Tar.return (Ok (hdr :: acc))
   in
   match Tar_unix.fold f filename [] with
@@ -169,8 +169,7 @@ let can_list_pax_implicit_dir () =
   let f ?global:_ hdr () =
     Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
     Alcotest.(check string) "filename is patched" "clearly/a/directory/" hdr.file_name;
-    let ( let* ) = Tar.( let* ) in
-    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    let* () = Tar.seek (Int64.to_int hdr.file_size) in
     Tar.return (Ok ())
   in
   match Tar_unix.fold f "lib_test/pax-shenanigans.tar" () with
@@ -192,8 +191,7 @@ let can_list_longlink_implicit_dir () =
   let f ?global:_ hdr () =
     Alcotest.(check link) "is directory" Tar.Header.Link.Directory hdr.Tar.Header.link_indicator;
     Alcotest.(check string) "filename is patched" "some/long/name/for/a/directory/" hdr.file_name;
-    let ( let* ) = Tar.( let* ) in
-    let* _pos = Tar.seek (Int64.to_int hdr.file_size) in
+    let* () = Tar.seek (Int64.to_int hdr.file_size) in
     Tar.return (Ok ())
   in
   match Tar_unix.fold f "lib_test/long-implicit-dir.tar" () with
@@ -216,8 +214,7 @@ let can_transform_tar () =
   let fd_out = Unix.openfile tar_out [ O_WRONLY; O_CREAT; O_CLOEXEC ] 0o644 in
   with_tmpdir @@ fun temp_dir ->
   let f ?global:_ hdr _ =
-    let ( let* ) = Tar.( let* ) in
-    let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
     let hdr =
       { hdr with
         Tar.Header.file_name = Filename.concat temp_dir hdr.file_name;
@@ -236,8 +233,7 @@ let can_transform_tar () =
     | Ok () ->
       Unix.close fd_out;
       let f ?global:_ hdr _ =
-        let ( let* ) = Tar.( let* ) in
-        let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+        let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Alcotest.(check string) "Filename was transformed" temp_dir
           (String.sub hdr.file_name 0 (min (String.length hdr.file_name) (String.length temp_dir)));
         Tar.return (Ok ())

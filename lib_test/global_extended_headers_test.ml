@@ -47,7 +47,7 @@ let use_global_extended_headers _test_ctxt =
       Alcotest.testable (fun ppf hdr -> Fmt.pf ppf "%a" Fmt.(option pp) hdr) ( = )
     in
     let f ?global hdr idx =
-      let ( let* ) = Tar.( let* ) in
+      let open Tar.Syntax in
       let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       match idx with
       | 0 ->
