@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Tar.Syntax
+
 type decode_error = [
   | `Fatal of Tar.error
   | `Unix of Unix.error * string * string
@@ -122,7 +124,6 @@ let copy ~dst_fd len =
   let rec read_write ~dst_fd len =
     if len = 0 then value (Lwt.return (Ok ()))
     else
-      let ( let* ) = Tar.( let* ) in
       let slen = min blen len in
       let* str = Tar.really_read slen in
       let* _written = Lwt_result.map_error unix_err_to_msg
@@ -139,7 +140,6 @@ let extract ?(filter = fun _ -> true) ~src dst =
       (fun _ -> Lwt.return_unit)
     >|= Result.ok in
   let f ?global:_ hdr () =
-    let ( let* ) = Tar.( let* ) in
     match filter hdr, hdr.Tar.Header.link_indicator with
     | true, Tar.Header.Link.Normal ->
       let* dst = Lwt_result.map_error
