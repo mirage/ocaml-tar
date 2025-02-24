@@ -19,7 +19,12 @@
     {e %%VERSION%% - {{:%%PKG_HOMEPAGE%% }homepage}} *)
 
 (** The type of errors that may occur. *)
-type error = [ `Checksum_mismatch | `Corrupt_pax_header | `Zero_block | `Unmarshal of string ]
+type error = [
+  | `Checksum_mismatch
+  | `Corrupt_pax_header
+  | `Zero_block
+  | `Unmarshal of string
+]
 
 (** [pp_error ppf e] pretty prints the error [e] on the formatter [ppf]. *)
 val pp_error : Format.formatter -> [< error] -> unit
@@ -27,7 +32,8 @@ val pp_error : Format.formatter -> [< error] -> unit
 module Header : sig
   (** Process and create tar file headers. *)
 
-  (** tar format assumptions. Default is {!V7} (for compatibility with versions of ocaml-tar before this type was introduced).
+  (** tar format assumptions. Default is {!V7} (for compatibility with versions
+      of ocaml-tar before this type was introduced).
       @see <https://www.gnu.org/software/tar/manual/html_section/Formats.html> *)
   type compatibility =
     | OldGNU (** GNU tar < 1.12 *)
@@ -74,7 +80,21 @@ module Header : sig
     (** Represents a "Pax" extended header. *)
 
     (** [make ()] creates an extended header. *)
-    val make : ?access_time:int64 -> ?charset:string -> ?comment:string -> ?group_id:int -> ?gname:string -> ?header_charset:string -> ?link_path:string -> ?mod_time:int64 -> ?path:string -> ?file_size:int64 -> ?user_id:int -> ?uname:string -> unit -> t
+    val make :
+      ?access_time:int64 ->
+      ?charset:string ->
+      ?comment:string ->
+      ?group_id:int ->
+      ?gname:string ->
+      ?header_charset:string ->
+      ?link_path:string ->
+      ?mod_time:int64 ->
+      ?path:string ->
+      ?file_size:int64 ->
+      ?user_id:int ->
+      ?uname:string ->
+      unit ->
+      t
 
     (** Pretty-print the extended header record. *)
     val to_detailed_string : t -> string
@@ -109,7 +129,20 @@ module Header : sig
       [mod_time] defaults to [0L] (epoch), [link_indicator] defaults to [Normal],
       [link_name], [uname] and [gname] default to [""], and [devmajor] and
       [devminor] default to [0]. *)
-  val make : ?file_mode:int -> ?user_id:int -> ?group_id:int -> ?mod_time:int64 -> ?link_indicator:Link.t -> ?link_name:string -> ?uname:string -> ?gname:string -> ?devmajor:int -> ?devminor:int -> string -> int64 -> t
+  val make :
+    ?file_mode:int ->
+    ?user_id:int ->
+    ?group_id:int ->
+    ?mod_time:int64 ->
+    ?link_indicator:Link.t ->
+    ?link_name:string ->
+    ?uname:string ->
+    ?gname:string ->
+    ?devmajor:int ->
+    ?devminor:int ->
+    string ->
+    int64 ->
+    t
 
   (** Length of a header block. *)
   val length : int
@@ -123,10 +156,17 @@ module Header : sig
   (** Unmarshal a header block, returning [None] if it's all zeroes.
       This header block may be preceded by an [?extended] block which
       will override some fields. *)
-  val unmarshal : ?extended:Extended.t -> string -> (t, [> `Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
+  val unmarshal :
+    ?extended:Extended.t ->
+    string ->
+    (t, [> `Zero_block | `Checksum_mismatch | `Unmarshal of string]) result
 
   (** Marshal a header block, computing and inserting the checksum. *)
-  val marshal : ?level:compatibility -> bytes -> t -> (unit, [> `Msg of string ]) result
+  val marshal :
+    ?level:compatibility ->
+    bytes ->
+    t ->
+    (unit, [> `Msg of string ]) result
 
   (** Compute the amount of zero-padding required to round up the file size
       to a whole number of blocks. *)
@@ -169,7 +209,10 @@ val encode_header : ?level:Header.compatibility ->
 
 (** [encode_global_extended_header hdr] encodes the global extended header as
     a list of strings. *)
-val encode_global_extended_header : ?level:Header.compatibility -> Header.Extended.t -> (string list, [> `Msg of string ]) result
+val encode_global_extended_header :
+  ?level:Header.compatibility ->
+  Header.Extended.t ->
+  (string list, [> `Msg of string ]) result
 
 (** {1 Pure implementation of [fold].}
 
@@ -205,7 +248,10 @@ val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
 val return : ('a, 'err) result -> ('a, 'err, _) t
 val write : string -> (unit, _, _) t
 
-type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
+type ('a, 'err, 't) fold =
+  (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) ->
+  'a ->
+  ('a, 'err, 't) t
 
 val fold : ('a, [> `Fatal of error ], 't) fold
 (** [fold f] is a [_ t] that reads an archive and executes [f] on each header.
