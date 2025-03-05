@@ -29,7 +29,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) : sig
                               positive multiple of 512. *)
 end
 
-module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) : sig
+module Make_KV_RW (BLOCK : Mirage_block.S) : sig
   (** Construct a read-write key-value store from an existing block device
       containing tar-format data. Note that it is append-only meaning removing
       or renaming files is currently unsupported and will return an error. *)

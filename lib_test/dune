@@ -4,7 +4,6 @@
  (libraries
   mirage-block-unix
   mirage-block
-  mirage-clock-unix
   alcotest
   alcotest-lwt
   lwt

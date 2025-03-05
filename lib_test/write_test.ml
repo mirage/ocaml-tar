@@ -26,7 +26,7 @@ module type BLOCK = sig
 end
 
 module Test(B : BLOCK) = struct
-  module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B)
+  module KV_RW = Tar_mirage.Make_KV_RW(B)
 
   let kv_rw_write_error =
     Lwt.wrap1
