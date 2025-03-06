@@ -1,3 +1,8 @@
+## v3.3.0 (2025-03-06)
+
+- Deprecate `Tar.( let* )` in favor of the new `Tar.Syntax` module (@kit-ty-kate, #167)
+- tar-mirage: remove mirage-clock dependency in favor of mirage-ptime (@hannesm, #168)
+
 ## v3.2.0 (2025-01-20)
 
 - Fix the Tar monad with Tar_gz and allow the `read` operation (@dinosaure, @BChabanne, @reynir, #161)
