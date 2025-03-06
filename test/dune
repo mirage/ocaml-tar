@@ -1,4 +1,8 @@
+(executable
+ (name regress_targz)
+ (libraries str tar.gz tar_unix))
+
 (cram
  (package tar-unix)
  (enabled_if (= %{os_type} "Unix"))
- (deps %{bin:otar}))
+ (deps %{bin:otar} regress_targz.exe))
