@@ -30,7 +30,7 @@ end
 let int63_hdr_len = Int63.of_int Tar.Header.length
 
 module Test(B : BLOCK) = struct
-  module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B)
+  module KV_RW = Tar_mirage.Make_KV_RW(B)
 
   let kv_rw_error =
     Lwt.wrap1 (Result.fold ~ok:Fun.id ~error:(Alcotest.failf "%a" KV_RW.pp_error))

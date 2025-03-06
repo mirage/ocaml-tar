@@ -316,7 +316,7 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
 end
 
 
-module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struct
+module Make_KV_RW (BLOCK : Mirage_block.S) = struct
 
   include Make_KV_RO(BLOCK)
 
@@ -365,7 +365,7 @@ module Make_KV_RW (CLOCK : Mirage_clock.PCLOCK) (BLOCK : Mirage_block.S) = struc
       match last_modified with
       | Some mod_time -> Int64.of_float (Ptime.to_float_s mod_time)
       | None ->
-        let ptime = Ptime.v (CLOCK.now_d_ps ()) in
+        let ptime = Mirage_ptime.now () in
         Int64.of_float (Ptime.to_float_s ptime)
     in
     Tar.Header.make ~mod_time (Mirage_kv.Key.to_string key) (Int64.of_int len)

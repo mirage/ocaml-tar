@@ -66,13 +66,12 @@
   (cstruct (>= 6.0.0))
   (lwt (>= 5.6.0))
   (mirage-block (>= 2.0.0))
-  (mirage-clock (>= 4.0.0))
+  (mirage-ptime (>= 5.0.0))
   (mirage-kv (>= 6.0.0))
   optint
   ptime
   (tar (= :version))
   (mirage-block-unix (and :with-test (>= 2.13.0)))
-  (mirage-clock-unix (and :with-test (>= 4.0.0)))
   (alcotest (and (>= 1.7.0) :with-test))
   (alcotest-lwt (and (>= 1.7.0) :with-test))
   (tar-unix (and :with-test (= :version)))

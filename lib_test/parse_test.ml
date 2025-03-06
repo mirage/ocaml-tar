@@ -283,7 +283,7 @@ module Test(B: BLOCK) = struct
     let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
     Unix.truncate tar_filename size;
     B.with_block tar_filename @@ fun b ->
-    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    let module KV_RW = Tar_mirage.Make_KV_RW(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
     Result.iter_error (fun e ->
@@ -299,7 +299,7 @@ module Test(B: BLOCK) = struct
     let size = B.sector_size * ((pred size + 4096 + B.sector_size) / B.sector_size) in
     Unix.truncate tar_filename size;
     B.with_block tar_filename @@ fun b ->
-    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    let module KV_RW = Tar_mirage.Make_KV_RW(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= fun x ->
     Result.iter_error (fun e ->
@@ -315,7 +315,7 @@ module Test(B: BLOCK) = struct
   let write_with_full_archive ?(level:Tar.Header.compatibility option) ?files _switch () =
     with_tar ?level ?files () @@ fun tar_filename _files ->
     B.with_block tar_filename @@ fun b ->
-    let module KV_RW = Tar_mirage.Make_KV_RW(Pclock)(B) in
+    let module KV_RW = Tar_mirage.Make_KV_RW(B) in
     KV_RW.connect b >>= fun t ->
     KV_RW.set t (Mirage_kv.Key.v "barf") "foobar" >>= function
     | Error `No_space -> Lwt.return ()
