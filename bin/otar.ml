@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Tar.Syntax
+
 let () = Printexc.record_backtrace true
 
 let ( / ) = Filename.concat
@@ -99,9 +101,8 @@ let list filename =
       hdr.Tar.Header.file_name
       (Tar.Header.Link.to_string hdr.link_indicator)
       (bytes_to_size ~decimals:2) hdr.Tar.Header.file_size ;
-    let open Tar in
-    let* _ = seek (Int64.to_int hdr.Tar.Header.file_size) in
-    return (Ok ())
+    let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+    Tar.return (Ok ())
   in
   let fd = Unix.openfile filename [ Unix.O_RDONLY ] 0 in
   match Tar_unix.run (Tar_gz.in_gzipped (Tar.fold go ())) fd with

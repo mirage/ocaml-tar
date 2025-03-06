@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Tar.Syntax
+
 external ba_get_int32_ne : De.bigstring -> int -> int32 = "%caml_bigstring_get32"
 external ba_set_int32_ne : De.bigstring -> int -> int32 -> unit = "%caml_bigstring_set32"
 
@@ -56,7 +58,6 @@ type decoder =
 let read_through_gz
   : decoder -> bytes -> (int, 'err, _) Tar.t
   = fun ({ ic_buffer; oc_buffer; tp_length; _ } as state) res ->
-    let open Tar in
     let rec until_full_or_end gz (res, res_off, res_len) =
       match Gz.Inf.decode gz with
       | `Flush gz ->
@@ -66,7 +67,7 @@ let read_through_gz
         if len < max
         then ( state.pos <- len
              ; state.gz <- gz
-             ; return (Ok (res_off + len)) )
+             ; Tar.return (Ok (res_off + len)) )
         else until_full_or_end (Gz.Inf.flush gz) (res, res_off + len, res_len - len)
       | `End gz ->
         let max = De.bigstring_length oc_buffer - Gz.Inf.dst_rem gz in
@@ -74,24 +75,23 @@ let read_through_gz
         bigstring_blit_bytes oc_buffer ~src_off:0 res ~dst_off:res_off ~len;
         state.pos <- len;
         state.gz <- gz;
-        return (Ok (res_off + len))
+        Tar.return (Ok (res_off + len))
       | `Await gz ->
         let* tp_buffer = Tar.read tp_length in
         let len = String.length tp_buffer in
         bigstring_blit_string tp_buffer ~src_off:0 ic_buffer ~dst_off:0 ~len;
         let gz = Gz.Inf.src gz ic_buffer 0 len in
         until_full_or_end gz (res, res_off, res_len)
-      | `Malformed err -> return (Error (`Gz err)) in
+      | `Malformed err -> Tar.return (Error (`Gz err)) in
     let max = (De.bigstring_length oc_buffer - Gz.Inf.dst_rem state.gz) - state.pos in
     let len = min (Bytes.length res) max in
     bigstring_blit_bytes oc_buffer ~src_off:state.pos res ~dst_off:0 ~len;
     if len < max
     then ( state.pos <- state.pos + len
-         ; return (Ok len) )
+         ; Tar.return (Ok len) )
     else until_full_or_end (Gz.Inf.flush state.gz) (res, len, Bytes.length res - len)
 
 let really_read_through_gz decoder len =
-  let open Tar in
   let res = Bytes.create len in
   let* len = read_through_gz decoder res in
   if Bytes.length res = len
@@ -99,7 +99,6 @@ let really_read_through_gz decoder len =
   else Tar.return (Error `Eof)
 
 let read_through_gz decoder len =
-  let open Tar in
   let res = Bytes.create len in
   let* len = read_through_gz decoder res in
   let str = Bytes.sub_string res 0 len in
@@ -110,7 +109,6 @@ type error = [ `Fatal of Tar.error | `Eof | `Gz of string ]
 let seek_through_gz
   : decoder -> int -> (unit, [> error ], _) Tar.t
   = fun state len ->
-  let open Tar in
   let* _buf = really_read_through_gz state len in
   Tar.return (Ok ())
 
@@ -211,13 +209,13 @@ let out_gzipped ~level ~mtime os t =
   let gz = Gz.Def.dst gz oc_buffer 0 (De.bigstring_length oc_buffer) in
   let* state = until_await 0 oc_buffer (Gz.Def.encode gz) in
   let encoder =
-    { state 
+    { state
     ; ic_buffer
     ; oc_buffer } in
   let* result = go encoder t in
   let `Await gz = encoder.state in
   let* () =
     Gz.Def.src gz ic_buffer 0 0
-    |> Gz.Def.encode 
+    |> Gz.Def.encode
     |> until_end 0 oc_buffer  in
   Tar.return (Ok result)
