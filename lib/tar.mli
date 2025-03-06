@@ -252,6 +252,10 @@ module Syntax : sig
   val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
 end
 
+val ( let* ) : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
+[@@ocaml.deprecated "Use Tar.bind or Tar.Syntax.( let* )"]
+(** Deprecated. Use Tar.bind or Tar.Syntax.( let* ) *)
+
 type ('a, 'err, 't) fold =
   (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) ->
   'a ->

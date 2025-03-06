@@ -843,6 +843,9 @@ module Syntax = struct
   let ( let* ) = bind
 end
 
+(* Deprecated *)
+let ( let* ) = Syntax.( let* )
+
 open Syntax
 
 type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 'err, 't) t) -> 'a -> ('a, 'err, 't) t
