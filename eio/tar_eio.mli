@@ -39,7 +39,7 @@ val run :
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
   src ->
-  Eio.Fs.dir_ty Eio.Path.t ->
+  _ Eio.Path.t ->
   (unit, [> decode_error ]) result
 (** [extract src dst] extracts the tar file from [src] into [dst]. For example:
 
@@ -58,7 +58,7 @@ val create :
   ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
-  src:Eio.Fs.dir_ty Eio.Path.t ->
+  src:_ Eio.Path.t ->
   _ Eio.Flow.sink ->
   (unit, [> decode_error ]) result
 (** [create ~src dst] is the opposite of {! extract}. The path [src] is tarred
@@ -85,7 +85,7 @@ val value : ('a, 'err) result -> ('a, 'err, t) Tar.t
 val append_file :
   ?level:Tar.Header.compatibility ->
   ?header:Tar.Header.t ->
-  Eio.Fs.dir_ty Eio.Path.t ->
+  _ Eio.Path.t ->
   _ Eio.Flow.sink ->
   (unit, [> decode_error ]) result
 (** [append_file dst sink] *)
@@ -94,7 +94,7 @@ val header_of_file :
   ?level:Tar.Header.compatibility ->
   ?getpwuid:(int64 -> string) ->
   ?getgrgid:(int64 -> string) ->
-  Eio.Fs.dir_ty Eio.Path.t ->
+  _ Eio.Path.t ->
   Tar.Header.t
 (** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
     functions that should take the uid and gid respectively and return the passwd and group entry
