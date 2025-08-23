@@ -189,31 +189,32 @@ let write_end fl =
   write_strings fl [ Tar.Header.zero_block; Tar.Header.zero_block ]
 
 let create ?level ?global ?(filter = fun _ -> true) ~src dst =
-  match global with
-  | None -> Ok ()
-  | Some hdr ->
-      let* () = write_global_extended_header ?level hdr dst in
-      let rec copy_files directory =
-        let rec next = function
-          | [] -> Ok ()
-          | name :: names -> (
-              try
-                let filename = directory / name in
-                let header = header_of_file ?level filename in
-                if filter header then
-                  match header.Tar.Header.link_indicator with
-                  | Normal ->
-                      let* () = append_file ?level ~header filename dst in
-                      next names
-                  | Directory ->
-                      (* TODO first finish curdir (and close the dir fd), then go deeper *)
-                      let* () = copy_files filename in
-                      next names
-                  | _ -> Ok () (* NYI *)
-                else Ok ()
-              with End_of_file -> Ok ())
-        in
-        next (Eio.Path.read_dir directory)
-      in
-      let+ () = copy_files src in
-      write_end dst
+  let* () =
+    match global with
+    | None -> Ok ()
+    | Some hdr -> write_global_extended_header ?level hdr dst
+  in
+  let rec copy_files directory =
+    let rec next = function
+      | [] -> Ok ()
+      | name :: names -> (
+          try
+            let filename = directory / name in
+            let header = header_of_file ?level filename in
+            if filter header then
+              match header.Tar.Header.link_indicator with
+              | Normal ->
+                  let* () = append_file ?level ~header filename dst in
+                  next names
+              | Directory ->
+                  (* TODO first finish curdir (and close the dir fd), then go deeper *)
+                  let* () = copy_files filename in
+                  next names
+              | _ -> Ok () (* NYI *)
+            else Ok ()
+          with End_of_file -> Ok ())
+    in
+    next (Eio.Path.read_dir directory)
+  in
+  let+ () = copy_files src in
+  write_end dst
