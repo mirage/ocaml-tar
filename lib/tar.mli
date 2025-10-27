@@ -197,7 +197,7 @@ val decode_state : ?global:Header.Extended.t -> unit -> decode_state
     further decoding until [`Eof] (or an error) occurs. *)
 val decode : decode_state -> string ->
   (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
-   [ `Eof | `Fatal of error ])
+   [> `Eof | `Fatal of error ])
     result
 
 (** [encode_header ~level hdr] encodes the header with the provided [level]
