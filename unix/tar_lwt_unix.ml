@@ -107,12 +107,16 @@ let run t fd =
       run x >>= fun value -> run (f value) in
   run t
 
-let fold f filename init =
+let with_in filename f =
   let open Lwt_result.Infix in
   safe Lwt_unix.(openfile filename [ O_RDONLY ]) 0 >>= fun fd ->
-  Lwt.finalize
-    (fun () -> run (Tar.fold f init) fd)
-    (fun () -> safe_close fd)
+  Lwt.finalize (fun () -> f fd) (fun () -> safe_close fd)
+
+let fold f filename init =
+  with_in filename (fun fd -> run (Tar.fold f init) fd)
+
+let fold_gz f filename init =
+  with_in filename (fun fd -> run (Tar_gz.in_gzipped (Tar.fold f init)) fd)
 
 let unix_err_to_msg = function
   | `Unix (e, f, s) ->
@@ -132,13 +136,10 @@ let copy ~dst_fd len =
   in
   read_write ~dst_fd len
 
-let extract ?(filter = fun _ -> true) ~src dst =
+let extract ~filter dst =
   let safe_close fd =
     let open Lwt.Infix in
-    Lwt.catch
-      (fun () -> Lwt_unix.close fd)
-      (fun _ -> Lwt.return_unit)
-    >|= Result.ok in
+    safe_close fd >|= Result.ok in
   let f ?global:_ hdr () =
     match filter hdr, hdr.Tar.Header.link_indicator with
     | true, Tar.Header.Link.Normal ->
@@ -158,7 +159,12 @@ let extract ?(filter = fun _ -> true) ~src dst =
       let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
       Tar.return (Ok ())
   in
-  fold f src ()
+  Tar.fold f ()
+
+let extract ?(filter = fun _ -> true) ~src dst =
+  with_in src (fun fd -> run (extract ~filter dst) fd)
+and extract_gz ?(filter = fun _ -> true) ~src dst =
+  with_in src (fun fd -> run (Tar_gz.in_gzipped (extract ~filter dst)) fd)
 
 (** Return the header needed for a particular file on disk *)
 let header_of_file ?level file =
@@ -256,43 +262,125 @@ let write_global_extended_header ?level header fd =
 let write_end fd =
   write_strings fd [ Tar.Header.zero_block ; Tar.Header.zero_block ]
 
+let header_of_stat level stat link_indicator file =
+  let file_mode = stat.Lwt_unix.LargeFile.st_perm in
+  let user_id = stat.Lwt_unix.LargeFile.st_uid in
+  let group_id = stat.Lwt_unix.LargeFile.st_gid in
+  let file_size =
+    match link_indicator with
+    | Tar.Header.Link.Normal -> stat.Lwt_unix.LargeFile.st_size
+    | _ ->
+      (* XXX: assumes Tar.Header.Link.Directory *)
+      0L
+  in
+  let mod_time = Int64.of_float stat.Lwt_unix.LargeFile.st_mtime in
+  let link_name = "" in
+  (* TODO: the following uses potentially block getpwuid() and getgrid() *)
+  let uname =
+    if level = Tar.Header.V7 then
+      ""
+    else try
+        (Unix.getpwuid stat.Lwt_unix.LargeFile.st_uid).Unix.pw_name
+      with Not_found -> ""
+  in
+  let gname =
+    if level = Tar.Header.V7 then
+      ""
+    else try
+        (Unix.getgrgid stat.Lwt_unix.LargeFile.st_gid).Unix.gr_name
+      with Not_found -> ""
+  in
+  let devmajor = if level = Tar.Header.Ustar then stat.Lwt_unix.LargeFile.st_dev else 0 in
+  let devminor = if level = Tar.Header.Ustar then stat.Lwt_unix.LargeFile.st_rdev else 0 in
+  Tar.Header.make ~file_mode ~user_id ~group_id ~mod_time ~link_indicator ~link_name
+    ~uname ~gname ~devmajor ~devminor file file_size
+
+let create ~level ~global ~filter ~src =
+  let ( let* ) = Tar.( let* ) in
+  let entries =
+    let contents_of_path path =
+      let fd = ref `None in
+      let buf = Bytes.create 0x100 in
+      let rec dispenser () = match !fd with
+        | `Closed -> Tar.return (Ok None)
+        | `None ->
+          let fd' = Unix.openfile path Unix.[ O_RDONLY; O_CLOEXEC ] 0o644 in
+          fd := `Active fd';
+          dispenser ()
+        | `Active fd' ->
+          match Unix.read fd' buf 0 (Bytes.length buf) with
+          | 0 | exception End_of_file ->
+            Unix.close fd'; fd := `Closed; Tar.return (Ok None)
+          | len ->
+            let str = Bytes.sub_string buf 0 len in
+            Tar.return (Ok (Some str)) in
+      dispenser
+    in
+    let level = Tar.Header.compatibility level in
+    let pending = ref [`Filename src] in
+    let rec entries () =
+      match !pending with
+      | [] -> Tar.return (Ok None)
+      | `Filename hd :: remaining ->
+        pending := remaining;
+        entry hd
+      | `Dir_handle (parent, dir_handle) :: remaining ->
+        let* next =
+          value
+            (safe (fun () ->
+                 (Lwt.catch (fun () ->
+                      Lwt_unix.readdir dir_handle
+                      |> Lwt.map (fun child ->
+                        Some (Filename.concat parent child)))
+                   (function Not_found -> Lwt.return_none | e -> Lwt.reraise e)))
+                ())
+        in
+        match next with
+        | None ->
+          let* () = value (safe Lwt_unix.closedir dir_handle) in
+          pending := remaining;
+          entries ()
+        | Some f ->
+          entry f
+    and entry f =
+      let* stat = value (safe Lwt_unix.LargeFile.stat f) in
+      match stat.Lwt_unix.LargeFile.st_kind with
+      | Unix.S_REG ->
+        let hdr = header_of_stat level stat Tar.Header.Link.Normal f in
+        if filter hdr then
+          Tar.return (Ok (Some (Some level, hdr, contents_of_path f)))
+        else
+          entries ()
+      | Unix.S_DIR ->
+        let hdr = header_of_stat level stat Tar.Header.Link.Directory f in
+        if filter hdr then
+          let* dir_handle = value (safe Lwt_unix.opendir f) in
+          pending :=  `Dir_handle (f, dir_handle) :: !pending;
+          Tar.return (Ok (Some (Some level, hdr, (fun () -> Tar.return (Ok None)))))
+        else
+          entries ()
+      | Unix.S_CHR | Unix.S_BLK | Unix.S_LNK | Unix.S_FIFO
+      | Unix.S_SOCK ->
+        (* silently(?!) skip these special files *)
+        entries ()
+    in
+    entries
+  in
+  Tar.out ?level ?global_hdr:global entries
+
 let create ?level ?global ?(filter = fun _ -> true) ~src dst =
   let open Lwt_result.Infix in
-  Lwt_result.map_error unix_err_to_msg
-    (safe Lwt_unix.(openfile dst [ O_WRONLY ; O_CREAT ]) 0o644) >>= fun dst_fd ->
-  Lwt.finalize
-    (fun () ->
-       (match global with
-        | None -> Lwt.return (Ok ())
-        | Some hdr -> write_global_extended_header ?level hdr dst_fd) >>= fun () ->
-       let rec copy_files directory =
-         safe Lwt_unix.opendir directory >>= fun dir ->
-         Lwt.finalize
-           (fun () ->
-              let rec next () =
-                try
-                  safe Lwt_unix.readdir dir >>= fun name ->
-                  let filename = Filename.concat directory name in
-                  header_of_file ?level filename >>= fun header ->
-                  if filter header then
-                    match header.Tar.Header.link_indicator with
-                    | Normal ->
-                      append_file ?level ~header filename dst_fd >>= fun () ->
-                      next ()
-                    | Directory ->
-                      (* TODO first finish curdir (and close the dir fd), then go deeper *)
-                      copy_files filename >>= fun () ->
-                      next ()
-                    | _ -> Lwt.return (Ok ()) (* NYI *)
-                  else Lwt.return (Ok ())
-                with End_of_file -> Lwt.return (Ok ())
-              in
-              next ())
-           (fun () ->
-              Lwt.catch
-                (fun () -> Lwt_unix.closedir dir)
-                (fun _ -> Lwt.return_unit))
-       in
-       copy_files src >>= fun () ->
-       write_end dst_fd)
-    (fun () -> safe_close dst_fd)
+  safe Lwt_unix.(openfile dst [ O_CREAT ; O_WRONLY ; O_TRUNC ]) 0o644 >>= fun fd ->
+  Lwt.finalize (fun () -> run (create ~level ~global ~filter ~src) fd)
+    (fun () -> safe_close fd)
+and create_gz ?level ?global ?(filter = fun _ -> true) ?(gz_level = 9) ~gz_mtime:mtime ~src dst =
+  let open Lwt_result.Infix in
+  safe Lwt_unix.(openfile dst [ O_CREAT ; O_WRONLY ; O_TRUNC ]) 0o644 >>= fun fd ->
+  let os = match Sys.os_type with
+    | "Win32" -> Gz.NTFS (* XXX(dinosaure): true? *)
+    | "Unix" | "Cygwin" | _ -> Gz.Unix in
+  let tar_t =
+    Tar_gz.out_gzipped ~level:gz_level ~mtime os
+      (create ~level ~global ~filter ~src)
+  in
+  Lwt.finalize (fun () -> run tar_t fd) (fun () -> safe_close fd)
