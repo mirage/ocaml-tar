@@ -139,31 +139,46 @@ let copy dst len =
       let open Tar.Syntax in
       let slen = min blen len in
       let* str = Tar.really_read slen in
-      let* _written = Result.ok (Eio.Flow.copy_string str dst) |> value in
+      let* () = Result.ok (Eio.Flow.copy_string str dst) |> value in
       read_write dst (len - slen)
   in
   read_write dst len
 
-let extract ?(filter = fun _ -> true) src dst =
+let mkdir_p ~perm path =
+  try Eio.Path.mkdir ~perm path
+  with Eio.Io (Eio.Fs.E (Already_exists _), _) -> ()
+
+let rec symlink_p ~link_to path =
+  try Eio.Path.symlink ~link_to path
+  with Eio.Io (Eio.Fs.E (Already_exists _), _) ->
+    Eio.Path.unlink path;
+    symlink_p ~link_to path
+
+let extract ?(filter = fun _ -> true) dst fn =
+  Eio.Switch.run @@ fun sw ->
   let f ?global:_ hdr () =
     let open Tar.Syntax in
     let path = dst / hdr.Tar.Header.file_name in
     match (filter hdr, hdr.Tar.Header.link_indicator) with
     | true, Tar.Header.Link.Normal ->
-        Eio.Path.with_open_out ~create:(`If_missing hdr.Tar.Header.file_mode)
-          path
-        @@ fun dst -> copy dst (Int64.to_int hdr.Tar.Header.file_size)
+        let dst =
+          Eio.Path.open_out ~sw ~create:(`Or_truncate hdr.Tar.Header.file_mode)
+            path
+        in
+        let* () = copy dst (Int64.to_int hdr.Tar.Header.file_size) in
+        let* () = Tar.return (Ok (Eio.Flow.close dst)) in
+        Tar.return (Ok ())
     | true, Tar.Header.Link.Symbolic ->
-        Eio.Path.symlink ~link_to:hdr.link_name path;
+        symlink_p ~link_to:hdr.link_name path;
         Tar.return (Ok ())
     | true, Tar.Header.Link.Directory ->
-        Eio.Path.mkdir ~perm:hdr.file_mode path;
+        mkdir_p ~perm:hdr.file_mode path;
         Tar.return (Ok ())
     | _ ->
         let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Tar.return (Ok ())
   in
-  fold f src ()
+  fn @@ Tar.fold f ()
 
 let write_strings fd datas =
   List.iter (fun d -> Eio.Flow.copy_string d fd) datas
@@ -202,33 +217,105 @@ let write_global_extended_header ?level header sink =
 let write_end fl =
   write_strings fl [ Tar.Header.zero_block; Tar.Header.zero_block ]
 
-let create ?level ?global ?(filter = fun _ -> true) ~src dst =
-  let* () =
-    match global with
-    | None -> Ok ()
-    | Some hdr -> write_global_extended_header ?level hdr dst
+let tar_header_of_file (stat : Eio.File.Stat.t) path =
+  let file_mode = if stat.perm land 0o111 <> 0 then 0o755 else 0o644 in
+  let mod_time = Int64.of_float stat.mtime in
+  let user_id = Int64.to_int stat.uid in
+  let group_id = Int64.to_int stat.gid in
+  let link_indicator =
+    match stat.kind with
+    | `Regular_file -> Tar.Header.Link.Normal
+    | `Directory -> Directory
+    | `Block_device -> Block
+    | `Character_special -> Character
+    | `Fifo -> FIFO
+    | `Symbolic_link -> Symbolic
+    | `Socket | `Unknown ->
+        failwith "Cannot create a tar header for sockets or unknown file kinds"
   in
-  let rec copy_files directory =
-    let rec next = function
-      | [] -> Ok ()
-      | name :: names -> (
-          try
-            let filename = directory / name in
-            let header = header_of_file ?level filename in
-            if filter header then
-              match header.Tar.Header.link_indicator with
-              | Normal ->
-                  let* () = append_file ?level ~header filename dst in
-                  next names
-              | Directory ->
-                  (* TODO first finish curdir (and close the dir fd), then go deeper *)
-                  let* () = copy_files filename in
-                  next names
-              | _ -> Ok () (* NYI *)
-            else Ok ()
-          with End_of_file -> Ok ())
+  (* Only files have a size *)
+  let link_name, size =
+    match link_indicator with
+    | Symbolic -> (Some (Eio.Path.read_link path), 0L)
+    | Normal -> (None, Optint.Int63.to_int64 stat.size)
+    | _ -> (None, 0L)
+  in
+  (* Add a trailing slash *)
+  let path =
+    match link_indicator with
+    | Directory -> Eio.Path.(path / "") |> Eio.Path.native_exn
+    | _ -> Eio.Path.native_exn path
+  in
+  Tar.Header.make ~file_mode ?link_name ~mod_time ~user_id ~group_id
+    ~link_indicator path size
+
+let create ?level ?global ?(filter = fun _ -> true) src fn =
+  let contents_of_path ~sw path =
+    let fd = ref `None in
+    let buf = Cstruct.create 0x100 in
+    let rec dispenser () =
+      match !fd with
+      | `Closed -> Tar.return (Ok None)
+      | `None ->
+          let fd' = Eio.Path.open_in ~sw path in
+          fd := `Active fd';
+          dispenser ()
+      | `Active fd' -> (
+          match Eio.Flow.single_read fd' buf with
+          | 0 | (exception End_of_file) ->
+              Eio.Flow.close fd';
+              fd := `Closed;
+              Tar.return (Ok None)
+          | len ->
+              let str = Cstruct.to_string ~off:0 ~len buf in
+              Tar.return (Ok (Some str)))
     in
-    next (Eio.Path.read_dir directory)
+    dispenser
   in
-  let+ () = copy_files src in
-  write_end dst
+  let to_stream lst =
+    let lst = ref lst in
+    fun () ->
+      match !lst with
+      | [] -> None
+      | x :: r ->
+          lst := r;
+          Some x
+  in
+  let files = Eio.Path.read_dir src in
+  let dir_hdr = tar_header_of_file (Eio.Path.stat ~follow:false src) src in
+  let dir_entry = (None, dir_hdr, fun () -> Tar.return (Ok None)) in
+  let entries sw =
+    let rec loop acc = function
+      | [] -> List.rev acc
+      | file_path :: rest -> (
+          let stat = Eio.Path.stat ~follow:false file_path in
+          let hdr = tar_header_of_file stat file_path in
+          let skip v = if not (filter hdr) then loop acc rest else v in
+          match stat.kind with
+          | `Regular_file ->
+              skip
+              @@ loop ((level, hdr, contents_of_path ~sw file_path) :: acc) rest
+          | `Directory ->
+              skip
+              @@
+              let new_files =
+                Eio.Path.read_dir file_path
+                |> List.map Eio.Path.(( / ) file_path)
+              in
+              loop
+                ((level, hdr, fun () -> Tar.return (Ok None)) :: acc)
+                (new_files @ rest)
+          | `Unknown | `Socket ->
+              (* Skipping files without a Tar header format. *)
+              loop acc rest
+          | _ ->
+              skip
+              @@ loop ((level, hdr, fun () -> Tar.return (Ok None)) :: acc) rest
+          )
+    in
+    loop [] ((List.map Eio.Path.(( / ) src)) files)
+  in
+  Eio.Switch.run @@ fun sw ->
+  let entries = to_stream (dir_entry :: entries sw) in
+  let entries () = Tar.return (Ok (entries ())) in
+  fn @@ Tar.out ?level ?global_hdr:global entries

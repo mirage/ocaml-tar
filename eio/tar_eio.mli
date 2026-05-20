@@ -42,25 +42,29 @@ val pp_decode_error : decode_error Fmt.t
 
 (** {2 High-level Interface} *)
 
-val run :
-  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> flow -> ('a, 'b) result
-(** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
-
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
-  flow ->
   Eio.Fs.dir_ty Eio.Path.t ->
-  (unit, [> decode_error ]) result
-(** [extract src dst] extracts the tar file from [src] into [dst]. For example:
+  ((unit, [> `Fatal of Tar.error ], t) Tar.t -> 'a) ->
+  'a
+(** [extract dst fn] produces a {! Tar.t} that will extract to [dst]. For
+    example:
 
     {[
-    Eio.Path.with_open_in src @@ fun src -> Tar_eio.extract src dst
+    Eio.Path.with_open_out ~create:`Never foo_tar_gz @@ fun src ->
+    Tar_eio.extract (env#cwd / "foo.out") @@ fun t ->
+    (* optional gzip: let t = Tar_gz.in_gzipped t in *)
+    Tar_eio.run t (Tar_eio.flow_of_file src)
     ]}
 
-    will extract the file at [src] into the directory at [dst]. Note that this
-    function only creates {b files}, {b directories} and {b symlinks} with the
-    correct mode (it does not, for example, set the ownership of the files
-    according to the tar file).
+    will extract the file at [foo_tar_gz] into the directory at ["foo.out"].
+    Note that this function only creates {b files}, {b directories} and
+    {b symlinks} with the correct mode (it does not, yet, set the ownership of
+    the files according to the tar file).
+
+    All operations, in particular the {! Tar_eio.run} must be completed inside
+    the scope of [fn] which ensures all resources are properly handled before
+    returning.
 
     @param filter Can be used to exclude certain entries based on their header.
 *)
@@ -69,14 +73,30 @@ val create :
   ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
-  src:Eio.Fs.dir_ty Eio.Path.t ->
-  _ Eio.Flow.sink ->
-  (unit, [> decode_error ]) result
-(** [create ~src dst] is the opposite of {! extract}. The path [src] is tarred
-    into [dst].
+  _ Eio.Path.t ->
+  ((unit, [> `Msg of string ], 'b) Tar.t -> 'a) ->
+  'a
+(** [create dir @@ fun t -> ...] is the opposite of {! extract}. It returns a
+    {! Tar.t} of the supplied [dir] that is only valid for the scope of the
+    function.
+
+    Common usage might be tarring a directory to a new file.
+
+    {[
+    let foo = Eio.Path.(cwd / "foo") in
+    let foo_tar = Eio.Path.(cwd / "foo.tar") in
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o755) foo_tar
+    @@ fun foo_tar ->
+    Tar_eio.create foo @@ fun t ->
+    Tar_eio.run t (Tar_eio.flow_of_file tar)
+    ]}
 
     @param filter Can be used to exclude certain entries based on their header.
 *)
+
+val run :
+  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> flow -> ('a, 'b) result
+(** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
 
 val fold :
   (?global:Tar.Header.Extended.t ->
