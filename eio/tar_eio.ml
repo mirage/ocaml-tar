@@ -19,6 +19,11 @@
 type decode_error =
   [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
 
+let pp_decode_error ppf = function
+  | `Fatal err -> Tar.pp_error ppf err
+  | `Unexpected_end_of_file -> Fmt.string ppf "Unexpected end of file"
+  | `Msg s -> Fmt.pf ppf "Error %s" s
+
 let ( / ) = Eio.Path.( / )
 let ( let* ) = Result.bind
 let ( let+ ) v f = Result.map f v
@@ -41,11 +46,18 @@ type t = High.t
 
 let value v = Tar.High (High.inj v)
 
-type src = Flow : _ Eio.Flow.source -> src | File : _ Eio.File.ro -> src
+type flow = Flow : _ Eio.Flow.two_way -> flow | File : _ Eio.File.rw -> flow
 
-let src_to_flow = function
+let flow_of_two_way tw = Flow tw
+let flow_of_file f = File f
+
+let flow_to_source = function
   | Flow f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
   | File f -> (f :> Eio.Flow.source_ty Eio.Flow.source)
+
+let flow_to_sink = function
+  | Flow f -> (f :> Eio.Flow.sink_ty Eio.Flow.sink)
+  | File f -> (f :> Eio.Flow.sink_ty Eio.Flow.sink)
 
 let skip f n =
   let buffer_size = 32768 in
@@ -62,9 +74,11 @@ let skip f n =
 
 let run t f =
   let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
-    | Tar.Write _ -> assert false
+    | Tar.Write s ->
+       Eio.Flow.copy_string s (flow_to_sink f);
+       Ok ()
     | Tar.Read len -> (
-        let f = src_to_flow f in
+        let f = flow_to_source f in
         let b = Cstruct.create len in
         match Eio.Flow.single_read f b with
         | len -> Ok (Cstruct.to_string ~len b)
@@ -72,7 +86,7 @@ let run t f =
             (* XXX: should we catch other exceptions?! *)
             Error `Unexpected_end_of_file)
     | Tar.Really_read len -> (
-        let f = src_to_flow f in
+        let f = flow_to_source f in
         let b = Cstruct.create len in
         try
           Eio.Flow.read_exact f b;

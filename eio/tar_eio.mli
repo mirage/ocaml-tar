@@ -22,23 +22,34 @@
 
 type t
 
-type src =
-  | Flow : _ Eio.Flow.source -> src
-  | File : _ Eio.File.ro -> src  (** Sources for tar files *)
+type flow
+(** A type for reading or writing tar files to. *)
+
+val flow_of_two_way : _ Eio.Flow.two_way -> flow
+(** Construct a {! flow} from an {! Eio.Flow.two_way}. Use {! flow_of_file} if your
+ flow is really a file. *)
+
+val flow_of_file : _ Eio.File.rw -> flow
+(** Construct a {! flow} from an {! Eio.File.rw}. If you are using a file
+    it is best to use this function as the [seek] operations will be more
+    efficient. *)
 
 type decode_error =
   [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
 (** Possible decoding errors *)
 
+val pp_decode_error : decode_error Fmt.t
+(** A pretty-printer for decoding errors. *)
+
 (** {2 High-level Interface} *)
 
 val run :
-  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> src -> ('a, 'b) result
+  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> flow -> ('a, 'b) result
 (** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
 
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
-  src ->
+  flow ->
   Eio.Fs.dir_ty Eio.Path.t ->
   (unit, [> decode_error ]) result
 (** [extract src dst] extracts the tar file from [src] into [dst]. For example:
@@ -72,7 +83,7 @@ val fold :
   Tar.Header.t ->
   'acc ->
   ('acc, ([> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b), t) Tar.t) ->
-  src ->
+  flow ->
   'acc ->
   ('acc, 'b) result
 (** [fold f src init] folds over the tarred [src]. *)
