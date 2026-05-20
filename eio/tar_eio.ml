@@ -75,8 +75,8 @@ let skip f n =
 let run t f =
   let rec run : type a. (a, 'err, t) Tar.t -> (a, 'err) result = function
     | Tar.Write s ->
-       Eio.Flow.copy_string s (flow_to_sink f);
-       Ok ()
+        Eio.Flow.copy_string s (flow_to_sink f);
+        Ok ()
     | Tar.Read len -> (
         let f = flow_to_source f in
         let b = Cstruct.create len in

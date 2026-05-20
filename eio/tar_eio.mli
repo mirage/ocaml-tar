@@ -14,11 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** {1 Eio Tar} 
+(** {1 Eio Tar}
 
-    This library provides low-level and high-level abstractions for reading
-    and writing Tar files using Eio.
-*)
+    This library provides low-level and high-level abstractions for reading and
+    writing Tar files using Eio. *)
 
 type t
 
@@ -26,13 +25,13 @@ type flow
 (** A type for reading or writing tar files to. *)
 
 val flow_of_two_way : _ Eio.Flow.two_way -> flow
-(** Construct a {! flow} from an {! Eio.Flow.two_way}. Use {! flow_of_file} if your
- flow is really a file. *)
+(** Construct a {! flow} from an {! Eio.Flow.two_way}. Use {! flow_of_file} if
+    your flow is really a file. *)
 
 val flow_of_file : _ Eio.File.rw -> flow
-(** Construct a {! flow} from an {! Eio.File.rw}. If you are using a file
-    it is best to use this function as the [seek] operations will be more
-    efficient. *)
+(** Construct a {! flow} from an {! Eio.File.rw}. If you are using a file it is
+    best to use this function as the [seek] operations will be more efficient.
+*)
 
 type decode_error =
   [ `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ]
@@ -55,15 +54,16 @@ val extract :
 (** [extract src dst] extracts the tar file from [src] into [dst]. For example:
 
     {[
-      Eio.Path.with_open_in src @@ fun src ->
-      Tar_eio.extract src dst
+    Eio.Path.with_open_in src @@ fun src -> Tar_eio.extract src dst
     ]}
 
-    will extract the file at [src] into the directory at [dst]. Note that this function
-    only creates {b files}, {b directories} and {b symlinks} with the correct mode (it does not, for
-    example, set the ownership of the files according to the tar file).
+    will extract the file at [src] into the directory at [dst]. Note that this
+    function only creates {b files}, {b directories} and {b symlinks} with the
+    correct mode (it does not, for example, set the ownership of the files
+    according to the tar file).
 
-    @param filter Can be used to exclude certain entries based on their header. *)
+    @param filter Can be used to exclude certain entries based on their header.
+*)
 
 val create :
   ?level:Tar.Header.compatibility ->
@@ -107,9 +107,10 @@ val header_of_file :
   ?getgrgid:(int64 -> string) ->
   Eio.Fs.dir_ty Eio.Path.t ->
   Tar.Header.t
-(** Return the header needed for a particular file on disk. [getpwuid] and [getgrgid] are optional
-    functions that should take the uid and gid respectively and return the passwd and group entry
-    names for each. These will be added to the header. *)
+(** Return the header needed for a particular file on disk. [getpwuid] and
+    [getgrgid] are optional functions that should take the uid and gid
+    respectively and return the passwd and group entry names for each. These
+    will be added to the header. *)
 
 val write_header :
   ?level:Tar.Header.compatibility ->
