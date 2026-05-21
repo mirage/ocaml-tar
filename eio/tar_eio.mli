@@ -44,15 +44,16 @@ val pp_decode_error : decode_error Fmt.t
 
 val extract :
   ?filter:(Tar.Header.t -> bool) ->
+  sw:Eio.Switch.t ->
   Eio.Fs.dir_ty Eio.Path.t ->
-  ((unit, [> `Fatal of Tar.error ], t) Tar.t -> 'a) ->
-  'a
-(** [extract dst fn] produces a {! Tar.t} that will extract to [dst]. For
+  (unit, [> `Fatal of Tar.error ], t) Tar.t
+(** [extract ~sw dst] produces a {! Tar.t} that will extract to [dst]. For
     example:
 
     {[
     Eio.Path.with_open_out ~create:`Never foo_tar_gz @@ fun src ->
-    Tar_eio.extract (env#cwd / "foo.out") @@ fun t ->
+    Eio.Switch.run @@ fun sw ->
+    let t = Tar_eio.extract ~sw (env#cwd / "foo.out") in
     (* optional gzip: let t = Tar_gz.in_gzipped t in *)
     Tar_eio.run t (Tar_eio.flow_of_file src)
     ]}
@@ -63,8 +64,7 @@ val extract :
     the files according to the tar file).
 
     All operations, in particular the {! Tar_eio.run} must be completed inside
-    the scope of [fn] which ensures all resources are properly handled before
-    returning.
+    the scope of the {! Eio.Switch.t} [sw].
 
     @param filter Can be used to exclude certain entries based on their header.
 *)
@@ -73,10 +73,10 @@ val create :
   ?level:Tar.Header.compatibility ->
   ?global:Tar.Header.Extended.t ->
   ?filter:(Tar.Header.t -> bool) ->
+  sw:Eio.Switch.t ->
   _ Eio.Path.t ->
-  ((unit, [> `Msg of string ], 'b) Tar.t -> 'a) ->
-  'a
-(** [create dir @@ fun t -> ...] is the opposite of {! extract}. It returns a
+  (unit, [> `Msg of string ], 'b) Tar.t
+(** [create ~sw dir] is the opposite of {! extract}. It returns a
     {! Tar.t} of the supplied [dir] that is only valid for the scope of the
     function.
 
@@ -85,9 +85,9 @@ val create :
     {[
     let foo = Eio.Path.(cwd / "foo") in
     let foo_tar = Eio.Path.(cwd / "foo.tar") in
-    Eio.Path.with_open_out ~create:(`Or_truncate 0o755) foo_tar
-    @@ fun foo_tar ->
-    Tar_eio.create foo @@ fun t ->
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o755) foo_tar @@ fun foo_tar ->
+    Eio.Switch.run @@ fun sw ->
+    let t = Tar_eio.create ~sw foo in
     Tar_eio.run t (Tar_eio.flow_of_file tar)
     ]}
 

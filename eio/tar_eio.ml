@@ -154,8 +154,7 @@ let rec symlink_p ~link_to path =
     Eio.Path.unlink path;
     symlink_p ~link_to path
 
-let extract ?(filter = fun _ -> true) dst fn =
-  Eio.Switch.run @@ fun sw ->
+let extract ?(filter = fun _ -> true) ~sw dst =
   let f ?global:_ hdr () =
     let open Tar.Syntax in
     let path = dst / hdr.Tar.Header.file_name in
@@ -178,7 +177,7 @@ let extract ?(filter = fun _ -> true) dst fn =
         let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
         Tar.return (Ok ())
   in
-  fn @@ Tar.fold f ()
+  Tar.fold f ()
 
 let write_strings fd datas =
   List.iter (fun d -> Eio.Flow.copy_string d fd) datas
@@ -218,7 +217,7 @@ let write_end fl =
   write_strings fl [ Tar.Header.zero_block; Tar.Header.zero_block ]
 
 let tar_header_of_file (stat : Eio.File.Stat.t) path =
-  let file_mode = if stat.perm land 0o111 <> 0 then 0o755 else 0o644 in
+  let file_mode = stat.perm in
   let mod_time = Int64.of_float stat.mtime in
   let user_id = Int64.to_int stat.uid in
   let group_id = Int64.to_int stat.gid in
@@ -249,7 +248,7 @@ let tar_header_of_file (stat : Eio.File.Stat.t) path =
   Tar.Header.make ~file_mode ?link_name ~mod_time ~user_id ~group_id
     ~link_indicator path size
 
-let create ?level ?global ?(filter = fun _ -> true) src fn =
+let create ?level ?global ?(filter = fun _ -> true) ~sw src =
   let contents_of_path ~sw path =
     let fd = ref `None in
     let buf = Cstruct.create 0x100 in
@@ -315,7 +314,6 @@ let create ?level ?global ?(filter = fun _ -> true) src fn =
     in
     loop [] ((List.map Eio.Path.(( / ) src)) files)
   in
-  Eio.Switch.run @@ fun sw ->
   let entries = to_stream (dir_entry :: entries sw) in
   let entries () = Tar.return (Ok (entries ())) in
-  fn @@ Tar.out ?level ?global_hdr:global entries
+  Tar.out ?level ?global_hdr:global entries
