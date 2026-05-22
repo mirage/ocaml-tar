@@ -655,6 +655,7 @@ module Header = struct
       to a whole number of blocks *)
   let compute_zero_padding_length (x: t) : int =
     (* round up to next whole number of block lengths *)
+    (* safe since the rem <x> 512 is always < 512 *)
     let last_block_size = Int64.to_int (Int64.rem x.file_size (Int64.of_int length)) in
     if last_block_size = 0 then 0 else length - last_block_size
 
@@ -714,7 +715,7 @@ let decode t data =
         (Header.Extended.unmarshal ~global:t.global data)
     in
     Ok ({ t with global = Some global ; state = `Active false },
-        Some (`Skip (Header.compute_zero_padding_length x)),
+        Some (`Skip (Int64.of_int (Header.compute_zero_padding_length x))),
         Some global)
   | `Per_file_extended_header x ->
     let* extended =
@@ -723,7 +724,7 @@ let decode t data =
         (Header.Extended.unmarshal ~global:t.global data)
     in
     Ok ({ t with state = `Real_header extended },
-        Some (`Skip (Header.compute_zero_padding_length x)),
+        Some (`Skip (Int64.of_int (Header.compute_zero_padding_length x))),
         None)
   | `Real_header extended ->
     let* x =
@@ -738,21 +739,21 @@ let decode t data =
     let next_longlink = if x.Header.link_indicator = Header.Link.LongLink then Some name else t.next_longlink in
     let next_longname = if x.Header.link_indicator = Header.Link.LongName then Some name else t.next_longname in
     Ok ({ t with next_longlink ; next_longname ; state = `Active false },
-        Some (`Skip (Header.compute_zero_padding_length x)),
+        Some (`Skip (Int64.of_int (Header.compute_zero_padding_length x))),
         None)
   | `Active read_zero ->
     match Header.unmarshal ?extended:t.global data with
     | Ok x when x.Header.link_indicator = Header.Link.GlobalExtendedHeader ->
       Ok ({ t with state = `Global_extended_header x },
-          Some (`Read (Int64.to_int x.Header.file_size)),
+          Some (`Read x.Header.file_size),
           None)
     | Ok x when x.Header.link_indicator = Header.Link.PerFileExtendedHeader ->
       Ok ({ t with state = `Per_file_extended_header x },
-          Some (`Read (Int64.to_int x.Header.file_size)),
+          Some (`Read x.Header.file_size),
           None)
     | Ok ({ Header.link_indicator = Header.Link.LongLink | Header.Link.LongName; _ } as x) when x.Header.file_name = longlink ->
       Ok ({ t with state = `Next_longlink x },
-          Some (`Read (Int64.to_int x.Header.file_size)),
+          Some (`Read x.Header.file_size),
           None)
     | Ok x ->
       let t, hdr = construct_header t x in
@@ -824,9 +825,9 @@ let encode_global_extended_header ?level global =
 type ('a, 't) io
 
 type ('a, 'err, 't) t =
-  | Really_read : int -> (string, 'err, 't) t
-  | Read : int -> (string, 'err, 't) t
-  | Seek : int -> (unit, 'err, 't) t
+  | Really_read : int64 -> (string, 'err, 't) t
+  | Read : int64 -> (string, 'err, 't) t
+  | Seek : int64 -> (unit, 'err, 't) t
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
@@ -853,13 +854,13 @@ type ('a, 'err, 't) fold = (?global:Header.Extended.t -> Header.t -> 'a -> ('a, 
 let fold f init =
   let rec go t ?global ?data acc =
     let* data = match data with
-      | None -> really_read Header.length
+      | None -> really_read (Int64.of_int Header.length)
       | Some data -> return (Ok data) in
     match decode t data with
     | Ok (t, Some `Header hdr, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
       let* acc' = f ?global hdr acc in
-      let* () = seek (Header.compute_zero_padding_length hdr) in
+      let* () = seek (Int64.of_int (Header.compute_zero_padding_length hdr)) in
       go t ?global acc'
     | Ok (t, Some `Skip n, g) ->
       let global = Option.fold ~none:global ~some:(fun g -> Some g) g in

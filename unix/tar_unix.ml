@@ -42,7 +42,7 @@ let read_complete fd buf len =
   loop 0
 
 let seek fd n =
-  safe (Unix.lseek fd n) Unix.SEEK_CUR
+  safe (Unix.LargeFile.lseek fd n) Unix.SEEK_CUR
   |> Result.map ignore
 
 type error = [
@@ -94,19 +94,27 @@ let run t fd =
       let* _write = safe (Unix.write_substring fd str 0) (String.length str) in
       Ok ()
     | Tar.Read len ->
-      let b = Bytes.make len '\000' in
-      let* read = safe (Unix.read fd b 0) len in
-      if read = 0 then
-        Error `Unexpected_end_of_file
-      else if len = read then
-        Ok (Bytes.unsafe_to_string b)
+      if Int64.of_int Sys.max_string_length < len then
+        Error (`Msg "read with a too big parameter")
       else
-        Ok (Bytes.sub_string b 0 read)
+        let len = Int64.to_int len in
+        let b = Bytes.make len '\000' in
+        let* read = safe (Unix.read fd b 0) len in
+        if read = 0 then
+          Error `Unexpected_end_of_file
+        else if len = read then
+          Ok (Bytes.unsafe_to_string b)
+        else
+          Ok (Bytes.sub_string b 0 read)
     | Tar.Really_read len ->
-      let buf = Bytes.make len '\000' in
-      begin match read_complete fd buf len with
-      | Ok () -> Ok (Bytes.unsafe_to_string buf)
-      | Error _ as err -> err end
+      if Int64.of_int Sys.max_string_length < len then
+        Error (`Msg "read with a too big parameter")
+      else
+        let len = Int64.to_int len in
+        let buf = Bytes.make len '\000' in
+        begin match read_complete fd buf len with
+          | Ok () -> Ok (Bytes.unsafe_to_string buf)
+          | Error _ as err -> err end
     | Tar.Seek len -> seek fd len
     | Tar.Return value -> value
     | Tar.High value -> High.prj value
@@ -128,17 +136,18 @@ let unix_err_to_msg = function
             (Unix.error_message e) f s)
 
 let copy ~dst_fd len =
-  let blen = 65536 in
+  let blen = 65536L in
   let rec read_write ~dst_fd len =
     let open Tar.Syntax in
-    if len = 0 then Tar.return (Ok ())
+    if len = 0L then Tar.return (Ok ())
     else
-      let slen = min blen len in
-      let* str = Tar.really_read (min blen len) in
-      safe (Unix.write_substring dst_fd str 0) slen
+      let slen = Int64.min blen len in
+      let* str = Tar.really_read slen in
+      (* this is safe, since blen is 65536L and there's Int64.min above *)
+      safe (Unix.write_substring dst_fd str 0) (Int64.to_int slen)
       |> Result.map_error unix_err_to_msg
       |> function
-      | Ok _ -> read_write ~dst_fd (len - slen)
+      | Ok _ -> read_write ~dst_fd (Int64.sub len slen)
       | Error _ as err -> Tar.return err
   in
   read_write ~dst_fd len
@@ -150,7 +159,7 @@ let extract ?(filter = fun _ -> true) ~src dst =
     | Error `Msg msg ->
       Log.warn (fun m -> m "ignoring %S - couldn't convert to a fpath %s"
                    hdr.file_name msg);
-      Tar.seek (Int64.to_int hdr.file_size)
+      Tar.seek hdr.file_size
     | Ok file_name ->
       let file_name = Fpath.normalize file_name in
       let path = Fpath.append dst file_name in
@@ -163,7 +172,7 @@ let extract ?(filter = fun _ -> true) ~src dst =
                                         [ O_WRONLY ; O_CREAT ; O_EXCL]) hdr.Tar.Header.file_mode) with
             | Error _ as err -> Tar.return err
             | Ok dst ->
-              try copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size)
+              try copy ~dst_fd:dst hdr.Tar.Header.file_size
               with exn -> safe_close dst; Tar.return (Error (`Exn exn))
               (* TODO set owner / mode / mtime etc. *)
             end
@@ -171,14 +180,14 @@ let extract ?(filter = fun _ -> true) ~src dst =
             Log.warn (fun m -> m "ignoring %a due to unknown link indicator (not a normal file): %s"
                          Fpath.pp path (Tar.Header.Link.to_string l));
             (* TODO handle directories, links, etc. *)
-            Tar.seek (Int64.to_int hdr.file_size)
+            Tar.seek hdr.file_size
         else
-          Tar.seek (Int64.to_int hdr.file_size)
+          Tar.seek hdr.file_size
       else
         begin
           Log.warn (fun m -> m "ignoring %a due to escaping path %a"
                        Fpath.pp path Fpath.pp dst);
-          Tar.seek (Int64.to_int hdr.file_size)
+          Tar.seek hdr.file_size
         end
   in
   fold f src ()
@@ -235,22 +244,24 @@ let copy ~src_fd ~dst_fd len =
   let blen = 65536 in
   let buffer = Bytes.make blen '\000' in
   let rec read_write ~src_fd ~dst_fd len =
-    if len = 0 then Ok ()
+    if len = 0L then Ok ()
     else
-      let l = min blen len in
+      let l = Int64.min (Int64.of_int blen) len in
+      (* safe, since blen is 65536 *)
+      let l' = Int64.to_int l in
       let* () =
         Result.map_error
           (function
              | `Unix _ as e -> unix_err_to_msg e
              | `Unexpected_end_of_file ->
                `Msg "Unexpected end of file")
-          (read_complete src_fd buffer l)
+          (read_complete src_fd buffer l')
       in
       let* _written =
         Result.map_error unix_err_to_msg
-          (safe (Unix.write dst_fd buffer 0) l)
+          (safe (Unix.write dst_fd buffer 0) l')
       in
-      read_write ~src_fd ~dst_fd (len - l)
+      read_write ~src_fd ~dst_fd (Int64.sub len l)
   in
   read_write ~src_fd ~dst_fd len
 
@@ -266,8 +277,7 @@ let append_file ?level ?header filename fd =
   in
   (* TOCTOU [also, header may not be valid for file] *)
   Fun.protect ~finally:(fun () -> safe_close src)
-    (fun () -> copy ~src_fd:src ~dst_fd:fd
-        (Int64.to_int header.Tar.Header.file_size))
+    (fun () -> copy ~src_fd:src ~dst_fd:fd header.Tar.Header.file_size)
 
 let write_global_extended_header ?level header fd =
   let* header_strings = Tar.encode_global_extended_header ?level header in

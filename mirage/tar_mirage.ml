@@ -119,15 +119,19 @@ module Make_KV_RO (BLOCK : Mirage_block.S) = struct
         go t off' ?global acc'
       | Ok (t, Some `Skip n, g) ->
         let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-        let off' = Int64.(add offset (of_int n)) in
+        let off' = Int64.add offset n in
         go t off' ?global acc
       | Ok (t, Some `Read n, g) ->
         let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
-        let buf = Bytes.make n '\000' in
-        read_data info b offset buf n >>= fun () ->
-        let data = Bytes.unsafe_to_string buf in
-        let off' = Int64.(add offset (of_int n)) in
-        go t off' ?global ~data acc
+        if Int64.of_int Sys.max_string_length < n then
+          Lwt.return (Error (`Msg "read exceeds string size"))
+        else
+          let n' = Int64.to_int n in
+          let buf = Bytes.make n' '\000' in
+          read_data info b offset buf n' >>= fun () ->
+          let data = Bytes.unsafe_to_string buf in
+          let off' = Int64.add offset n in
+          go t off' ?global ~data acc
       | Ok (t, None, g) ->
         let global = Option.fold ~none:global ~some:(fun g -> Some g) g in
         go t offset ?global acc

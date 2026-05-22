@@ -78,25 +78,37 @@ let run t f =
         Eio.Flow.copy_string s (flow_to_sink f);
         Ok ()
     | Tar.Read len -> (
-        let f = flow_to_source f in
-        let b = Cstruct.create len in
-        match Eio.Flow.single_read f b with
-        | len -> Ok (Cstruct.to_string ~len b)
-        | exception End_of_file ->
+        if Int64.of_int max_int < len then
+          Error (`Msg "read exceeds maximum integer")
+        else
+          let len = Int64.to_int len in
+          let f = flow_to_source f in
+          let b = Cstruct.create len in
+          match Eio.Flow.single_read f b with
+          | len -> Ok (Cstruct.to_string ~len b)
+          | exception End_of_file ->
             (* XXX: should we catch other exceptions?! *)
             Error `Unexpected_end_of_file)
     | Tar.Really_read len -> (
-        let f = flow_to_source f in
-        let b = Cstruct.create len in
-        try
-          Eio.Flow.read_exact f b;
-          Ok (Cstruct.to_string b)
-        with End_of_file -> Error `Unexpected_end_of_file)
+        if Int64.of_int max_int < len then
+          Error (`Msg "really read exceeds maximum integer")
+        else
+          let len = Int64.to_int len in
+          let f = flow_to_source f in
+          let b = Cstruct.create len in
+          try
+            Eio.Flow.read_exact f b;
+            Ok (Cstruct.to_string b)
+          with End_of_file -> Error `Unexpected_end_of_file)
     | Tar.Seek n -> (
         (* Seek is really just skip in ocaml-tar *)
-        match f with
-        | Flow f -> skip f n
-        | File f ->
+        if Int64.of_int max_int < n then
+          Error (`Msg "seek exceeds maximum integer")
+        else
+          let n = Int64.to_int n in
+          match f with
+          | Flow f -> skip f n
+          | File f ->
             let _set : Optint.Int63.t =
               Eio.File.seek f (Optint.Int63.of_int n) `Cur
             in
@@ -134,13 +146,13 @@ let header_of_file ?level ?getpwuid ?getgrgid filepath : Tar.Header.t =
 let copy dst len =
   let blen = 65536 in
   let rec read_write dst len =
-    if len = 0 then value (Ok ())
+    if len = 0L then value (Ok ())
     else
       let open Tar.Syntax in
-      let slen = min blen len in
+      let slen = Int64.min (Int64.of_int blen) len in
       let* str = Tar.really_read slen in
       let* () = Result.ok (Eio.Flow.copy_string str dst) |> value in
-      read_write dst (len - slen)
+      read_write dst (Int64.sub len slen)
   in
   read_write dst len
 
@@ -155,7 +167,7 @@ let extract ?(filter = fun _ -> true) ~sw dst =
     let open Tar.Syntax in
     let path = dst_dir / hdr.Tar.Header.file_name in
     let skip_body () =
-      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      let* () = Tar.seek hdr.Tar.Header.file_size in
       Tar.return (Ok ())
     in
     if not (filter hdr) then skip_body ()
@@ -166,7 +178,7 @@ let extract ?(filter = fun _ -> true) ~sw dst =
             Eio.Path.open_out ~sw ~create:(`If_missing hdr.Tar.Header.file_mode)
               path
           in
-          let* () = copy dst (Int64.to_int hdr.Tar.Header.file_size) in
+          let* () = copy dst hdr.Tar.Header.file_size in
           let* () = Tar.return (Ok (Eio.Flow.close dst)) in
           Tar.return (Ok ())
       | Tar.Header.Link.Symbolic ->

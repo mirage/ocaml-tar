@@ -48,7 +48,7 @@ let use_global_extended_headers _test_ctxt =
     in
     let f ?global hdr idx =
       let open Tar.Syntax in
-      let* _pos = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      let* _pos = Tar.seek hdr.Tar.Header.file_size in
       match idx with
       | 0 ->
         Alcotest.check header "expected global header" (Some g0) global;

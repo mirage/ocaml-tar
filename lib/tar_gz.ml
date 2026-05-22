@@ -77,7 +77,7 @@ let read_through_gz
         state.gz <- gz;
         Tar.return (Ok (res_off + len))
       | `Await gz ->
-        let* tp_buffer = Tar.read tp_length in
+        let* tp_buffer = Tar.read (Int64.of_int tp_length) in
         let len = String.length tp_buffer in
         bigstring_blit_string tp_buffer ~src_off:0 ic_buffer ~dst_off:0 ~len;
         let gz = Gz.Inf.src gz ic_buffer 0 len in
@@ -117,10 +117,20 @@ let in_gzipped t =
     : type a. decoder -> (a, [> error ] as 'err, 't) Tar.t -> (a, 'err, 't) Tar.t
     = fun decoder -> function
     | Tar.Really_read len ->
-      really_read_through_gz decoder len
+      if Int64.of_int max_int < len then
+        Tar.return (Error (`Gz "really read gz exceeds integer representation"))
+      else
+        really_read_through_gz decoder (Int64.to_int len)
     | Tar.Read len ->
-      read_through_gz decoder len
-    | Tar.Seek len -> seek_through_gz decoder len
+      if Int64.of_int max_int < len then
+        Tar.return (Error (`Gz "read gz exceeds integer representation"))
+      else
+        read_through_gz decoder (Int64.to_int len)
+    | Tar.Seek len ->
+      if Int64.of_int max_int < len then
+        Tar.return (Error (`Gz "seek gz exceeds integer representation"))
+      else
+        seek_through_gz decoder (Int64.to_int len)
     | Tar.Return _ as ret -> ret
     | Tar.Bind (x, f) ->
       Tar.Bind (go decoder x, (fun x -> go decoder (f x)))
