@@ -15,6 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+let src = Logs.Src.create "tar.lwt" ~doc:"Tar lwt"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 open Tar.Syntax
 
 type decode_error = [
@@ -57,7 +60,7 @@ let read_complete fd buf len =
   loop 0
 
 let seek fd n =
-  safe (Lwt_unix.lseek fd n) Unix.SEEK_CUR
+  safe (Lwt_unix.LargeFile.lseek fd n) Unix.SEEK_CUR
   |> Lwt_result.map ignore
 
 let safe_close fd =
@@ -88,18 +91,26 @@ let run t fd =
       safe (Lwt_unix.write_string fd str 0) (String.length str) >>= fun _write ->
       Lwt_result.return ()
     | Tar.Read len ->
-      let b = Bytes.make len '\000' in
-      safe (Lwt_unix.read fd b 0) len >>= fun read ->
-      if read = 0 then
-        Lwt_result.fail `Unexpected_end_of_file
-      else if len = read then
-        Lwt_result.return (Bytes.unsafe_to_string b)
+      if Int64.of_int Sys.max_string_length < len then
+        Lwt_result.fail (`Msg "read with a too big parameter")
       else
-        Lwt_result.return (Bytes.sub_string b 0 read)
+        let len = Int64.to_int len in
+        let b = Bytes.make len '\000' in
+        safe (Lwt_unix.read fd b 0) len >>= fun read ->
+        if read = 0 then
+          Lwt_result.fail `Unexpected_end_of_file
+        else if len = read then
+          Lwt_result.return (Bytes.unsafe_to_string b)
+        else
+          Lwt_result.return (Bytes.sub_string b 0 read)
     | Tar.Really_read len ->
-      let buf = Bytes.make len '\000' in
-      read_complete fd buf len >|= fun () ->
-      Bytes.unsafe_to_string buf
+      if Int64.of_int Sys.max_string_length < len then
+        Lwt_result.fail (`Msg "really read with a too big parameter")
+      else
+        let len = Int64.to_int len in
+        let buf = Bytes.make len '\000' in
+        read_complete fd buf len >|= fun () ->
+        Bytes.unsafe_to_string buf
     | Tar.Seek len -> seek fd len
     | Tar.Return value -> Lwt.return value
     | Tar.High value -> High.prj value
@@ -122,17 +133,20 @@ let unix_err_to_msg = function
 let copy ~dst_fd len =
   let blen = 65536 in
   let rec read_write ~dst_fd len =
-    if len = 0 then value (Lwt.return (Ok ()))
+    if len = 0L then value (Lwt.return (Ok ()))
     else
-      let slen = min blen len in
+      let slen = Int64.min (Int64.of_int blen) len in
+      (* safe, since capped to 65536 *)
+      let slen' = Int64.to_int slen in
       let* str = Tar.really_read slen in
       let* _written = Lwt_result.map_error unix_err_to_msg
-        (safe (Lwt_unix.write_string dst_fd str 0) slen) |> value in
-      read_write ~dst_fd (len - slen)
+        (safe (Lwt_unix.write_string dst_fd str 0) slen') |> value in
+      read_write ~dst_fd (Int64.sub len slen)
   in
   read_write ~dst_fd len
 
 let extract ?(filter = fun _ -> true) ~src dst =
+  let dst = Fpath.v dst in
   let safe_close fd =
     let open Lwt.Infix in
     Lwt.catch
@@ -140,23 +154,40 @@ let extract ?(filter = fun _ -> true) ~src dst =
       (fun _ -> Lwt.return_unit)
     >|= Result.ok in
   let f ?global:_ hdr () =
-    match filter hdr, hdr.Tar.Header.link_indicator with
-    | true, Tar.Header.Link.Normal ->
-      let* dst = Lwt_result.map_error
-        unix_err_to_msg
-        (safe Lwt_unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name) [ O_WRONLY; O_CREAT ]) hdr.Tar.Header.file_mode)
-        |> value in
-      begin try
-        let* () = copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size) in
-        let* () = value (safe_close dst) in
-        Tar.return (Ok ())
-      with exn ->
-        let* () = value (safe_close dst) in
-        Tar.return (Error (`Exn exn))
-      end
-    | _ ->
-      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
-      Tar.return (Ok ())
+    match hdr.Tar.Header.link_indicator, Fpath.of_string hdr.file_name with
+    | Tar.Header.Link.Normal, Ok file_name ->
+      let file_name = Fpath.normalize file_name in
+      let path = Fpath.append dst file_name in
+      if Fpath.is_rooted ~root:dst path then
+        if filter { hdr with file_name = Fpath.to_string file_name } then
+          let* dst = Lwt_result.map_error
+              unix_err_to_msg
+              (safe Lwt_unix.(openfile (Fpath.to_string path) [ O_WRONLY; O_CREAT; O_EXCL ]) hdr.file_mode)
+            |> value in
+          begin try
+              let* () = copy ~dst_fd:dst hdr.Tar.Header.file_size in
+              let* () = value (safe_close dst) in
+              Tar.return (Ok ())
+            with exn ->
+              let* () = value (safe_close dst) in
+              Tar.return (Error (`Exn exn))
+          end
+        else
+          Tar.seek hdr.file_size
+      else
+        begin
+          Log.warn (fun m -> m "ignoring %a due to escaping path %a"
+                       Fpath.pp path Fpath.pp dst);
+          Tar.seek hdr.file_size
+        end
+    | _, Ok _ ->
+      Log.warn (fun m -> m "ignoring %S (unknown link indicator (%s))"
+                   hdr.file_name (Tar.Header.Link.to_string hdr.link_indicator));
+      Tar.seek hdr.file_size
+    | _, Error `Msg msg ->
+      Log.warn (fun m -> m "ignoring %S - couldn't convert to a fpath %s"
+                   hdr.file_name msg);
+      Tar.seek hdr.file_size
   in
   fold f src ()
 

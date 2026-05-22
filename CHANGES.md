@@ -1,3 +1,11 @@
+## v3.5.0 (2026-05-22)
+
+- Fix path traversal issue in unix, lwt-unix, eio
+  reported by Quentin Stiévenart, fixed by @reynir, eio by @avsm
+  51ceb0a15982993503c169b9d84456fd50eabe99 CVE-2026-45390 OSEC-2026-08
+- Fix integer overflows originating from Int64.to_int (on 32 bit platforms)
+  faf7bdf43356a81a0cf8f786e1c199c55512acf7
+
 ## v3.4.0 (2026-05-22)
 
 - Improvements to `tar-eio` with an writing support and a refreshed Eio

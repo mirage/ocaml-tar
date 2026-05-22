@@ -95,14 +95,14 @@ val create :
 *)
 
 val run :
-  ('a, ([> `Unexpected_end_of_file ] as 'b), t) Tar.t -> flow -> ('a, 'b) result
+  ('a, ([> `Unexpected_end_of_file | `Msg of string ] as 'b), t) Tar.t -> flow -> ('a, 'b) result
 (** [run tar src] will run the given [tar] using {! Eio} on [src]. *)
 
 val fold :
   (?global:Tar.Header.Extended.t ->
   Tar.Header.t ->
   'acc ->
-  ('acc, ([> `Fatal of Tar.error | `Unexpected_end_of_file ] as 'b), t) Tar.t) ->
+  ('acc, ([> `Fatal of Tar.error | `Unexpected_end_of_file | `Msg of string ] as 'b), t) Tar.t) ->
   flow ->
   'acc ->
   ('acc, 'b) result

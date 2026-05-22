@@ -196,7 +196,7 @@ val decode_state : ?global:Header.Extended.t -> unit -> decode_state
     [decode] with the next [Header.length] sized string, which will lead to
     further decoding until [`Eof] (or an error) occurs. *)
 val decode : decode_state -> string ->
-  (decode_state * [ `Read of int | `Skip of int | `Header of Header.t ] option * Header.Extended.t option,
+  (decode_state * [ `Read of int64 | `Skip of int64 | `Header of Header.t ] option * Header.Extended.t option,
    [> `Eof | `Fatal of error ])
     result
 
@@ -233,17 +233,17 @@ val encode_global_extended_header :
 type ('a, 't) io
 
 type ('a, 'err, 't) t =
-  | Really_read : int -> (string, 'err, 't) t
-  | Read : int -> (string, 'err, 't) t
-  | Seek : int -> (unit, 'err, 't) t
+  | Really_read : int64 -> (string, 'err, 't) t
+  | Read : int64 -> (string, 'err, 't) t
+  | Seek : int64 -> (unit, 'err, 't) t
   | Bind : ('a, 'err, 't) t * ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
   | Return : ('a, 'err) result -> ('a, 'err, 't) t
   | High : (('a, 'err) result, 't) io -> ('a, 'err, 't) t
   | Write : string -> (unit, 'err, 't) t
 
-val really_read : int -> (string, _, _) t
-val read : int -> (string, _, _) t
-val seek : int -> (unit, _, _) t
+val really_read : int64 -> (string, _, _) t
+val read : int64 -> (string, _, _) t
+val seek : int64 -> (unit, _, _) t
 val bind : ('a, 'err, 't) t -> ('a -> ('b, 'err, 't) t) -> ('b, 'err, 't) t
 val return : ('a, 'err) result -> ('a, 'err, _) t
 val write : string -> (unit, _, _) t
