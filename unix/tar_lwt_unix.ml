@@ -15,6 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+let src = Logs.Src.create "tar.lwt" ~doc:"Tar lwt"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 open Tar.Syntax
 
 type decode_error = [
@@ -133,6 +136,7 @@ let copy ~dst_fd len =
   read_write ~dst_fd len
 
 let extract ?(filter = fun _ -> true) ~src dst =
+  let dst = Fpath.v dst in
   let safe_close fd =
     let open Lwt.Infix in
     Lwt.catch
@@ -140,23 +144,40 @@ let extract ?(filter = fun _ -> true) ~src dst =
       (fun _ -> Lwt.return_unit)
     >|= Result.ok in
   let f ?global:_ hdr () =
-    match filter hdr, hdr.Tar.Header.link_indicator with
-    | true, Tar.Header.Link.Normal ->
-      let* dst = Lwt_result.map_error
-        unix_err_to_msg
-        (safe Lwt_unix.(openfile (Filename.concat dst hdr.Tar.Header.file_name) [ O_WRONLY; O_CREAT ]) hdr.Tar.Header.file_mode)
-        |> value in
-      begin try
-        let* () = copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size) in
-        let* () = value (safe_close dst) in
-        Tar.return (Ok ())
-      with exn ->
-        let* () = value (safe_close dst) in
-        Tar.return (Error (`Exn exn))
-      end
-    | _ ->
-      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
-      Tar.return (Ok ())
+    match hdr.Tar.Header.link_indicator, Fpath.of_string hdr.file_name with
+    | Tar.Header.Link.Normal, Ok file_name ->
+      let file_name = Fpath.normalize file_name in
+      let path = Fpath.append dst file_name in
+      if Fpath.is_rooted ~root:dst path then
+        if filter { hdr with file_name = Fpath.to_string file_name } then
+          let* dst = Lwt_result.map_error
+              unix_err_to_msg
+              (safe Lwt_unix.(openfile (Fpath.to_string path) [ O_WRONLY; O_CREAT; O_EXCL ]) hdr.file_mode)
+            |> value in
+          begin try
+              let* () = copy ~dst_fd:dst (Int64.to_int hdr.Tar.Header.file_size) in
+              let* () = value (safe_close dst) in
+              Tar.return (Ok ())
+            with exn ->
+              let* () = value (safe_close dst) in
+              Tar.return (Error (`Exn exn))
+          end
+        else
+          Tar.seek (Int64.to_int hdr.file_size)
+      else
+        begin
+          Log.warn (fun m -> m "ignoring %a due to escaping path %a"
+                       Fpath.pp path Fpath.pp dst);
+          Tar.seek (Int64.to_int hdr.file_size)
+        end
+    | _, Ok _ ->
+      Log.warn (fun m -> m "ignoring %S (unknown link indicator (%s))"
+                   hdr.file_name (Tar.Header.Link.to_string hdr.link_indicator));
+      Tar.seek (Int64.to_int hdr.file_size)
+    | _, Error `Msg msg ->
+      Log.warn (fun m -> m "ignoring %S - couldn't convert to a fpath %s"
+                   hdr.file_name msg);
+      Tar.seek (Int64.to_int hdr.file_size)
   in
   fold f src ()
 

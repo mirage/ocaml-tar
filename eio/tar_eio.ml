@@ -144,38 +144,39 @@ let copy dst len =
   in
   read_write dst len
 
-let mkdir_p ~perm path =
-  try Eio.Path.mkdir ~perm path
-  with Eio.Io (Eio.Fs.E (Already_exists _), _) -> ()
-
-let rec symlink_p ~link_to path =
-  try Eio.Path.symlink ~link_to path
-  with Eio.Io (Eio.Fs.E (Already_exists _), _) ->
-    Eio.Path.unlink path;
-    symlink_p ~link_to path
+let is_safe_link_target path =
+  path <> ""
+  && Filename.is_relative path
+  && List.for_all (fun s -> s <> "..") (String.split_on_char '/' path)
 
 let extract ?(filter = fun _ -> true) ~sw dst =
+  let dst_dir = Eio.Path.open_dir ~sw dst in
   let f ?global:_ hdr () =
     let open Tar.Syntax in
-    let path = dst / hdr.Tar.Header.file_name in
-    match (filter hdr, hdr.Tar.Header.link_indicator) with
-    | true, Tar.Header.Link.Normal ->
-        let dst =
-          Eio.Path.open_out ~sw ~create:(`Or_truncate hdr.Tar.Header.file_mode)
-            path
-        in
-        let* () = copy dst (Int64.to_int hdr.Tar.Header.file_size) in
-        let* () = Tar.return (Ok (Eio.Flow.close dst)) in
-        Tar.return (Ok ())
-    | true, Tar.Header.Link.Symbolic ->
-        symlink_p ~link_to:hdr.link_name path;
-        Tar.return (Ok ())
-    | true, Tar.Header.Link.Directory ->
-        mkdir_p ~perm:hdr.file_mode path;
-        Tar.return (Ok ())
-    | _ ->
-        let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
-        Tar.return (Ok ())
+    let path = dst_dir / hdr.Tar.Header.file_name in
+    let skip_body () =
+      let* () = Tar.seek (Int64.to_int hdr.Tar.Header.file_size) in
+      Tar.return (Ok ())
+    in
+    if not (filter hdr) then skip_body ()
+    else
+      match hdr.Tar.Header.link_indicator with
+      | Tar.Header.Link.Normal ->
+          let dst =
+            Eio.Path.open_out ~sw ~create:(`If_missing hdr.Tar.Header.file_mode)
+              path
+          in
+          let* () = copy dst (Int64.to_int hdr.Tar.Header.file_size) in
+          let* () = Tar.return (Ok (Eio.Flow.close dst)) in
+          Tar.return (Ok ())
+      | Tar.Header.Link.Symbolic ->
+          if is_safe_link_target hdr.link_name then
+            Eio.Path.symlink ~link_to:hdr.link_name path;
+          Tar.return (Ok ())
+      | Tar.Header.Link.Directory ->
+          Eio.Path.mkdirs ~exists_ok:true ~perm:hdr.file_mode path;
+          Tar.return (Ok ())
+      | _ -> skip_body ()
   in
   Tar.fold f ()
 
