@@ -2,3 +2,6 @@
  (package tar-unix)
  (enabled_if (= %{os_type} "Unix"))
  (deps %{bin:otar}))
+
+(env
+ (_ (env-vars (COPYFILE_DISABLE 1))))
