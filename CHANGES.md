@@ -1,3 +1,8 @@
+## v3.4.0 (2026-05-22)
+
+- Improvements to `tar-eio` with an writing support and a refreshed Eio
+  interface (@patricoferris @avsm, #176).
+
 ## v3.3.0 (2025-03-06)
 
 - Deprecate `Tar.( let* )` in favor of the new `Tar.Syntax` module (@kit-ty-kate, #167)
