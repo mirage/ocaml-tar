@@ -141,7 +141,7 @@ let copy ~dst_fd len =
     let open Tar.Syntax in
     if len = 0L then Tar.return (Ok ())
     else
-      let slen = Int64.min blen len in
+      let slen = min blen len in
       let* str = Tar.really_read slen in
       (* this is safe, since blen is 65536L and there's Int64.min above *)
       safe (Unix.write_substring dst_fd str 0) (Int64.to_int slen)
@@ -246,7 +246,7 @@ let copy ~src_fd ~dst_fd len =
   let rec read_write ~src_fd ~dst_fd len =
     if len = 0L then Ok ()
     else
-      let l = Int64.min (Int64.of_int blen) len in
+      let l = min (Int64.of_int blen) len in
       (* safe, since blen is 65536 *)
       let l' = Int64.to_int l in
       let* () =

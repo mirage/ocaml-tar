@@ -48,6 +48,7 @@
   (ocaml (>= 4.08.0))
   (lwt (>= 5.7.0))
   (tar (= :version))
+  fpath logs
  )
 )
 

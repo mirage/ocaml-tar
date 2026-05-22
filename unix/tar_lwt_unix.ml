@@ -135,7 +135,7 @@ let copy ~dst_fd len =
   let rec read_write ~dst_fd len =
     if len = 0L then value (Lwt.return (Ok ()))
     else
-      let slen = Int64.min (Int64.of_int blen) len in
+      let slen = min (Int64.of_int blen) len in
       (* safe, since capped to 65536 *)
       let slen' = Int64.to_int slen in
       let* str = Tar.really_read slen in
