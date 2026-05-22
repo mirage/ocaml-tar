@@ -24,6 +24,9 @@ depends: [
   "ocaml" {>= "5.00.0"}
   "eio" {>= "1.1"}
   "tar" {= version}
+  "eio_main" {with-test}
+  "alcotest" {with-test}
+  "decompress" {with-test}
   "odoc" {with-doc}
 ]
 build: [

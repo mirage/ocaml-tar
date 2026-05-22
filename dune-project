@@ -90,5 +90,8 @@
   (ocaml (>= 5.00.0))
   (eio (and (>= 1.1)))
   (tar (= :version))
+  (eio_main :with-test)
+  (alcotest :with-test)
+  (decompress :with-test)
  )
 )
