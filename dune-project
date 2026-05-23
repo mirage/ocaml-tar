@@ -87,6 +87,8 @@
 "\| tar is a library to read and write tar files with an emphasis on
 "\| streaming.  This library uses Eio to provide a portable tar library.
  )
+ (authors "Patrick Ferris")
+ (maintainers "Patrick Ferris <patrick@sirref.org>")
  (tags ("org:xapi-project" "org:mirage"))
  (depends
   (ocaml (>= 5.00.0))
